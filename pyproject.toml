@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "enfys-ob-egse"
+version = "0.1.0"
+description = "Python egse for the Enfys Optical Box"
+authors = ["Barry Whiteside <34492784+Chaldene@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+crc8 = "^0.2.1"
+pyserial = "^3.5"
+bitstruct = "^8.19.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
