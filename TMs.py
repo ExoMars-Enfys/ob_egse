@@ -28,7 +28,6 @@ class Raw:
             self.cmd_type = CMD_IDs.get(self.cmd_id)
         else:
             tm_log.error(f"CMD ID Not Found. Got:{self.cmd_id}")
-        
 
     def verify_model_id(self):
         if self.mod_id != EXP_MODEL_ID:
@@ -44,7 +43,7 @@ class Raw:
 class HK(Raw):
     def __init__(self, raw_bytes):
         self.raw_bytes = raw_bytes
-        print(bytes.hex(self.raw_bytes, ' ', 2))
+        #print(bytes.hex(self.raw_bytes, ' ', 2))
         self.get_cmd_mod_id(self.raw_bytes)
 
         self.param = bitstruct.unpack_dict(
@@ -56,7 +55,7 @@ class HK(Raw):
         for k, v in self.param.items():
             setattr(self, k, v)
 
-        tm_log.info(f"{self.CMD_CNT=}")
+        #tm_log.info(f"{self.CMD_CNT=}")
 
         # self.cmd_cnt = upf('u8', self.raw_bytes, offset=(0+1*8))[0]
 
@@ -85,5 +84,5 @@ class HK(Raw):
             #! TODO Decode bit struct here
     
     def check_unused(self):
-        if self.UNUSED1 > 0x00:
+        if self.UNUSED1 == 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")

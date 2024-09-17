@@ -1,5 +1,5 @@
 # Get packing formats print(''.join(i[1] for i in hk))
-# Get names print(  )
+# Get names print(''.join(i[1] for i in hk))
 
 #! TODO Same for science
 hk = [
@@ -26,7 +26,7 @@ hk = [
     ('THRM_MECH_MIN', '>u16'),
     ('THRM_DET_MAX', '>u16'),
     ('THRM_DET_MIN', '>u16'),
-    ('HK_SAMPLES', 'u8'),
+    ('UNUSED3', '>u48'),
     ('HK_V_3V3', '>u16'),
     ('HK_V_1V5', '>u16'),
     ('DIGITAL_TRP', '>u16'),
@@ -35,7 +35,8 @@ hk = [
     ('MOTOR_TRP', '>u16'),
     ('HK_MECH_CUR', '>u16'),
     ('UNUSED_ADC', '>u16'),
-    ('UNUSED3', '>u64'),
-    ('CRC8', 'u8'),
-    ('TOT_BYTES', 'u8')
+    ('HK_SAMPLES', 'u8'),
+    ('UNUSED4', '>u64'),
+    ('CRC8', 'u8')
 ]
+
