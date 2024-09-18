@@ -10,6 +10,7 @@ python = "^3.12"
 crc8 = "^0.2.1"
 pyserial = "^3.5"
 bitstruct = "^8.19.0"
+black = "^24.8.0"
 
 
 [build-system]

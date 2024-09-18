@@ -1,4 +1,4 @@
-# List of available CMD IDs and response types using 
+# List of available CMD IDs and response types using
 # names according to OB-EB Data ICD
 
 CMD_IDs = {
@@ -22,5 +22,5 @@ CMD_IDs = {
     0x19: "Set_MWIR_Offset",
     0x1B: "Set_HK_Samples",
     0x1C: "Configure_UART",
-    0x1F: "SCI_Request"
+    0x1F: "SCI_Request",
 }

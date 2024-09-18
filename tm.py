@@ -4,17 +4,30 @@ import logging
 from bitstruct import unpack_from as upf
 import bitstruct
 import crc8
+import serial.rs485
 
 import tmstruct
-from CMD_IDs import CMD_IDs
+from cmd_ids import CMD_IDs
 from constants import EXP_MODEL_ID
 
 tm_log = logging.getLogger("tm_log")
 
-class Raw:
-    def __init__(self, raw_bytes):
-        self.raw_bytes = raw_bytes
-        self.get_cmd_mod_id(self.raw_bytes)
+#----Test Functions---------------------------------------------------------------------------------
+def approx_cal_3V3(raw):
+    return raw * 4.05/4095 * 2
+
+def approx_cal_1V5(raw):
+    return raw * 4.05/4095
+
+def approx_dig_trp(raw):
+    return raw * 4.0/4095
+
+#----Class definitions------------------------------------------------------------------------------
+
+class getResponse():
+    def __init__(self, port: serial.rs485.RS485):
+        self.raw_bytes = port.read(1000)
+                   self.get_cmd_mod_id(self.raw_bytes)
         self.verify_cmd_id()
         self.verify_model_id()
         self.verify_crc()
@@ -40,11 +53,13 @@ class Raw:
                          f'For Packet {bytes.hex(self.raw_bytes, ' ', 2)}'
                         )
 
-class HK(Raw):
+class HK(getResponse):
     def __init__(self, raw_bytes):
         self.raw_bytes = raw_bytes
         #print(bytes.hex(self.raw_bytes, ' ', 2))
         self.get_cmd_mod_id(self.raw_bytes)
+
+        self.check_len()
 
         self.param = bitstruct.unpack_dict(
             ''.join(i[1] for i in tmstruct.hk), 
@@ -57,26 +72,14 @@ class HK(Raw):
 
         #tm_log.info(f"{self.CMD_CNT=}")
 
-        # self.cmd_cnt = upf('u8', self.raw_bytes, offset=(0+1*8))[0]
-
-        # self.error = upf('u8', self.raw_bytes, offset=(0+2*8))[0]
-        # self.unused1 = upf('u48', self.raw_bytes, offset=(0+3*8))[0]
-
-        # self.error_mtr = upf('u8', self.raw_bytes, offset=(0+9*8))[0]
-        
-        # self.mtr_abs_steps = upf('u16', self.raw_bytes, offset=(0+10*8))[0]
-        # self.mtr_rel_steps = upf('u16', self.raw_bytes, offset=(0+12*8))[0]
-        # self.mtr_flags = upf('u8', self.raw_bytes, offset=(0+14*8))[0]
-        # self.mtr_guard = upf('u16', self.raw_bytes, offset=(0+15*8))[0]
-        # self.mtr_pwm_duty = upf('u16', self.raw_bytes, offset=(0+17*8))[0]
-        
-        # self.mtr_current = upf('u16', self.raw_bytes, offset=(0+23*8))[0]
-
         self.check_errors()
         self.check_unused()
         
         #! TODO Ret of HK
         #! TODO add verify commands
+    def check_len(self):
+        if len(self.raw_bytes) != 72:
+            tm_log.error(f"HK Len not 72 bytes as expected. Got: {len(self.raw_bytes)}")
 
     def check_errors(self):
         if self.ERROR != 0x00:
@@ -86,3 +89,23 @@ class HK(Raw):
     def check_unused(self):
         if self.UNUSED1 == 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
+
+def parse_tm(response):
+    match(response.cmd_type):
+        case 'HK_Request':
+            hk = HK(response.raw_bytes)
+            # print(f"{hk.MTR_PWM_DUTY=}")
+            #print(f"{hk.MTR_CURRENT=}")
+            #print(f"{hk.SPEED=}")
+            #print(f"{hk.HK_V_3V3=}")
+            #print(f"{hex(hk.HK_V_3V3)}")
+            #print(f"{bytes.hex(hk.raw_bytes[46:48], ' ', 2)}")
+            #print(f"{hk.HK_SAMPLES=}")
+            cal_hk_3v3 = approx_cal_3V3(hk.HK_V_3V3)
+            cal_hk_1v5 = approx_cal_1V5(hk.HK_V_1V5)
+            cal_dig_trp = approx_dig_trp(hk.DIGITAL_TRP)
+            print(f"{cal_hk_3v3:.3f}    {cal_hk_1v5:.3f}    {cal_dig_trp:.3f}")
+            return hk
+        
+        case _:
+            print("testing")
