@@ -7,7 +7,6 @@ from datetime import datetime
 
 from crc8Function import crc8Calculate
 import tc
-import tm
 
 # ----Loggers----------------------------------------------------------------------------------------
 formatter = logging.Formatter("{levelname} - {message}", style="{")
