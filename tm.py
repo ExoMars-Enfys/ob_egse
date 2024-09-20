@@ -130,14 +130,14 @@ def parse_tm(response):
             return hk
         case _:
             ack = ACK(response.raw_bytes)
-            cmd_id = ack.CMD_ID.to_bytes().hex()
-            mod_id = ack.MOD_ID.to_bytes().hex()
-            error = ack.ERROR.to_bytes().hex()
-            param_5 = ack.PARAM_5.to_bytes().hex()
-            param_4 = ack.PARAM_4.to_bytes().hex()
-            param_3 = ack.PARAM_3.to_bytes().hex()
-            param_2 = ack.PARAM_2.to_bytes().hex()
-            param_1 = ack.PARAM_1.to_bytes().hex()
-            param_0 = ack.PARAM_0.to_bytes().hex()
-            crc8_byte = ack.CRC8.to_bytes().hex()
-            tm_log.info(f"ACK received: {ack.cmd_id} {mod_id} {error} {param_5} {param_4} {param_3} {param_2} {param_1} {param_0} {crc8_byte}")
+            cmd_id = ack.CMD_ID
+            mod_id = ack.MOD_ID
+            error = ack.ERROR
+            param_5 = ack.PARAM_5
+            param_4 = ack.PARAM_4
+            param_3 = ack.PARAM_3
+            param_2 = ack.PARAM_2
+            param_1 = ack.PARAM_1
+            param_0 = ack.PARAM_0
+            crc8_byte = ack.CRC8
+            tm_log.info(f"ACK received: {ack.cmd_id.to_bytes().hex()} {mod_id.to_bytes().hex()} {error.to_bytes().hex()} {param_5.to_bytes().hex()} {param_4.to_bytes().hex()} {param_3.to_bytes().hex()} {param_2.to_bytes().hex()} {param_1.to_bytes().hex()} {param_0.to_bytes().hex()} {crc8_byte.to_bytes().hex()}")
