@@ -7,6 +7,7 @@ from datetime import datetime
 
 from crc8Function import crc8Calculate
 import tc
+import tm
 
 # ----Loggers----------------------------------------------------------------------------------------
 formatter = logging.Formatter("{levelname} - {message}", style="{")
@@ -23,7 +24,7 @@ tc_log.addHandler(hdlr_1)
 
 # ----FPGA Boot and Connect--------------------------------------------------------------------------
 port = serial.rs485.RS485(
-    port="COM14",  # Serial Port Initialisation
+    port="COM9",  # Serial Port Initialisation
     baudrate=115200,
     bytesize=serial.EIGHTBITS,
     parity=serial.PARITY_ODD,
@@ -55,10 +56,10 @@ mtr_home = "13070000000000"
 hk_sam = "1B010000000000"
 
 start_time = datetime.now()
-for i in range(3):
-    tc.hk_request(port)
-    tc.set_mtr_param(port, 0, 0, 0, 0)
-    tc.set_mtr_param(port, 0x61A8, 0x0006, 0x0F, 0xFF)
+# for i in range(3):
+tc.hk_request(port)
+tc.set_mtr_param(port, 0, 0, 0, 0)
+tc.set_mtr_param(port, 0x61A8, 0x0006, 0x0F, 0xFF)
 
 end_time = datetime.now()
 

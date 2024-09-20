@@ -39,3 +39,16 @@ hk = [
     ("UNUSED4", ">u64"),
     ("CRC8", "u8"),
 ]
+
+ack = [
+    ("CMD_ID", "u5"),
+    ("MOD_ID", "u3"),
+    ("ERROR", "u8"),
+    ("PARAM_5","u8"),
+    ("PARAM_4","u8"),
+    ("PARAM_3","u8"),
+    ("PARAM_2","u8"),
+    ("PARAM_1","u8"),
+    ("PARAM_0","u8"),
+    ("CRC8", "u8"),
+]

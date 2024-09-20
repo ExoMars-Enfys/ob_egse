@@ -2,7 +2,7 @@ import logging
 
 from crc8Function import crc8Calculate
 import tm
-import cmd_ids
+import CMD_IDs
 
 tc_log = logging.getLogger("tc_log")
 
@@ -47,7 +47,11 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
     port.write(cmd_tc)
 
     #! TODO Check ACK here
-    ack = tm.getResponse(port)
+    response = tm.getResponse(port)
+    parsed = tm.parse_tm(response)
+    if response.cmd_type == "HK_Request":
+        tc_log.error(f"Incorrect ACK to CMD. Got {response.cmd_type}")
+
 
     if not verify:
         return
@@ -78,3 +82,4 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
             f"Response HK pwm_duty not as commanded. Set: x{pwm_duty:04X}, "
             f"Got: x{hk.MTR_PWM_DUTY:04X}"
         )
+    return parsed

@@ -7,7 +7,7 @@ import crc8
 import serial.rs485
 
 import tmstruct
-from cmd_ids import CMD_IDs
+from CMD_IDs import CMD_IDs
 from constants import EXP_MODEL_ID
 
 tm_log = logging.getLogger("tm_log")
@@ -27,7 +27,8 @@ def approx_dig_trp(raw):
 class getResponse():
     def __init__(self, port: serial.rs485.RS485):
         self.raw_bytes = port.read(1000)
-                   self.get_cmd_mod_id(self.raw_bytes)
+        tm_log.info(f"{self.raw_bytes}")
+        self.get_cmd_mod_id(self.raw_bytes)
         self.verify_cmd_id()
         self.verify_model_id()
         self.verify_crc()
@@ -90,6 +91,27 @@ class HK(getResponse):
         if self.UNUSED1 == 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
 
+class ACK(getResponse):
+    def __init__(self, raw_bytes):
+        self.raw_bytes = raw_bytes
+        self.get_cmd_mod_id(self.raw_bytes)
+        self.check_len
+        self.param = bitstruct.unpack_dict(
+            ''.join(i[1] for i in tmstruct.ack), 
+            [i[0] for i in tmstruct.ack],
+            raw_bytes
+            )
+        for k, v in self.param.items():
+            setattr(self,k,v)
+
+        self.check_errors()
+    def check_len(self):
+        if len(self.raw_bytes) !=9:
+            tm_log.error(f"ACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
+    def check_errors(self):
+        if self.ERROR != 0x00:
+            tm_log.error(f"HK Error asserted: {self.ERROR}")
+
 def parse_tm(response):
     match(response.cmd_type):
         case 'HK_Request':
@@ -106,6 +128,16 @@ def parse_tm(response):
             cal_dig_trp = approx_dig_trp(hk.DIGITAL_TRP)
             print(f"{cal_hk_3v3:.3f}    {cal_hk_1v5:.3f}    {cal_dig_trp:.3f}")
             return hk
-        
         case _:
-            print("testing")
+            ack = ACK(response.raw_bytes)
+            cmd_id = ack.CMD_ID.to_bytes().hex()
+            mod_id = ack.MOD_ID.to_bytes().hex()
+            error = ack.ERROR.to_bytes().hex()
+            param_5 = ack.PARAM_5.to_bytes().hex()
+            param_4 = ack.PARAM_4.to_bytes().hex()
+            param_3 = ack.PARAM_3.to_bytes().hex()
+            param_2 = ack.PARAM_2.to_bytes().hex()
+            param_1 = ack.PARAM_1.to_bytes().hex()
+            param_0 = ack.PARAM_0.to_bytes().hex()
+            crc8_byte = ack.CRC8.to_bytes().hex()
+            tm_log.info(f"ACK received: {ack.cmd_id} {mod_id} {error} {param_5} {param_4} {param_3} {param_2} {param_1} {param_0} {crc8_byte}")
