@@ -1,7 +1,7 @@
 # List of available CMD IDs and response types using
 # names according to OB-EB Data ICD
 
-CMD_IDs = {
+cmd_ids = {
     0x00: "HK_Request",
     0x01: "Clear_Errors",
     0x02: "Set_Errors",
