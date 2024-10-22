@@ -21,6 +21,6 @@ cmd_ids = {
     0x18: "Set_SWIR_Offset",
     0x19: "Set_MWIR_Offset",
     0x1B: "Set_HK_Samples",
-    0x1C: "Configure_UART",
+    0x1E: "NACK",
     0x1F: "SCI_Request",
 }

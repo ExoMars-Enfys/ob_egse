@@ -2,9 +2,9 @@
 # Get names print(''.join(i[1] for i in hk))
 
 #! TODO Same for science
-hk = [
-    ("CMD_ID", "u5"),
+hk = [    
     ("MOD_ID", "u3"),
+    ("CMD_ID", "u5"),
     ("CMD_CNT", "u8"),
     ("ERROR", "u8"),
     ("PWR_STAT", "u8"),
@@ -42,9 +42,9 @@ hk = [
     ("CRC8", "u8"),
 ]
 
-ack = [
-    ("CMD_ID", "u5"),
+ack = [    
     ("MOD_ID", "u3"),
+    ("CMD_ID", "u5"),
     ("ERROR", "u8"),
     ("CRC8", "u8"),
 ]

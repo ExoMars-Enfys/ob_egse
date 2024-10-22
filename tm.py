@@ -39,8 +39,9 @@ class getResponse:
         self.verify_crc()
 
     def get_cmd_mod_id(self, bytes):
-        self.cmd_id = upf("u5", bytes, offset=0)[0]
-        self.mod_id = upf("u3", bytes, offset=5)[0]
+        self.mod_id = upf("u3", bytes, offset=0)[0]
+        self.cmd_id = upf("u5", bytes, offset=3)[0]
+        # print("model : " , self.mod_id," Command ID" ,self.cmd_id)
 
     def verify_cmd_id(self):
         if self.cmd_id in cmd_ids:

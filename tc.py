@@ -22,6 +22,7 @@ def hk_request(port, verify=True):
 
     if response.cmd_type != "HK_Request":
         tc_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
+        tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
 
     return parsed
 

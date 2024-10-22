@@ -26,7 +26,7 @@ tc_log.addHandler(hdlr_1)
 
 # ----FPGA Boot and Connect--------------------------------------------------------------------------
 port = serial.rs485.RS485(
-    port="COM14",  # Serial Port Initialisation
+    port="COM4",  # Serial Port Initialisation
     baudrate=115200,
     bytesize=serial.EIGHTBITS,
     parity=serial.PARITY_ODD,
@@ -57,6 +57,22 @@ mtr_home = "13070000000000"
 
 hk_sam = "1B010000000000"
 
+def script_homing_default(HEATERS=False):
+    tc.hk_request(port)
+    time.sleep(1)
+    if HEATERS:
+        tc.power_control(port, 0xC3)
+    else:
+        tc.power_control(port, 0x01)
+    time.sleep(1)
+    tc.set_mtr_param(port, 0x61A8, 0x0006, 0x04, 0xFF)
+    time.sleep(1)
+    tc.set_mtr_guard(port, 0x03, 0x0064, 0x3E, 0x0005)
+    time.sleep(1)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    time.sleep(1)
+    tc.hk_request(port)
+    tc.mtr_homing(port, True, False, True)
 
 def script_homing(HEATERS=False):
     tc.hk_request(port)
@@ -66,9 +82,9 @@ def script_homing(HEATERS=False):
     else:
         tc.power_control(port, 0x01)
     time.sleep(1)
-    tc.set_mtr_param(port, 0x61A8, 0x0006, 0x0F, 0xFF)
+    tc.set_mtr_param(port, 0x30D4, 0x0009, 0x0C, 0x7F)
     time.sleep(1)
-    tc.set_mtr_guard(port, 0x0F, 0x0064, 0x38, 0x0005)
+    tc.set_mtr_guard(port, 0x00, 0x00FA, 0xA0, 0x000A)
     time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     time.sleep(1)
@@ -78,7 +94,7 @@ def script_homing(HEATERS=False):
 def script_repeat_hk():
     for i in range(20):
         tc.hk_request(port)
-        time.sleep(0.25)
+        time.sleep(1)
 
 
 start_time = datetime.now()
@@ -98,19 +114,22 @@ start_time = datetime.now()
 # tc.hk_request(port)
 # tc.sci_request(port)
 # tc.clear_errors(port)
-tc.power_control(port, 0x03)
+# tc.power_control(port, 0x01)
 # tc.mtr_mov_pos(port, 0x0100)
 # tc.power_control(port, 0x00)
 # for i in range(3):
 #     tc.hk_request(port)
 #     tc.set_mtr_param(port, 0, 0, 0, 0)
 #     tc.set_mtr_param(port, 0x61A8, 0x0006, 0x0F, 0xFF)
-
-# script_homing(True)
-# script_repeat_hk()
+# time.sleep(1)
+# tc.mtr_homing(port, False, False, True)
+# script_homing(False)
+# script_homing_default(False)
+script_repeat_hk()
 # tc.set_mtr_guard(port, 0x0F, 0x0064, 0x38, 0x0005)
 
 
 end_time = datetime.now()
+
 
 print(f"Loop execution time: {(end_time - start_time)/3}")
