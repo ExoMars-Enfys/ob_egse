@@ -26,7 +26,7 @@ tc_log.addHandler(hdlr_1)
 
 # ----FPGA Boot and Connect--------------------------------------------------------------------------
 port = serial.rs485.RS485(
-    port="COM4",  # Serial Port Initialisation
+    port="COM10",  # Serial Port Initialisation
     baudrate=115200,
     bytesize=serial.EIGHTBITS,
     parity=serial.PARITY_ODD,
@@ -57,6 +57,7 @@ mtr_home = "13070000000000"
 
 hk_sam = "1B010000000000"
 
+
 def script_homing_default(HEATERS=False):
     tc.hk_request(port)
     time.sleep(1)
@@ -74,6 +75,7 @@ def script_homing_default(HEATERS=False):
     tc.hk_request(port)
     tc.mtr_homing(port, True, False, True)
 
+
 def script_homing(HEATERS=False):
     tc.hk_request(port)
     time.sleep(1)
@@ -82,13 +84,15 @@ def script_homing(HEATERS=False):
     else:
         tc.power_control(port, 0x01)
     time.sleep(1)
-    tc.set_mtr_param(port, 0x30D4, 0x0009, 0x0C, 0x7F)
+    # tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0x5F)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0xFF)
     time.sleep(1)
-    tc.set_mtr_guard(port, 0x00, 0x00FA, 0xA0, 0x000A)
+    tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
     time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     time.sleep(1)
-    tc.mtr_homing(port, True, False, True)
+    # tc.mtr_homing(port, True, False, True)
+    tc.mtr_mov_pos(port, 0x1000)
 
 
 def script_repeat_hk():
@@ -98,37 +102,16 @@ def script_repeat_hk():
 
 
 start_time = datetime.now()
-# tc.power_control(port, 0xC3)
-# time.sleep(1)
-# tc.set_mtr_param(port, 0x7000, 0x0006, 0x0F, 0xFF)
-# time.sleep(1)
-# tc.hk_request(port)
-# time.sleep(1)
-# tc.mtr_mov_pos(port, 0x0500)
-# time.sleep(0.4)
-# for i in range(20):
-# tc.hk_request(port)
-# time.sleep(1.0)
 
-# tc.clear_errors(port)
 # tc.hk_request(port)
+# tc.power_control(port, 0xC3)
+# tc.clear_errors(port)
 # tc.sci_request(port)
 # tc.clear_errors(port)
-# tc.power_control(port, 0x01)
-# tc.mtr_mov_pos(port, 0x0100)
-# tc.power_control(port, 0x00)
-# for i in range(3):
-#     tc.hk_request(port)
-#     tc.set_mtr_param(port, 0, 0, 0, 0)
-#     tc.set_mtr_param(port, 0x61A8, 0x0006, 0x0F, 0xFF)
-# time.sleep(1)
-# tc.mtr_homing(port, False, False, True)
-# script_homing(False)
+
 # script_homing_default(False)
-script_repeat_hk()
-# tc.set_mtr_guard(port, 0x0F, 0x0064, 0x38, 0x0005)
-
-
+script_homing(False)
+# tc.mtr_mov_pos(port, 0x1000)
 end_time = datetime.now()
 
 
