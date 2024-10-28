@@ -2,7 +2,7 @@
 # Get names print(''.join(i[1] for i in hk))
 
 #! TODO Same for science
-hk = [    
+hk = [
     ("MOD_ID", "u3"),
     ("CMD_ID", "u5"),
     ("CMD_CNT", "u8"),
@@ -42,9 +42,40 @@ hk = [
     ("CRC8", "u8"),
 ]
 
-ack = [    
+ack_hdr = [
     ("MOD_ID", "u3"),
     ("CMD_ID", "u5"),
     ("ERROR", "u8"),
-    ("CRC8", "u8"),
+]
+
+ack_clear_errors = [()]
+
+# TODO ack_set_errors = [()]
+
+ack_power_control = [("PWR_STAT", "u8")]
+
+# TODO ack_heater_control = [()]
+
+# ack_set_mech_sp = [()]
+
+# ack_set_detec_sp = [()]
+
+ack_set_mtr_param = [
+    ("MTR_CURRENT", ">u16"),
+    ("MTR_PWM_RATE", ">u16"),
+    ("MTR_SPEED", "u8"),
+    ("MTR_PWM_DUTY", "u8"),
+]
+
+ack_set_mtr_guard = [
+    ("MTR_RECIRC", "u8"),
+    ("MTR_GUARD", ">u16"),
+    ("MTR_RECVAL", "u8"),
+    ("MTR_SPISEL", ">u16"),
+]
+
+ack_set_mtr_mon = [
+    ("MTR_ABS_STEPS", ">u16"),
+    ("MTR_REL_STEPS", ">u16"),
+    # TODO: Check offset not in structure
 ]

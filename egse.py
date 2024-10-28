@@ -45,17 +45,7 @@ port.flushInput()
 
 # ----
 
-pwr = "04030000000000"
 sci = "1F000000000000"
-pwr = "04030000000000"
-
-mtr_par = "0A61A800060FFF"  # Set Motor Default Param
-mtr_grd = "0B7F0064380005"  # Set Motor Drive Guards
-mtr_p100 = "10032000000000"  # Move x0100 steps forward
-mtr_mask = "0DFF0000000000"
-mtr_home = "13070000000000"
-
-hk_sam = "1B010000000000"
 
 
 def script_homing_default(HEATERS=False):
@@ -103,14 +93,17 @@ def script_repeat_hk():
 
 start_time = datetime.now()
 
-# tc.hk_request(port)
-# tc.power_control(port, 0xC3)
+# script_repeat_hk()
+# tc.power_control(port, 0x00)
+# tc.set_mtr_param(port, 0x61A8, 0x0006, 0x04, 0xFF)
+# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
+tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
 # tc.clear_errors(port)
 # tc.sci_request(port)
 # tc.clear_errors(port)
 
 # script_homing_default(False)
-script_homing(False)
+# script_homing(False)
 # tc.mtr_mov_pos(port, 0x1000)
 end_time = datetime.now()
 

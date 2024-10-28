@@ -89,6 +89,7 @@ class HK(getResponse):
         #! TODO add verify commands
 
     def check_len(self):
+        # TODO: May want to adjust to calculate length based on structure like ACK
         if len(self.raw_bytes) != 66:
             tm_log.error(f"HK Len not 66 bytes as expected. Got: {len(self.raw_bytes)}")
 
@@ -103,13 +104,18 @@ class HK(getResponse):
 
 
 class ACK(getResponse):
-    def __init__(self, raw_bytes):
+    def __init__(self, raw_bytes, ack_type):
         self.raw_bytes = raw_bytes
+        self.ack_type = ack_type
         self.get_cmd_mod_id(self.raw_bytes)
-        # self.check_len() -- removed until we can resolve variable ACK length
+
+        self.check_len()
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+
+        pkt_strct = tmstruct.ack_hdr + ack_type
+        tm_log.debug(pkt_strct)
         param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.ack), [i[0] for i in tmstruct.ack], raw_bytes
+            "".join(i[1] for i in pkt_strct), [i[0] for i in pkt_strct], raw_bytes
         )
         for k, v in param.items():
             setattr(self, k, v)
@@ -117,8 +123,15 @@ class ACK(getResponse):
         self.check_errors()
 
     def check_len(self):
-        if len(self.raw_bytes) != 9:
-            tm_log.error(f"ACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
+        expect_strct = tmstruct.ack_hdr + self.ack_type
+        expect_len = (
+            bitstruct.calcsize("".join([i[1] for i in expect_strct])) / 8 + 1
+        )  # +1 for CRC
+
+        if len(self.raw_bytes) != expect_len:
+            tm_log.error(
+                f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}"
+            )
 
     def check_errors(self):
         if self.ERROR != 0x00:
@@ -126,6 +139,7 @@ class ACK(getResponse):
 
 
 def parse_tm(response):
+    tm_log.debug(f"Response type: {response.cmd_type}")
     match (response.cmd_type):
         case "HK_Request":
             hk = HK(response.raw_bytes)
@@ -141,5 +155,19 @@ def parse_tm(response):
             cal_dig_trp = approx_dig_trp(hk.DIGITAL_TRP)
             print(f"{cal_hk_3v3:.3f}    {cal_hk_1v5:.3f}    {cal_dig_trp:.3f}")
             return hk
+        case "Power_Control":
+            ack = ACK(response.raw_bytes, tmstruct.ack_power_control)
+            return ack
+        case "Set_MTR_Param":
+            ack = ACK(response.raw_bytes, tmstruct.ack_set_mtr_param)
+            return ack
+        case "Set_MTR_Guard":
+            ack = ACK(response.raw_bytes, tmstruct.ack_set_mtr_guard)
+            return ack
+        case "Set_MTR_Mon":
+            ack = ACK(response.raw_bytes, tmstruct.ack_set_mtr_mon)
+            return ack
         case _:
-            ack = ACK(response.raw_bytes)
+            tm_log.warning(
+                f"Response type not defined in parse_tm: {response.cmd_type}"
+            )
