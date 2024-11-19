@@ -72,6 +72,7 @@ class HK(getResponse):
         self.get_cmd_mod_id(self.raw_bytes)
 
         self.check_len()
+        tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
@@ -157,6 +158,15 @@ def parse_tm(response):
             return hk
         case "Power_Control":
             ack = ACK(response.raw_bytes, tmstruct.ack_power_control)
+            return ack
+        case "Heater_Control":
+            ack = ACK(response.raw_bytes, tmstruct.ack_heater_control)
+            return ack
+        case "Set_Mech_SP":
+            ack = ACK(response.raw_bytes, tmstruct.ack_set_mech_sp)
+            return ack
+        case "Set_Detec_SP":
+            ack = ACK(response.raw_bytes, tmstruct.ack_set_detec_sp)
             return ack
         case "Set_MTR_Param":
             ack = ACK(response.raw_bytes, tmstruct.ack_set_mtr_param)

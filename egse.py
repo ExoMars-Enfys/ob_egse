@@ -81,8 +81,8 @@ def script_homing(HEATERS=False):
     time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     time.sleep(1)
-    # tc.mtr_homing(port, True, False, True)
-    tc.mtr_mov_pos(port, 0x1000)
+    tc.mtr_homing(port, True, False, True)
+    # tc.mtr_mov_pos(port, 0x1000)
 
 
 def script_repeat_hk():
@@ -95,9 +95,22 @@ start_time = datetime.now()
 
 # script_repeat_hk()
 # tc.power_control(port, 0x00)
+
+# hk = tc.hk_request(port)
+# tc_log.info(f"Heater Before: {hk.THRM_STATUS}")
+# tc.set_mech_sp(port, 0x0ABC, 0x0123)
+# tc.set_detec_sp(port, 0x0DEF, 0x0456)
+# # tc.heater_control(port, False, True, False, False, True, verify=True)
+# hk = tc.hk_request(port)
+# tc_log.info(f"Heater After: {hk.THRM_STATUS}")
+# tc_log.info(f"Mech_OFF_SP: {hk.THRM_MECH_OFF_SP:04X}")
+# tc_log.info(f"Mech_ON_SP: {hk.THRM_MECH_ON_SP:04X}")
+# tc_log.info(f"Detec_OFF_SP: {hk.THRM_DET_OFF_SP:04X}")
+# tc_log.info(f"Detec_ON_SP: {hk.THRM_DET_ON_SP:04X}")
+
 # tc.set_mtr_param(port, 0x61A8, 0x0006, 0x04, 0xFF)
 # tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
-tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
 # tc.clear_errors(port)
 # tc.sci_request(port)
 # tc.clear_errors(port)

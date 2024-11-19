@@ -22,14 +22,14 @@ hk = [
     ("MTR_SPEED", "u8"),
     ("MTR_ERR_MSK", "u8"),
     ("MTR_RECIRC", "u8"),
-    ("UNUSED2", ">u24"),
+    ("MTR_SW_OFFSET", ">u16"),
+    ("UNUSED2", "u8"),
     ("THRM_STATUS", "u8"),
-    ("THRM_MECH_MAX", ">u16"),
-    ("THRM_MECH_MIN", ">u16"),
-    ("THRM_DET_MAX", ">u16"),
-    ("THRM_DET_MIN", ">u16"),
+    ("THRM_MECH_OFF_SP", ">u16"),
+    ("THRM_MECH_ON_SP", ">u16"),
+    ("THRM_DET_OFF_SP", ">u16"),
+    ("THRM_DET_ON_SP", ">u16"),
     ("UNUSED3", ">u32"),
-    ("HK_SAMPLES", "u8"),
     ("HK_V_3V3", ">u16"),
     ("HK_V_1V5", ">u16"),
     ("DIGITAL_TRP", ">u16"),
@@ -38,7 +38,8 @@ hk = [
     ("MOTOR_TRP", ">u16"),
     ("HK_MECH_CUR", ">u16"),
     ("UNUSED_ADC", ">u16"),
-    ("UNUSED4", ">u40"),
+    ("HK_SAMPLES", "u8"),
+    ("UNUSED4", ">u32"),
     ("CRC8", "u8"),
 ]
 
@@ -54,11 +55,11 @@ ack_clear_errors = [()]
 
 ack_power_control = [("PWR_STAT", "u8")]
 
-# TODO ack_heater_control = [()]
+ack_heater_control = [("HTR_STAT", "u8")]
 
-# ack_set_mech_sp = [()]
+ack_set_mech_sp = [("THRM_MECH_OFF_SP", "u16"), ("THRM_MECH_ON_SP", "u16")]
 
-# ack_set_detec_sp = [()]
+ack_set_detec_sp = [("THRM_DETEC_OFF_SP", "u16"), ("THRM_DETEC_ON_SP", "u16")]
 
 ack_set_mtr_param = [
     ("MTR_CURRENT", ">u16"),
