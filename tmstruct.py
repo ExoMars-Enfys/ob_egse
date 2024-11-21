@@ -12,7 +12,7 @@ hk = [
     ("ERROR_MTR", "u8"),
     ("MTR_ABS_STEPS", ">u16"),
     ("MTR_REL_STEPS", ">u16"),
-    ("MTR_FLAGS", "u8"),
+    ("MTR_FLAGS_BYTE", "u8"),
     ("MTR_GUARD", ">u16"),
     ("MTR_PWM_DUTY", "u8"),
     ("MTR_PWM_RATE", ">u16"),
@@ -41,6 +41,17 @@ hk = [
     ("HK_SAMPLES", "u8"),
     ("UNUSED4", ">u32"),
     ("CRC8", "u8"),
+]
+
+mtr_flag_struct = [
+    ("UNUSED1", "u1"),
+    ("CAL", "u1"),
+    ("HOLD", "u1"),
+    ("DIR", "u1"),
+    ("OUTER", "u1"),
+    ("BASE", "u1"),
+    ("MOVING", "u1"),
+    ("HOMED", "u1"),
 ]
 
 ack_hdr = [

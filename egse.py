@@ -81,8 +81,12 @@ def script_homing(HEATERS=False):
     time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     time.sleep(1)
-    tc.mtr_homing(port, True, False, True)
-    # tc.mtr_mov_pos(port, 0x1000)
+    # tc.mtr_homing(port, True, False, True)
+    tc.mtr_mov_pos(port, 0x1000)
+    resp = tc.hk_request(port)
+    while resp.MTR_FLAGS.MOVING == 1:
+        time.sleep(1)
+        resp = tc.hk_request(port)
 
 
 def script_repeat_hk():

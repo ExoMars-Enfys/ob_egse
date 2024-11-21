@@ -1,5 +1,6 @@
 # ----Module Imports---------------------------------------------------------------------------------
 import logging
+from collections import namedtuple
 
 from bitstruct import unpack_from as upf
 import bitstruct
@@ -11,20 +12,6 @@ from cmd_ids import cmd_ids
 from constants import EXP_MODEL_ID
 
 tm_log = logging.getLogger("tm_log")
-
-
-# ----Test Functions---------------------------------------------------------------------------------
-def approx_cal_3V3(raw):
-    return raw * 4.05 / 4095 * 2
-
-
-def approx_cal_1V5(raw):
-    return raw * 4.05 / 4095
-
-
-def approx_dig_trp(raw):
-    return raw * 4.0 / 4095
-
 
 # ----Class definitions------------------------------------------------------------------------------
 
@@ -74,17 +61,37 @@ class HK(getResponse):
         self.check_len()
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
-        self.param = bitstruct.unpack_dict(
+        param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
         )
 
-        for k, v in self.param.items():
+        for k, v in param.items():
             setattr(self, k, v)
 
-        # tm_log.info(f"{self.CMD_CNT=}")
+        self.MTR_FLAGS = namedtuple(
+            "MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct)
+        )
+
+        ## Decode bit maps
+        # Motor Flags
+        mtr_flags_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_flag_struct),
+            [i[0] for i in tmstruct.mtr_flag_struct],
+            self.MTR_FLAGS_BYTE.to_bytes(1),
+        )
+
+        for k, v in mtr_flags_param.items():
+            setattr(self.MTR_FLAGS, k, v)
+
+        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_errors()
         self.check_unused()
+
+        # Approximate calibrations
+        self.approx_cal_3V3 = self.HK_V_3V3 * 4.05 / 4095 * 2
+        self.approx_cal_1V5 = self.HK_V_1V5 * 4.05 / 4095
+        self.approx_dig_trp = self.DIGITAL_TRP * 4.0 / 4095
 
         #! TODO Ret of HK
         #! TODO add verify commands
@@ -144,17 +151,15 @@ def parse_tm(response):
     match (response.cmd_type):
         case "HK_Request":
             hk = HK(response.raw_bytes)
-            # print(f"{hk.MTR_PWM_DUTY=}")
-            # print(f"{hk.MTR_CURRENT=}")
-            # print(f"{hk.SPEED=}")
-            # print(f"{hk.HK_V_3V3=}")
-            # print(f"{hex(hk.HK_V_3V3)}")
-            # print(f"{bytes.hex(hk.raw_bytes[46:48], ' ', 2)}")
-            # print(f"{hk.HK_SAMPLES=}")
-            cal_hk_3v3 = approx_cal_3V3(hk.HK_V_3V3)
-            cal_hk_1v5 = approx_cal_1V5(hk.HK_V_1V5)
-            cal_dig_trp = approx_dig_trp(hk.DIGITAL_TRP)
-            print(f"{cal_hk_3v3:.3f}    {cal_hk_1v5:.3f}    {cal_dig_trp:.3f}")
+            # print(
+            #     f"{hk.approx_cal_3V3:.3f}    {hk.approx_cal_1V5:.3f}    {hk.approx_cal_1V5:.3f}"
+            # )
+            print(f"CMD Count: {hk.CMD_CNT}")
+            print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
+            print(f"DIR: {hk.MTR_FLAGS.DIR}")
+            print(f"HOMED: {hk.MTR_FLAGS.HOMED}")
+            print(f"BASE: {hk.MTR_FLAGS.BASE}")
+            print(f"OUTER: {hk.MTR_FLAGS.OUTER}")
             return hk
         case "Power_Control":
             ack = ACK(response.raw_bytes, tmstruct.ack_power_control)
