@@ -33,13 +33,13 @@ port = serial.rs485.RS485(
     stopbits=serial.STOPBITS_ONE,
     timeout=0.2,
 )
-# port.rs485_mode = serial.rs485.RS485Settings(
-#     rts_level_for_tx=False,
-#     rts_level_for_rx=True,
-#     loopback=False,
-#     delay_before_tx=0,
-#     delay_before_rx=0,
-# )
+port.rs485_mode = serial.rs485.RS485Settings(
+    rts_level_for_tx=False,
+    rts_level_for_rx=True,
+    loopback=False,
+    delay_before_tx=0.1,
+    delay_before_rx=0.1,
+)
 port.flushOutput()  # Port Flushing to clear port
 port.flushInput()
 
@@ -68,25 +68,21 @@ def script_homing_default(HEATERS=False):
 
 def script_homing(HEATERS=False):
     tc.hk_request(port)
-    time.sleep(1)
     if HEATERS:
         tc.power_control(port, 0xC3)
     else:
         tc.power_control(port, 0x01)
-    time.sleep(1)
     # tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0x5F)
     tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0xFF)
-    time.sleep(1)
     tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
-    time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
-    time.sleep(1)
     # tc.mtr_homing(port, True, False, True)
     tc.mtr_mov_pos(port, 0x1000)
     resp = tc.hk_request(port)
     while resp.MTR_FLAGS.MOVING == 1:
         time.sleep(1)
         resp = tc.hk_request(port)
+        tm_log.info("Motor still moving ***********")
 
 
 def script_repeat_hk():
