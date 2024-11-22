@@ -68,18 +68,26 @@ class HK(getResponse):
         for k, v in param.items():
             setattr(self, k, v)
 
+        ## Decode bit maps
+        # Errors
+        self.ERRORS = namedtuple("ERRORS", "".join(i[1] for i in tmstruct.error_struct))
+        error_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.error_struct),
+            [i[0] for i in tmstruct.error_struct],
+            self.ERROR_BYTE.to_bytes(1),
+        )
+        for k, v in error_param.items():
+            setattr(self.ERRORS, k, v)
+
+        # Motor Flags
         self.MTR_FLAGS = namedtuple(
             "MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct)
         )
-
-        ## Decode bit maps
-        # Motor Flags
         mtr_flags_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_flag_struct),
             [i[0] for i in tmstruct.mtr_flag_struct],
             self.MTR_FLAGS_BYTE.to_bytes(1),
         )
-
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
 
@@ -102,9 +110,24 @@ class HK(getResponse):
             tm_log.error(f"HK Len not 66 bytes as expected. Got: {len(self.raw_bytes)}")
 
     def check_errors(self):
-        if self.ERROR != 0x00:
-            tm_log.error(f"HK Error asserted: {self.ERROR}")
-            #! TODO Decode bit struct here
+        if self.ERROR_BYTE != 0x00:
+            tm_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
+            if self.ERRORS.UNUSED1:
+                tm_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
+            if self.ERRORS.TMO:
+                tm_log.error(f"OB ERROR TMO - Time Out")
+            if self.ERRORS.IOS:
+                tm_log.error(f"OB ERROR IOS - Invalid OB State")
+            if self.ERRORS.LIM:
+                tm_log.error(f"OB ERROR LIM - Motor Rel Lim Exceeded")
+            if self.ERRORS.LMO:
+                tm_log.error(f"OB ERROR LMO - Motor Monitor Lim Exceeded")
+            if self.ERRORS.ICR:
+                tm_log.error(f"OB ERROR ICR - Invalid CMD CRC")
+            if self.ERRORS.IPA:
+                tm_log.error(f"OB ERROR IPA - Invalid Parity Error")
+            if self.ERRORS.ICI:
+                tm_log.error(f"OB ERROR ICI - Invalid Command ID")
 
     def check_unused(self):
         if self.UNUSED1 == 0x00:
@@ -151,15 +174,15 @@ def parse_tm(response):
     match (response.cmd_type):
         case "HK_Request":
             hk = HK(response.raw_bytes)
-            # print(
-            #     f"{hk.approx_cal_3V3:.3f}    {hk.approx_cal_1V5:.3f}    {hk.approx_cal_1V5:.3f}"
-            # )
-            print(f"CMD Count: {hk.CMD_CNT}")
-            print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
-            print(f"DIR: {hk.MTR_FLAGS.DIR}")
-            print(f"HOMED: {hk.MTR_FLAGS.HOMED}")
-            print(f"BASE: {hk.MTR_FLAGS.BASE}")
-            print(f"OUTER: {hk.MTR_FLAGS.OUTER}")
+            print(
+                f"{hk.approx_cal_3V3:.3f}    {hk.approx_cal_1V5:.3f}    {hk.approx_cal_1V5:.3f}"
+            )
+            # print(f"CMD Count: {hk.CMD_CNT}")
+            # print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
+            # print(f"DIR: {hk.MTR_FLAGS.DIR}")
+            # print(f"HOMED: {hk.MTR_FLAGS.HOMED}")
+            # print(f"BASE: {hk.MTR_FLAGS.BASE}")
+            # print(f"OUTER: {hk.MTR_FLAGS.OUTER}")
             return hk
         case "Power_Control":
             ack = ACK(response.raw_bytes, tmstruct.ack_power_control)

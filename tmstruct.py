@@ -6,7 +6,7 @@ hk = [
     ("MOD_ID", "u3"),
     ("CMD_ID", "u5"),
     ("CMD_CNT", "u8"),
-    ("ERROR", "u8"),
+    ("ERROR_BYTE", "u8"),
     ("PWR_STAT", "u8"),
     ("UNUSED1", ">u32"),
     ("ERROR_MTR", "u8"),
@@ -41,6 +41,17 @@ hk = [
     ("HK_SAMPLES", "u8"),
     ("UNUSED4", ">u32"),
     ("CRC8", "u8"),
+]
+
+error_struct = [
+    ("UNUSED1", "u1"),
+    ("TMO", "u1"),
+    ("IOS", "u1"),
+    ("LIM", "u1"),
+    ("LMO", "u1"),
+    ("ICR", "u1"),
+    ("IPA", "u1"),
+    ("ICI", "u1"),
 ]
 
 mtr_flag_struct = [
