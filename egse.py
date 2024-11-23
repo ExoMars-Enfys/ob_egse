@@ -9,7 +9,7 @@ from datetime import datetime
 from crc8Function import crc8Calculate
 import tc
 
-DEBUG_LEVEL = logging.DEBUG
+COM_PORT = "COM14"
 
 # ----Loggers----------------------------------------------------------------------------------------
 formatter = logging.Formatter("{levelname} - {message}", style="{")
@@ -25,14 +25,20 @@ tc_log.setLevel(DEBUG_LEVEL)
 tc_log.addHandler(hdlr_1)
 
 # ----FPGA Boot and Connect--------------------------------------------------------------------------
-port = serial.rs485.RS485(
-    port="COM10",  # Serial Port Initialisation
-    baudrate=115200,
-    bytesize=serial.EIGHTBITS,
-    parity=serial.PARITY_ODD,
-    stopbits=serial.STOPBITS_ONE,
-    timeout=0.2,
-)
+try:
+    port = serial.rs485.RS485(
+        port=COM_PORT,
+        baudrate=115200,
+        bytesize=serial.EIGHTBITS,
+        parity=serial.PARITY_ODD,
+        stopbits=serial.STOPBITS_ONE,
+        timeout=0.2,
+    )
+except:
+    Exception(f"No device found on COM Port {COM_PORT}, try another")
+    tc_log.error(f"No device found on COM Port {COM_PORT}, try another")
+    raise SystemExit
+
 port.rs485_mode = serial.rs485.RS485Settings(
     rts_level_for_tx=False,
     rts_level_for_rx=True,
@@ -43,11 +49,8 @@ port.rs485_mode = serial.rs485.RS485Settings(
 port.flushOutput()  # Port Flushing to clear port
 port.flushInput()
 
+
 # ----
-
-sci = "1F000000000000"
-
-
 def script_homing_default(HEATERS=False):
     tc.hk_request(port)
     time.sleep(1)
