@@ -25,7 +25,7 @@ def hk_request(port, verify=True):
         tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
 
     if not verify:
-        return
+        return  # TODO Might need to always return parsed.
     parsed = tm.parse_tm(response)
 
     ## --- Verification ---
@@ -353,22 +353,31 @@ def mtr_homing(port, FORWARD: bool, CAL: bool, HOME: bool, verify=True):
 
 
 def mtr_mov_pos(port, pos_steps, verify=True):
+    ## --- Check input parameters before sending CMD ---
     if (pos_steps < 0) or (pos_steps > 0xFFFF):
         tc_log.error(
             f"Move Pos Steps command pos_steps out of limits. Rejected by EGSE {pos_steps}"
         )
         return
 
+    ## --- Send CMD ---
     cmd = "10" + f"{pos_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
+    ## --- Get ACK and check type ---
     ack = tm.getResponse(port)
     parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "HK_Request":
+
+    if ack.cmd_type != "MTR_Mov_Pos":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return
+        return "ERROR"
+
+    if not verify:
+        return
+
+    return parsed
 
 
 def clear_errors(port, verify=True):
@@ -379,9 +388,9 @@ def clear_errors(port, verify=True):
 
     ack = tm.getResponse(port)
     parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "HK_Request":
+    if ack.cmd_type != "Clear_Errors":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return
+    return parsed
 
 
 def sci_request(port, verify=True):
