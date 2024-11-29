@@ -111,31 +111,13 @@ port.flushInput()
 
 
 # ----
-def script_homing_default(HEATERS=False):
-    tc.hk_request(port)
-    time.sleep(1)
-    if HEATERS:
-        tc.power_control(port, 0xC3)
-    else:
-        tc.power_control(port, 0x01)
-    time.sleep(1)
-    tc.set_mtr_param(port, 0x61A8, 0x0006, 0x04, 0xFF)
-    time.sleep(1)
-    tc.set_mtr_guard(port, 0x03, 0x0064, 0x3E, 0x0005)
-    time.sleep(1)
-    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
-    time.sleep(1)
-    tc.hk_request(port)
-    tc.mtr_homing(port, True, False, True)
-
-
 def script_homing(HEATERS=False):
     tc.hk_request(port)
     if HEATERS:
         tc.power_control(port, 0xC3)
     else:
         tc.power_control(port, 0x01)
-    tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0xFF)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
     tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     # tc.mtr_homing(port, True, False, True)
