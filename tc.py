@@ -4,7 +4,8 @@ from crc8Function import crc8Calculate
 import tm
 
 tc_log = logging.getLogger("tc_log")
-
+info_log = logging.getLogger("info_log")
+error_log = logging.getLogger("error_log")
 # TODO: Have a return pass/fail for each TC, so extra logic can be added to script
 
 
@@ -16,6 +17,7 @@ def hk_request(port, verify=True):
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
     ## --- Get Response and check type ---
@@ -25,7 +27,7 @@ def hk_request(port, verify=True):
         tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
 
     if not verify:
-        return
+        return  # TODO Might need to always return parsed.
     parsed = tm.parse_tm(response)
 
     ## --- Verification ---
@@ -52,6 +54,7 @@ def power_control(port, pwr_stat, verify=True):
     cmd = "04" + f"{pwr_stat:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -226,6 +229,7 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
         tc_log.error(
             f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}"
         )
+        error_log.error(f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}")
         return
 
     if (pwm_rate < 0) or (pwm_rate > 0xFFFF):
@@ -351,25 +355,100 @@ def mtr_homing(port, FORWARD: bool, CAL: bool, HOME: bool, verify=True):
     tc_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
+    ack = tm.getResponse(port)
+    parsed = tm.parse_tm(ack)
+
+    if ack.cmd_type != "MTR_Homing":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
+
+    if not verify:
+        return
+
+    return parsed
+
+
 
 def mtr_mov_pos(port, pos_steps, verify=True):
-    if (pos_steps < 0) or (pos_steps > 0xFFFF):
+    ## --- Check input parameters before sending CMD ---
+    if (pos_steps < 0) or (pos_steps > 0x3200):
         tc_log.error(
             f"Move Pos Steps command pos_steps out of limits. Rejected by EGSE {pos_steps}"
         )
         return
 
+    ## --- Send CMD ---
     cmd = "10" + f"{pos_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
+    ## --- Get ACK and check type ---
     ack = tm.getResponse(port)
     parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "HK_Request":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return
 
+    if ack.cmd_type != "MTR_Mov_Pos":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
+
+    if not verify:
+        return
+
+    return parsed
+
+def mtr_mov_neg(port, neg_steps, verify=True):
+    ## --- Check input parameters before sending CMD ---
+    if (neg_steps < 0) or (neg_steps > 0x3200):
+        tc_log.error(
+            f"Move Neg Steps command pos_steps out of limits. Rejected by EGSE {neg_steps}"
+        )
+        return
+
+    ## --- Send CMD ---
+    cmd = "11" + f"{neg_steps:04X}" + "00" * 4
+    cmd_tc = crc8Calculate(cmd)
+    tc_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    port.write(cmd_tc)
+
+    ## --- Get ACK and check type ---
+    ack = tm.getResponse(port)
+    parsed = tm.parse_tm(ack)
+
+    if ack.cmd_type != "MTR_Mov_Neg":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
+
+    if not verify:
+        return
+
+    return parsed
+
+def mtr_mov_abs(port, abs_pos, verify=True):
+    ## --- Check input parameters before sending CMD ---
+    if (abs_pos < 0) or (abs_pos > 0x3200):
+        tc_log.error(
+            f"Move Neg Steps command pos_steps out of limits. Rejected by EGSE {abs_pos}"
+        )
+        return
+
+    ## --- Send CMD ---
+    cmd = "12" + f"{abs_pos:04X}" + "00" * 4
+    cmd_tc = crc8Calculate(cmd)
+    tc_log.info(f"Send Move to Abs Pos:{bytes.hex(cmd_tc, ' ', 2)}")
+    port.write(cmd_tc)
+
+    ## --- Get ACK and check type ---
+    ack = tm.getResponse(port)
+    parsed = tm.parse_tm(ack)
+
+    if ack.cmd_type != "MTR_Mov_Abs":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
+
+    if not verify:
+        return
+
+    return parsed
 
 def clear_errors(port, verify=True):
     cmd = "01" + "00" * 6
@@ -379,10 +458,9 @@ def clear_errors(port, verify=True):
 
     ack = tm.getResponse(port)
     parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "HK_Request":
+    if ack.cmd_type != "Clear_Errors":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return
-
+    return parsed
 
 def sci_request(port, verify=True):
     cmd = "1F" + "01" + "05" + "00" * 4
