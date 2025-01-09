@@ -83,32 +83,47 @@ port.flushInput()
 
 
 # ----
-def script_homing(HEATERS=False):
-    tc.hk_request(port)
+def set_params(HEATERS=False):
+    # tc.hk_request(port)    
+    tc.power_control(port, 0x03)
     if HEATERS:
-        tc.power_control(port, 0xC3)
-    else:
-        tc.power_control(port, 0x01)
+        tc.heater_control(port, False, True, False, False, True, verify=True)
     tc.set_mtr_param(port, 0x5000, 0x0001, 0x09, 0xFF)
     tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
-    # tc.mtr_homing(port, True, False, True)
-    tc.mtr_mov_pos(port, 0x1000)
     resp = tc.hk_request(port)
-
-    while resp.MTR_FLAGS.MOVING == 1:
-        time.sleep(1)
-        resp = tc.hk_request(port)
-        event_log.info("Motor still moving ***********")
-    tm_log.info("Motor movement finished")
-
+    # tc.mtr_mov_abs(port, 0x1FA4)
 
 def script_repeat_hk():
     for i in range(100):
         tc.hk_request(port)
         time.sleep(2)
 
-
+def script_stops(HEATERS=False):
+    tc.mtr_mov_pos(port,0x0040)
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.BASE == 0:
+        while resp.MTR_FLAGS.BASE == 0:
+            tc.mtr_mov_pos(port,0x0040)
+            print(resp.MTR_FLAGS.BASE)
+            resp = tc.hk_request(port)           
+    else : 
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+        print(resp.MTR_FLAGS.BASE)
+    print(resp.MTR_FLAGS.BASE)
+    # while True:
+    #     resp = tc.hk_request(port)
+    #     print(resp.MTR_FLAGS.BASE)
+    # while resp.MTR_FLAGS.BASE ==0:
+    #     resp = tc.hk_request(port)
+    #     print(resp.MTR_FLAGS.BASE)
+    #     if resp.MTR_FLAGS.BASE ==0:
+    #         tc.mtr_mov_neg(port, 0x0040) #Move to Base Switch full traverse
+    #         resp = tc.hk_request(port)
+    #     if resp.MTR_FLAGS.BASE ==1:
+    #         break
+    # abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+    # time.sleep(1)
 
 
 def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
@@ -130,6 +145,7 @@ def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
     return resp
 
 def verify_Sequence(HEATERS=False):
+    abs_log.info(f"Start of Measurement Cycle")     
     tc.hk_request(port)
     time.sleep(1)
     if HEATERS:
@@ -137,40 +153,239 @@ def verify_Sequence(HEATERS=False):
     else:
         tc.power_control(port, 0x01)
     time.sleep(1)
-    tc.set_mtr_param(port, 0x4000, 0x0001, 0x04, 0xFF)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
     time.sleep(1)
     tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
     time.sleep(1)
     tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
     time.sleep(1)
-    tc.mtr_homing(port, False, False, True) #Set Homing towards Base
-    # resp = tc.hk_request(port)
-    # if resp.MTR_FLAGS.MOVING == 1:
-    #     while resp.MTR_FLAGS.MOVING == 1:
-    #         time.sleep(1)
-    #         resp = tc.hk_request(port)
-    #         abs_log.info(f"ABS Steps at this PiT: {hk.MTR_REL_STEPS}")
-    # else : 
-    #     event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")        
-    cmd_mtr_mov_pos(port, 0x2190, repeat=True, exit_if_error=False) #Move to Outer Switch full traverse
+    # Home
+    tc.mtr_homing(port, True, False, True) #Set Homing towards Base
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1:
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
-            resp = tc.hk_request(port)
-            abs_log.info(f"ABS Steps at this PiT: {hk.MTR_REL_STEPS}")
+            resp = tc.hk_request(port)           
     else : 
-        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")          
-    tc.mtr_mov_neg(port, 0x2190) #Move to Base Switch full traverse
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+    time.sleep(1)
+    #To Outer
+    tc.mtr_mov_neg(port, 0x2190)
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1:
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
-            resp = tc.hk_request(port)
-            
-            abs_log.info(f"ABS Steps at this PiT: {hk.MTR_REL_STEPS}")
+            resp = tc.hk_request(port)            
     else : 
-        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")  
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+    time.sleep(1)
+    #Start Stop Sweeps
+    for i in range(2) :
+        time.sleep(1)
+        #To Base
+        for i in range(115):
+            tc.mtr_mov_pos(port,0x0040)
+            time.sleep(0.2)
+        time.sleep(1)
+        tc.mtr_mov_pos(port,0x0640)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
+        time.sleep(1)
+        #To Outer
+        for i in range(115):
+            tc.mtr_mov_neg(port,0x0040)
+            time.sleep(0.2)
+        time.sleep(1)
+        tc.mtr_mov_neg(port,0x0640)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
+        time.sleep(1)
+        # tc.mtr_mov_pos(port,0x0040)
+        # resp = tc.hk_request(port)
+        # if resp.MTR_FLAGS.BASE == 0:
+        #     while resp.MTR_FLAGS.BASE == 0:
+        #         tc.mtr_mov_pos(port,0x0040)
+        #         resp = tc.hk_request(port)           
+        # else :
+        #     time.sleep(1)
+        # resp = tc.hk_request(port)
+        # abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+        # time.sleep(1)
+        # #To Outer
+        # tc.mtr_mov_neg(port,0x0040)
+        # resp = tc.hk_request(port)
+        # if resp.MTR_FLAGS.OUTER == 0:
+        #     while resp.MTR_FLAGS.OUTER == 0:
+        #         tc.mtr_mov_neg(port,0x0040)
+        #         resp = tc.hk_request(port)           
+        # else :
+        #     time.sleep(1)
+        # resp = tc.hk_request(port)
+        # abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+        # time.sleep(1)
+    #To Base
+    tc.mtr_mov_pos(port, 0x2190)
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1:
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)            
+    else : 
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+    time.sleep(1)
+    #To Parked
+    tc.mtr_mov_abs(port, 0x1FA4)
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+
+def continuous_runs(HEATERS=False):
+    abs_log.info(f"Start of Measurement Cycle")     
+    tc.hk_request(port)
+    time.sleep(1)
+    if HEATERS:
+        tc.power_control(port, 0xC3)
+    else:
+        tc.power_control(port, 0x01)
+    time.sleep(1)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
+    time.sleep(1)
+    tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
+    time.sleep(1)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    time.sleep(1)
+    # Home
+    tc.mtr_homing(port, True, False, True) #Set Homing towards Base
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1:
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)           
+    else : 
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+    time.sleep(1)
+    for i in range(5):
+        #To Outer
+        tc.mtr_mov_neg(port, 0x2190)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+        time.sleep(1)
+        #To Base
+        tc.mtr_mov_pos(port, 0x2190)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+        time.sleep(1)
+
+def start_stops(HEATERS=False):
+    abs_log.info(f"Start of Measurement Cycle")     
+    tc.hk_request(port)
+    time.sleep(1)
+    if HEATERS:
+        tc.power_control(port, 0xC3)
+    else:
+        tc.power_control(port, 0x01)
+    time.sleep(1)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
+    time.sleep(1)
+    tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
+    time.sleep(1)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    time.sleep(1)
+    # Home
+    tc.mtr_homing(port, True, False, True) #Set Homing towards Base
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1:
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)           
+    else : 
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+    time.sleep(1)
+    resp = tc.hk_request(port)
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
+    time.sleep(1)
+    #Start Stop Sweeps
+    for i in range(5) :
+        time.sleep(1)
+        #To Base
+        for i in range(115):
+            tc.mtr_mov_neg(port,0x0040)
+            time.sleep(0.2)
+        time.sleep(1)
+        tc.mtr_mov_neg(port,0x0640)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
+        time.sleep(1)
+        #To Outer
+        for i in range(115):
+            tc.mtr_mov_pos(port,0x0040)
+            time.sleep(0.2)
+        time.sleep(1)
+        tc.mtr_mov_pos(port,0x0640)
+        resp = tc.hk_request(port)
+        if resp.MTR_FLAGS.MOVING == 1:
+            while resp.MTR_FLAGS.MOVING == 1:
+                time.sleep(1)
+                resp = tc.hk_request(port)            
+        else : 
+            event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
+        time.sleep(1)
+
 
 @atexit.register
 def clean_exit():
@@ -182,38 +397,36 @@ def clean_exit():
 
 start_time = datetime.now()
 
-# script_repeat_hk()
-# tc.clear_errors(port)
-# tc.power_control(port, 0x01)
-# tc.mtr_mov_pos(port, 0x1000)
+# hk = tc.hk_request(port)                                                      #cmd 00
+# tc.clear_errors(port)                                                         #cmd 01
+# TODO: Add set errors      (02)
+# tc.power_control(port, 0x03)                                                  #cmd 04
+# tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
+# tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
+# tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
+# tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
+# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
+# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)                                  #cmd 0C
+# TODO: Add Set Mtr Errors  (0D)
+# tc.mtr_mov_pos(port, 0x1000)                                                  #cmd 10
+# tc.mtr_mov_neg(port, 0x0500)                                                  #cmd 11
+# tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
+# tc.mtr_homing(port, True, False, True)                                        #cmd 13
+# TODO: Add Motor Halt      (15)
+# TODO: Add SWIR            (18)
+# TODO: Add MWIR            (19)
+# TODO: Add HK Samples      (1B)
+# tc.sci_request(port)
 # cmd_mtr_mov_pos(port, 0x1000, True)
 
 
-hk = tc.hk_request(port)
-# tc_log.info(f"Heater Before: {hk.THRM_STATUS}")
-# tc.set_mech_sp(port, 0x0ABC, 0x0123)
-# tc.set_detec_sp(port, 0x0DEF, 0x0456)
-# # tc.heater_control(port, False, True, False, False, True, verify=True)
 # hk = tc.hk_request(port)
-# tc_log.info(f"Heater After: {hk.THRM_STATUS}")
-# tc_log.info(f"Mech_OFF_SP: {hk.THRM_MECH_OFF_SP:04X}")
-# tc_log.info(f"Mech_ON_SP: {hk.THRM_MECH_ON_SP:04X}")
-# tc_log.info(f"Detec_OFF_SP: {hk.THRM_DET_OFF_SP:04X}")
-# tc_log.info(f"Detec_ON_SP: {hk.THRM_DET_ON_SP:04X}")
-
-# tc.set_mtr_param(port, 0x61A8, 0x0006, 0x04, 0xFF)
-# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
-# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
-# tc.clear_errors(port)
-# tc.sci_request(port)
-# tc.clear_errors(port)
-
-# script_homing_default(False)
-# tc.clear_errors(port)
-# script_homing(False)
-# tc.mtr_homing(port, True, False, True) #Set Homing towards Base
-# tc.mtr_mov_pos(port, 0x1000)
+# set_params(HEATERS=False)
+# tc.mtr_mov_abs(port, 0x1FA4)  
 verify_Sequence()
+# continuous_runs()
+# start_stops()
+# script_stops()
 end_time = datetime.now()
 
 

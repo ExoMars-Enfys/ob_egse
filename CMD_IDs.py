@@ -15,7 +15,7 @@ cmd_ids = {
     0x0D: "Set_MTR_Err_Mask",
     0x10: "MTR_Mov_Pos",
     0x11: "MTR_Mov_Neg",
-    0x12: "Mov_ABS",
+    0x12: "MTR_Mov_ABS",
     0x13: "MTR_Homing",
     0x15: "MTR_Halt",
     0x18: "Set_SWIR_Offset",

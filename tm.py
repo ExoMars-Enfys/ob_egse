@@ -21,6 +21,7 @@ class getResponse:
     def __init__(self, port: serial.rs485.RS485):
         self.raw_bytes = port.read(1000)
         tm_log.info(f"Response: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        info_log.info(f"Response: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
 
         self.get_cmd_mod_id(self.raw_bytes)
         self.verify_cmd_id()
@@ -83,7 +84,7 @@ class HK(getResponse):
 
         self.check_len()
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        # info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
         )
@@ -145,6 +146,7 @@ class ACK(getResponse):
 
         self.check_len()
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
 
         pkt_strct = tmstruct.ack_hdr + ack_type
         tm_log.debug(pkt_strct)
@@ -247,11 +249,11 @@ def parse_tm(response):
             ack = ACK(response.raw_bytes, tmstruct.ack_set_mtr_mon)
         case "MTR_Homing":
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_homing)
-        case "Mtr_Mov_Pos":
+        case "MTR_Mov_Pos":
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_mov_pos)
-        case "Mtr_Mov_Neg":
+        case "MTR_Mov_Neg":
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_mov_neg)
-        case "Mtr_Mov_Abs":
+        case "MTR_Mov_Abs":
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_mov_abs)
         case "NACK":
             ack = NACK(response.raw_bytes)
