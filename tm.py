@@ -21,7 +21,7 @@ class getResponse:
     def __init__(self, port: serial.rs485.RS485):
         self.raw_bytes = port.read(1000)
         tm_log.info(f"Response: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        info_log.info(f"Response: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        info_log.info(f"Response: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.get_cmd_mod_id(self.raw_bytes)
         self.verify_cmd_id()
@@ -84,7 +84,7 @@ class HK(getResponse):
 
         self.check_len()
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        # info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        # info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
         )
@@ -146,7 +146,7 @@ class ACK(getResponse):
 
         self.check_len()
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         pkt_strct = tmstruct.ack_hdr + ack_type
         tm_log.debug(pkt_strct)

@@ -5,15 +5,28 @@ import sys
 import atexit
 import serial
 import serial.rs485
+import argparse
 from datetime import datetime
 import pathlib
 
 from crc8Function import crc8Calculate
 import tc
 
+parser = argparse.ArgumentParser(
+                prog='ob_egse',
+                description = 'Exercise OB EGSE')
+parser.add_argument('-prefix', type=ascii)
+parser.add_argument('-com', type=int, default=3,)
+parser.add_argument('-basedir', type=pathlib.Path, default='c:/wdir/ob_egse/loggers/')
+args=parser.parse_args()
+
 DEBUG_LEVEL = logging.INFO
-COM_PORT = 'COM' + input("Please enter the com port number of the FPGA\n")
-prefix = input('\n Test Prefix : \n')
+COM_PORT = 'COM' + str(args.com)
+prefix = args.prefix
+basedir = str(args.basedir)
+# COM_PORT = 'COM7'
+# prefix = 'Desktop test'
+# basedir = 'c:/wdir/ob_egse/loggers/'
 # ----Handlers---------------------------------------------------------------------------------------
 cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
 fh_formatter = logging.Formatter('%(asctime)s - %(message)s') # Setting the logging format for file loggers
@@ -22,13 +35,13 @@ hdlr_1 = logging.StreamHandler()
 hdlr_1.setFormatter(cl_formatter)
 # -- File Stream Handlers --
 # -- Info Handler - Streams every single command being sent to the OB with its Response --
-info_fh = logging.FileHandler('C:/wdir/ob_egse/loggers/INFO/' + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+info_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
 info_fh.setFormatter(fh_formatter)
 # -- Error Handler - Streams every Error --
-error_fh = logging.FileHandler('C:/wdir/ob_egse/loggers/ERRORS/' + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+error_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
 error_fh.setFormatter(fh_formatter)
 # -- AbsSteps Handler - Streams only every movement and ABS Steps --
-abs_fh = logging.FileHandler('C:/wdir/ob_egse/loggers/ABS_STEPS/' + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+abs_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
 abs_fh.setFormatter(fh_formatter)
 # ----Loggers---------------------------------------------------------------------------------------
 # -- Initiate tm_log streamer --
