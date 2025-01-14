@@ -8,6 +8,7 @@ import serial.rs485
 import argparse
 from datetime import datetime
 import pathlib
+import os
 
 from crc8Function import crc8Calculate
 import tc
@@ -25,8 +26,13 @@ COM_PORT = 'COM' + str(args.com)
 prefix = args.prefix
 basedir = str(args.basedir)
 # COM_PORT = 'COM7'
-# prefix = 'Desktop test'
+# prefix = 'Desktop_test_2'
 # basedir = 'c:/wdir/ob_egse/loggers/'
+
+loggerdir = basedir + '{:%Y-%m-%d}'.format(datetime.now()) + '_' + prefix
+print (loggerdir)
+if os.path.exists(loggerdir) !=  True: 
+    os.makedirs(loggerdir)
 # ----Handlers---------------------------------------------------------------------------------------
 cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
 fh_formatter = logging.Formatter('%(asctime)s - %(message)s') # Setting the logging format for file loggers
@@ -35,14 +41,20 @@ hdlr_1 = logging.StreamHandler()
 hdlr_1.setFormatter(cl_formatter)
 # -- File Stream Handlers --
 # -- Info Handler - Streams every single command being sent to the OB with its Response --
-info_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+info_fh = logging.FileHandler(loggerdir + '/' + prefix +  '_INFO_DUMP.log')
 info_fh.setFormatter(fh_formatter)
 # -- Error Handler - Streams every Error --
-error_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+error_fh = logging.FileHandler(loggerdir+ '/' + prefix +   '_ERROR.log')
 error_fh.setFormatter(fh_formatter)
 # -- AbsSteps Handler - Streams only every movement and ABS Steps --
-abs_fh = logging.FileHandler(basedir + prefix + ' - {:%Y-%m-%d}.log'.format(datetime.now()))
+abs_fh = logging.FileHandler(loggerdir + '/' + prefix +   '_ABS_STEPS.log')
 abs_fh.setFormatter(fh_formatter)
+# -- AbsSteps Handler - Streams only every movement and ABS Steps --
+hk_fh = logging.FileHandler(loggerdir + '/' + prefix +   '_HK.log')
+hk_fh.setFormatter(fh_formatter)
+# -- AbsSteps Handler - Streams only every movement and ABS Steps --
+cmd_fh = logging.FileHandler(loggerdir  + '/'+ prefix +   '_CMD.log')
+cmd_fh.setFormatter(fh_formatter)
 # ----Loggers---------------------------------------------------------------------------------------
 # -- Initiate tm_log streamer --
 tm_log = logging.getLogger("tm_log")
@@ -68,6 +80,14 @@ error_log.addHandler(error_fh)
 abs_log = logging.getLogger("abs_log")
 abs_log.setLevel(logging.INFO)
 abs_log.addHandler(abs_fh)
+# -- Initiate hk writer --
+hk_log = logging.getLogger("hk_log")
+hk_log.setLevel(logging.INFO)
+hk_log.addHandler(hk_fh)
+# -- Initiate cmd writer --
+cmd_log = logging.getLogger("cmd_log")
+cmd_log.setLevel(logging.INFO)
+cmd_log.addHandler(cmd_fh)
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
 try:
@@ -121,7 +141,8 @@ def script_stops(HEATERS=False):
             print(resp.MTR_FLAGS.BASE)
             resp = tc.hk_request(port)           
     else : 
-        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")  
+        clean_exit() 
         print(resp.MTR_FLAGS.BASE)
     print(resp.MTR_FLAGS.BASE)
     # while True:
@@ -180,7 +201,8 @@ def verify_Sequence(HEATERS=False):
             time.sleep(1)
             resp = tc.hk_request(port)           
     else : 
-        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        clean_exit()   
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
@@ -194,6 +216,7 @@ def verify_Sequence(HEATERS=False):
             resp = tc.hk_request(port)            
     else : 
         event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        clean_exit()
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
@@ -214,6 +237,7 @@ def verify_Sequence(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
@@ -231,6 +255,7 @@ def verify_Sequence(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
@@ -267,12 +292,21 @@ def verify_Sequence(HEATERS=False):
             resp = tc.hk_request(port)            
     else : 
         event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        clean_exit()
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
     time.sleep(1)
     #To Parked
     tc.mtr_mov_abs(port, 0x1FA4)
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1:
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)            
+    else : 
+        event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+        clean_exit()
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
@@ -301,6 +335,7 @@ def continuous_runs(HEATERS=False):
             resp = tc.hk_request(port)           
     else : 
         event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+        clean_exit()
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
@@ -315,6 +350,7 @@ def continuous_runs(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
@@ -328,6 +364,7 @@ def continuous_runs(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
@@ -357,6 +394,7 @@ def start_stops(HEATERS=False):
             resp = tc.hk_request(port)           
     else : 
         event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")   
+        clean_exit()
     time.sleep(1)
     resp = tc.hk_request(port)
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")     
@@ -377,6 +415,7 @@ def start_stops(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
@@ -394,6 +433,7 @@ def start_stops(HEATERS=False):
                 resp = tc.hk_request(port)            
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
+            clean_exit()
         time.sleep(1)
         resp = tc.hk_request(port)
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}") 
@@ -403,6 +443,7 @@ def start_stops(HEATERS=False):
 @atexit.register
 def clean_exit():
     print("Clean exit funtion executed")
+    sys.exit(1001)
     #! TODO Add code here, possibly try and power insturment off
     #! TODO power off power supply
     #! TODO ensure all logs are written

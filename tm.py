@@ -14,6 +14,7 @@ from constants import EXP_MODEL_ID
 tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
+hk_log = logging.getLogger("hk_log")
 # ----Class definitions-----------------------------------------------------------------------------
 
 
@@ -84,7 +85,7 @@ class HK(getResponse):
 
         self.check_len()
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        # info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        hk_log.info(f"{bytes.hex(self.raw_bytes, ' ', 2)}")
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
         )

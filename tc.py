@@ -6,6 +6,7 @@ import tm
 tc_log = logging.getLogger("tc_log")
 info_log = logging.getLogger("info_log")
 error_log = logging.getLogger("error_log")
+cmd_log = logging.getLogger("cmd_log")
 # TODO: Have a return pass/fail for each TC, so extra logic can be added to script
 
 
@@ -18,6 +19,7 @@ def hk_request(port, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get Response and check type ---
@@ -55,6 +57,7 @@ def power_control(port, pwr_stat, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -100,6 +103,7 @@ def heater_control(
     cmd = "05" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -143,6 +147,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify: bool = True):
     cmd = "06" + f"{thrm_mech_off_sp:04X}" + f"{thrm_mech_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -194,6 +199,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify: bool = True)
     cmd = "07" + f"{thrm_detec_off_sp:04X}" + f"{thrm_detec_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -242,6 +248,7 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
@@ -290,6 +297,7 @@ def set_mtr_guard(port, recirc, guard, recval, spisel, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set_MTR_Guard:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Set_MTR_Guard:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
@@ -337,6 +345,7 @@ def set_mtr_mon(port, ABS, REL, BACKOFF, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set_MTR_MON:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Set_MTR_MON:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
@@ -357,6 +366,7 @@ def mtr_homing(port, FORWARD: bool, CAL: bool, HOME: bool, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ack = tm.getResponse(port)
@@ -386,6 +396,7 @@ def mtr_mov_pos(port, pos_steps, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -414,6 +425,7 @@ def mtr_mov_neg(port, neg_steps, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -442,6 +454,7 @@ def mtr_mov_abs(port, abs_pos, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Move to Abs Pos:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"\nSend Move to Abs Pos:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
@@ -475,6 +488,7 @@ def sci_request(port, verify=True):
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Requesting Science Reading")
     info_log.info(f"\nRequesting Science Reading")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ack = tm.getResponse(port)
