@@ -94,13 +94,13 @@ ack_set_mtr_guard = [
     ("MTR_RECIRC", "u8"),
     ("MTR_GUARD", ">u16"),
     ("MTR_RECVAL", "u8"),
-    ("MTR_SPISEL", ">u16"),
+    ("MTR_SPISPSEL", ">u16"),
 ]
 
 ack_set_mtr_mon = [
     ("MTR_ABS_STEPS", ">u16"),
-    ("MTR_REL_STEPS", ">u16"),
-    # TODO: Check offset not in structure
+    ("MTR_REL_STEPS", ">s16"),
+    ("MTR_SW_OFFSET", ">u16"),
 ]
 
 ack_mtr_homing = [

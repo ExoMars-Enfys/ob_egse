@@ -15,6 +15,7 @@ tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
 hk_log = logging.getLogger("hk_log")
+ack_log = logging.getLogger("ack_log")
 # ----Class definitions-----------------------------------------------------------------------------
 
 
@@ -148,7 +149,7 @@ class ACK(getResponse):
         self.check_len()
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-
+        ack_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         pkt_strct = tmstruct.ack_hdr + ack_type
         tm_log.debug(pkt_strct)
         param = bitstruct.unpack_dict(
