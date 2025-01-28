@@ -149,7 +149,7 @@ class ACK(getResponse):
         self.check_len()
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        ack_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        ack_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         pkt_strct = tmstruct.ack_hdr + ack_type
         tm_log.debug(pkt_strct)
         param = bitstruct.unpack_dict(

@@ -1,2 +1,5 @@
 __pycache__/
+logs/
 loggers/
+.gitignore
+egse_logger.py
