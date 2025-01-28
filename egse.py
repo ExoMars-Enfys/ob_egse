@@ -26,8 +26,8 @@ COM_PORT = 'COM' + str(args.com)
 prefix = str(args.prefix).strip("'")
 basedir = args.basedir
 # COM_PORT = 'COM21'
-# prefix = 'Healthcheck_test'
-# basedir = 'E:\LTM Tests'
+# prefix = 'Switch_Debug_Full2'
+# basedir = 'E:\LTM Tests\Switch_Debug_Full2'
 
 # ----Handlers---------------------------------------------------------------------------------------
 cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
@@ -122,19 +122,19 @@ port.flushInput()
 def verify_Sequence(HEATERS=False):
     tc.clear_errors(port)
     if HEATERS:
-        tc.power_control(port, 0xC3)
+        tc.power_control(port, 0x03)
     else:
         tc.power_control(port, 0x01)
     tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
     tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
-    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)
     # TODO add parameter check with other checks
     resp = tc.hk_request(port)
     # Request HK, verify that motor flags are off, motor is not moving, ABS count is 0, Rel count is 0, motor parameters are as defaults/expected
     if (resp.MTR_FLAGS.MOVING == 1 #or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 0 #
         or resp.MTR_CURRENT != 16384 or resp.MTR_PWM_RATE != 1 or resp.MTR_SPEED !=9 or resp.MTR_PWM_DUTY != 255
         or resp.MTR_RECIRC != 3 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPISPSEL != 2
-        or resp.MTR_SW_OFFSET != 160) :
+        or resp.MTR_SW_OFFSET != 480) :
             event_log.error(f'[EVENT] Initial Startup Healthcheck FAILED - Checks carried : Moving: {resp.MTR_FLAGS.MOVING} BaseStop: {resp.MTR_FLAGS.BASE} OuterStop: {resp.MTR_FLAGS.OUTER}  AbsSteps: {resp.MTR_ABS_STEPS} RelSteps: {resp.MTR_REL_STEPS} '
                                 f'Current: {resp.MTR_CURRENT} PWM Rate: {resp.MTR_PWM_RATE} Speed: {resp.MTR_SPEED} PWM Duty: {resp.MTR_PWM_DUTY} '
                                 f'Recirc: {resp.MTR_RECIRC} MTR Guard: {resp.MTR_GUARD} RecVal: {resp.MTR_RECVAL} SPiSel: {resp.MTR_SPISPSEL} '
@@ -205,7 +205,7 @@ def verify_Sequence(HEATERS=False):
     else:
         event_log.info(f"[EVENT] Homing Healthcheck PASSED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
         info_log.info(f"[EVENT] Homing Healthcheck PASSED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
-    
+    abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
     
     #To Outer
     #Command as a large amound of steps as to not reset abs step count
@@ -220,11 +220,11 @@ def verify_Sequence(HEATERS=False):
     
     # Once finished request HK, verify that Outer Flag is active, motor moving is off, ABS count is within+-5 of usual back off, verify relative steps is 160
     resp = tc.hk_request(port)
-    if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (200>=resp.MTR_ABS_STEPS>=1080) or resp.MTR_REL_STEPS != 160):
+    if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (520>=resp.MTR_ABS_STEPS>=1400) or resp.MTR_REL_STEPS != 480):
         event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
         error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
         resp = tc.hk_request(port)
-        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (200>=resp.MTR_ABS_STEPS>=1080) or resp.MTR_REL_STEPS != 160):
+        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (520>=resp.MTR_ABS_STEPS>=1400) or resp.MTR_REL_STEPS != 480):
             event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             clean_exit()
@@ -240,7 +240,7 @@ def verify_Sequence(HEATERS=False):
     # Start Stop Sweeps
     for i in range(2) :
         #To Base
-        for i in range(115):
+        for i in range(110):
             abs_steps = resp.MTR_ABS_STEPS
             tc.mtr_mov_pos(port,0x0040)
             resp = tc.hk_request(port)
@@ -269,11 +269,11 @@ def verify_Sequence(HEATERS=False):
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
         resp = tc.hk_request(port)
-        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8360>=resp.MTR_ABS_STEPS>=9240) ):
+        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8040>=resp.MTR_ABS_STEPS>=9560) ):
             event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             resp = tc.hk_request(port)
-            if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8360>=resp.MTR_ABS_STEPS>=9240) ):
+            if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8040>=resp.MTR_ABS_STEPS>=9560) ):
                 event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
                 error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
                 clean_exit()
@@ -286,7 +286,7 @@ def verify_Sequence(HEATERS=False):
         abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
        
         #To Outer
-        for i in range(115):
+        for i in range(110):
             abs_steps = resp.MTR_ABS_STEPS
             tc.mtr_mov_neg(port,0x0040)
             resp = tc.hk_request(port)
@@ -323,11 +323,11 @@ def verify_Sequence(HEATERS=False):
         else : 
             event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
         resp = tc.hk_request(port)
-        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (200>=resp.MTR_ABS_STEPS>=1080) or resp.MTR_REL_STEPS != 160):
+        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (520>=resp.MTR_ABS_STEPS>=1400) or resp.MTR_REL_STEPS != 480):
             event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             resp = tc.hk_request(port)
-            if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (200>=resp.MTR_ABS_STEPS>=1080) or resp.MTR_REL_STEPS != 160):
+            if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 1 or resp.MTR_FLAGS.OUTER == 0 or (520>=resp.MTR_ABS_STEPS>=1400) or resp.MTR_REL_STEPS != 480):
                 event_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
                 error_log.error(f"[EVENT] Outer Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
                 clean_exit()
@@ -441,11 +441,11 @@ def verify_Sequence(HEATERS=False):
             resp = tc.hk_request(port)            
     else : 
         event_log.error(f"[EVENT] Motor not Moving as expected. MTR Moving Flag : {resp.MTR_FLAGS.MOVING}")
-    if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8360>=resp.MTR_ABS_STEPS>=9240)):
+    if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8040>=resp.MTR_ABS_STEPS>=9560)):
         event_log.error(f"[EVENT] Base Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
         error_log.error(f"[EVENT] Base Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
         resp = tc.hk_request(port)
-        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8360>=resp.MTR_ABS_STEPS>=9240)):
+        if (resp.MTR_FLAGS.MOVING == 1 or resp.MTR_FLAGS.BASE == 0 or resp.MTR_FLAGS.OUTER == 1 or (8040>=resp.MTR_ABS_STEPS>=9560)):
             event_log.error(f"[EVENT] Base Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             error_log.error(f"[EVENT] Base Traverse Healthcheck FAILED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}")
             clean_exit()
@@ -501,10 +501,10 @@ start_time = datetime.now()
 # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
 # tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
 # tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
-# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)                                  #cmd 0C
+# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)                                  #cmd 0C
 # TODO: Add Set Mtr Errors  (0D)
-# tc.mtr_mov_pos(port, 0x0500)                                                  #cmd 10
-# tc.mtr_mov_neg(port, 0x2190)                                                  #cmd 11
+# tc.mtr_mov_pos(port, 0x2190)                                                  #cmd 10
+# tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
 # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
 # tc.mtr_homing(port, False, False, True)                                        #cmd 13
 # TODO: Add Motor Halt      (15)
@@ -517,7 +517,7 @@ start_time = datetime.now()
 
 # hk = tc.hk_request(port)
 # set_params(HEATERS=False)
-# tc.mtr_mov_abs(port, 0x1FA4)  
+# tc.mtr_mov_abs(port, 0x1FA4)
 verify_Sequence()
 # continuous_runs()
 # start_stops()
