@@ -226,9 +226,10 @@ def parse_tm(response):
     match (response.cmd_type):
         case "HK_Request":
             ack = HK(response.raw_bytes)
-            print(
-                f"{ack.approx_cal_3V3:.3f}    {ack.approx_cal_1V5:.3f}    {ack.approx_cal_1V5:.3f}"
-            )
+            print(f"{ack.approx_cal_3V3:.3f}    {ack.approx_cal_1V5:.3f}")
+            # print(f"CMD Count: {hk.CMD_CNT}")
+            # print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
+            # print(f"DIR: {hk.MTR_FLAGS.DIR}")
             # print(f"CMD Count: {hk.CMD_CNT}")
             # print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
             # print(f"DIR: {hk.MTR_FLAGS.DIR}")
