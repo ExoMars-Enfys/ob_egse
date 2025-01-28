@@ -94,7 +94,7 @@ ack_set_mtr_guard = [
     ("MTR_RECIRC", "u8"),
     ("MTR_GUARD", ">u16"),
     ("MTR_RECVAL", "u8"),
-    ("MTR_SPISPSEL", ">u16"),
+    ("MTR_SPISEL", ">u16"),
 ]
 
 ack_set_mtr_mon = [

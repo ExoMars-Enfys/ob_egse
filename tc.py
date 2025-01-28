@@ -329,10 +329,10 @@ def set_mtr_guard(port, recirc, guard, recval, spisel, verify=True):
             f"Got: x{parsed.MTR_RECVAL:04X}"
         )
 
-    if parsed.MTR_SPISPSEL != spisel:
+    if parsed.MTR_SPISEL != spisel:
         tc_log.error(
             f"ACK spi_sel not as commanded. Set: x{spisel:04X}, "
-            f"Got: x{parsed.MTR_SPISPSEL:04X}"
+            f"Got: x{parsed.MTR_SPISEL:04X}"
         )
 
 

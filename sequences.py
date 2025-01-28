@@ -9,7 +9,32 @@ abs_log = logging.getLogger("abs_log")
 error_log = logging.getLogger("error_log")
 
 # ----
-def verify_Sequence(port, HEATERS=False):
+def script_repeat_hk(port):
+    for i in range(100):
+        tc.hk_request(port)
+        time.sleep(2)
+
+def script_homing(port, HEATERS=False):
+    tc.hk_request(port)
+    if HEATERS:
+        tc.power_control(port, 0xC3)
+    else:
+        tc.power_control(port, 0x01)
+    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
+    tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    # tc.mtr_homing(port, True, False, True)
+    tc.mtr_mov_pos(port, 0x1000)
+    resp = tc.hk_request(port)
+
+    while resp.MTR_FLAGS.MOVING == 1:
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        event_log.info("Motor still moving ***********")
+    tm_log.info("Motor movement finished")
+    return
+
+def verify_sequence(port, HEATERS=False):
     tc.clear_errors(port)
     if HEATERS:
         tc.power_control(port, 0x03)
