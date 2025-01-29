@@ -36,7 +36,9 @@ args=parser.parse_args()
 com_port = 'COM' + str(args.com)
 prefix = str(args.prefix).strip("'")
 basedir = args.basedir
-basedir.mkdir(parents=True)
+
+if basedir == DEFAULT_PATH:
+    basedir.mkdir(parents=True)
 
 tm_log, tc_log, event_log, info_log, error_log, abs_log, hk_log, cmd_log, ack_log = egse_logger.get_loggers(basedir, DEBUG_LEVEL)
 
@@ -100,7 +102,7 @@ start_time = datetime.now()
 # hk = tc.hk_request(port)
 # set_params(HEATERS=False)
 # tc.mtr_mov_abs(port, 0x1FA4)
-sq.verify_Sequence(port)
+sq.verify_sequence(port)
 # continuous_runs()
 # start_stops()
 # script_stops()

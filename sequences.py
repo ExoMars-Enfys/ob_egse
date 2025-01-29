@@ -3,6 +3,7 @@ import time
 
 import tc
 
+tm_log = logging.getLogger("tm_log")
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
