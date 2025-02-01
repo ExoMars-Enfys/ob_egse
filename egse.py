@@ -19,8 +19,8 @@ import tc
 
 ## ----Constants -----------------------------------------------------------------------------------
 DEBUG_LEVEL = logging.INFO
-DEFAULT_PATH = Path.cwd() / "logs" / datetime.now().strftime("%Y%m%d_%H%M%S")
-DEFAULT_COM_PORT = 15
+DEFAULT_PREFIX = datetime.now().strftime("%Y%m%d_%H%M%S")
+DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 
 
 ## ----Script Start --------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ DEFAULT_COM_PORT = 15
 parser = argparse.ArgumentParser(
                 prog='ob_egse',
                 description = 'Exercise OB EGSE')
-parser.add_argument('-prefix', type=ascii)
+parser.add_argument('-prefix', type=ascii, default=DEFAULT_PREFIX)
 parser.add_argument('-com', type=int, default=DEFAULT_COM_PORT,)
 parser.add_argument('-basedir', type=Path, default=DEFAULT_PATH)
 args=parser.parse_args()

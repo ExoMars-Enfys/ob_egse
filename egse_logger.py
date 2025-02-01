@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-def get_loggers(basedir: Path, debug_level:str = logging.INFO):
+def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     # ----Handlers---------------------------------------------------------------------------------------
     cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
     fh_formatter = logging.Formatter('%(asctime)s - %(message)s') # Setting the logging format for file loggers
@@ -12,22 +12,22 @@ def get_loggers(basedir: Path, debug_level:str = logging.INFO):
 
     # -- File Stream Handlers --
     # -- Info Handler - Streams every single command being sent to the OB with its Response --
-    info_fh = logging.FileHandler(basedir / "INFO_DUMP.log")
+    info_fh = logging.FileHandler(basedir / (prefix + "_INFO_DUMP.log"))
     info_fh.setFormatter(fh_formatter)
     # -- Error Handler - Streams every Error --
-    error_fh = logging.FileHandler(basedir / 'ERROR.log')
+    error_fh = logging.FileHandler(basedir / (prefix + '_ERROR.log'))
     error_fh.setFormatter(fh_formatter)
     # -- AbsSteps Handler - Streams only every movement and ABS Steps --
-    abs_fh = logging.FileHandler(basedir / 'ABS_STEPS.log')
+    abs_fh = logging.FileHandler(basedir / (prefix + '_ABS_STEPS.log'))
     abs_fh.setFormatter(fh_formatter)
     # -- HK Handler - Streams only HK --
-    hk_fh = logging.FileHandler(basedir / 'HK.log')
+    hk_fh = logging.FileHandler(basedir / (prefix + '_HK.log'))
     hk_fh.setFormatter(fh_formatter)
     # -- CMD Handler - Streams only Commands --
-    cmd_fh = logging.FileHandler(basedir / 'CMD.log')
+    cmd_fh = logging.FileHandler(basedir / (prefix + '_CMD.log'))
     cmd_fh.setFormatter(fh_formatter)
     # -- ACK Handler - Streams only every ACK --
-    ack_fh = logging.FileHandler(basedir / 'ACK.log')
+    ack_fh = logging.FileHandler(basedir / (prefix + '_ACK.log'))
     ack_fh.setFormatter(fh_formatter)
 
 
