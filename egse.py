@@ -33,13 +33,25 @@ args=parser.parse_args()
 
 com_port = 'COM' + str(args.com)
 
-prefix = str(args.prefix).strip("'")
-basedir = args.basedir
+const.LOG_PREFIX = str(args.prefix).strip("'")
+const.LOG_PATH = args.basedir
 
-if basedir == const.DEFAULT_PATH:
-    basedir.mkdir(parents=True)
+if const.LOG_PATH == const.DEFAULT_PATH:
+    const.LOG_PATH.mkdir(parents=True)
 
-tm_log, tc_log, event_log, info_log, error_log, abs_log, cmd_log, ack_log = egse_logger.get_loggers(basedir, prefix, const.DEBUG_LEVEL)
+tm_log, tc_log, event_log, info_log, error_log, abs_log = egse_logger.get_loggers(const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL)
+
+# Create ACK Byte Log
+ack_log_name = const.DEFAULT_PREFIX + "_ACK.LOG"
+const.ACK_LOG_FH = open(const.LOG_PATH / ack_log_name, 'a+', encoding="utf-8")
+
+# Create CMD Byte Log
+cmd_log_name = const.DEFAULT_PREFIX + "_CMD.LOG"
+const.CMD_LOG_FH = open(const.LOG_PATH / ack_log_name, 'a+', encoding="utf-8")
+
+# Create HK Byte Log
+hk_log_name = const.DEFAULT_PREFIX + "_HK.LOG"
+const.HK_LOG_FH = open(const.LOG_PATH / hk_log_name, 'a+', encoding="utf-8")
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
 try:
@@ -67,12 +79,15 @@ port.flushInput()
 
 @atexit.register
 def clean_exit():
+    const.ACK_LOG_FH.close()
+    const.CMD_LOG_FH.close()
+    const.HK_LOG_FH.close()
     sys.exit(1001)
     #! TODO Add code here, possibly try and power insturment off
     #! TODO power off power supply
     #! TODO ensure all logs are written
 
-start_time = datetime.now()
+t1 = time.perf_counter(), time.process_time()
 
 # hk = tc.hk_request(port)                                                      #cmd 00
 # tc.clear_errors(port)                                                         #cmd 01
@@ -109,7 +124,8 @@ for i in range(0, 50):
 # sq.script_repeat_hk(port)
 # start_stops()
 # script_stops()
-end_time = datetime.now()
+t2 = time.perf_counter(), time.process_time()
 
 
-print(f"Loop execution time: {(end_time - start_time)/3}")
+print(f" Real time: {t2[0] - t1[0]:.4f} seconds")
+print(f" CPU time: {t2[1] - t1[1]:.4f} seconds")

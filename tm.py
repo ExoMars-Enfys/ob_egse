@@ -9,14 +9,15 @@ import crc8
 import serial.rs485
 from datetime import datetime
 
+import constants as const
 import tmstruct
 from cmd_ids import cmd_ids
-import constants as const
+
 
 tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
-ack_log = logging.getLogger("ack_log")
+
 # ----Class definitions-----------------------------------------------------------------------------
 class Response:
     def __init__(self, raw_bytes):
@@ -153,9 +154,10 @@ class ACK(TM):
         super().__init__(response)
         self.ack_type = ack_type
 
+        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        ack_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         # Allocate variables based on tm struct
         pkt_strct = tmstruct.ack_hdr + ack_type
@@ -181,6 +183,9 @@ class ACK(TM):
 class NACK(TM):
     def __init__(self, response:Response):
         super().__init__(response)
+        
+        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.nack)
@@ -198,7 +203,6 @@ class NACK(TM):
 
 def get_response(port: serial.rs485.RS485) -> bytes:
     raw_bytes = port.read(1000)
-    tm_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
@@ -207,7 +211,7 @@ def parse_tm(response):
     match (response.cmd_type):
         case "HK_Request":
             ack = HK(response)
-            print(f"{ack.approx_cal_3V3:.3f}    {ack.approx_cal_1V5:.3f}")
+            # print(f"{ack.approx_cal_3V3:.3f}    {ack.approx_cal_1V5:.3f}")
             # print(f"CMD Count: {hk.CMD_CNT}")
             # print(f"MOVING: {hk.MTR_FLAGS.MOVING}")
             # print(f"DIR: {hk.MTR_FLAGS.DIR}")

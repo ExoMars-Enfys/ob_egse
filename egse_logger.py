@@ -5,11 +5,9 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     # ----Handlers---------------------------------------------------------------------------------------
     cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
     fh_formatter = logging.Formatter('%(asctime)s - %(message)s') # Setting the logging format for file loggers
-
     # -- Console Stream Handler --
     hdlr_1 = logging.StreamHandler()
     hdlr_1.setFormatter(cl_formatter)
-
     # -- File Stream Handlers --
     # -- Info Handler - Streams every single command being sent to the OB with its Response --
     info_fh = logging.FileHandler(basedir / (prefix + "_INFO_DUMP.log"))
@@ -20,13 +18,6 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     # -- AbsSteps Handler - Streams only every movement and ABS Steps --
     abs_fh = logging.FileHandler(basedir / (prefix + '_ABS_STEPS.log'))
     abs_fh.setFormatter(fh_formatter)
-    # -- CMD Handler - Streams only Commands --
-    cmd_fh = logging.FileHandler(basedir / (prefix + '_CMD.log'))
-    cmd_fh.setFormatter(fh_formatter)
-    # -- ACK Handler - Streams only every ACK --
-    ack_fh = logging.FileHandler(basedir / (prefix + '_ACK.log'))
-    ack_fh.setFormatter(fh_formatter)
-
 
     # ----Loggers---------------------------------------------------------------------------------------
     # -- Initiate tm_log streamer --
@@ -53,13 +44,5 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     abs_log = logging.getLogger("abs_log")
     abs_log.setLevel(logging.INFO)
     abs_log.addHandler(abs_fh)
-    # -- Initiate cmd writer --
-    cmd_log = logging.getLogger("cmd_log")
-    cmd_log.setLevel(logging.INFO)
-    cmd_log.addHandler(cmd_fh)
-    # -- Initiate ack writer --
-    ack_log = logging.getLogger("ack_log")
-    ack_log.setLevel(logging.INFO)
-    ack_log.addHandler(ack_fh)
 
-    return (tm_log, tc_log, event_log, info_log, error_log, abs_log, cmd_log, ack_log)
+    return (tm_log, tc_log, event_log, info_log, error_log, abs_log)

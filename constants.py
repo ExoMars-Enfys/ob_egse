@@ -11,12 +11,10 @@ DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 14
 
-# -- Functions to share between modules
-def get_log_path() -> Path:
-    return Path(logging.getLogger("info_log").handlers[0].baseFilename)
+LOG_PREFIX = DEFAULT_PREFIX
+LOG_PATH = DEFAULT_PATH
 
-def get_log_dir() -> Path:
-    return get_log_path().parent
-
-def get_log_prefix() -> str:
-    return get_log_path().stem.split('_')[0]
+# Set by EGSE.py do not write here.
+ACK_LOG_FH = None
+CMD_LOG_FH = None
+HK_LOG_FH = None
