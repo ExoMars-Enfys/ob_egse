@@ -20,9 +20,6 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     # -- AbsSteps Handler - Streams only every movement and ABS Steps --
     abs_fh = logging.FileHandler(basedir / (prefix + '_ABS_STEPS.log'))
     abs_fh.setFormatter(fh_formatter)
-    # -- HK Handler - Streams only HK --
-    hk_fh = logging.FileHandler(basedir / (prefix + '_HK.log'))
-    hk_fh.setFormatter(fh_formatter)
     # -- CMD Handler - Streams only Commands --
     cmd_fh = logging.FileHandler(basedir / (prefix + '_CMD.log'))
     cmd_fh.setFormatter(fh_formatter)
@@ -56,10 +53,6 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     abs_log = logging.getLogger("abs_log")
     abs_log.setLevel(logging.INFO)
     abs_log.addHandler(abs_fh)
-    # -- Initiate hk writer --
-    hk_log = logging.getLogger("hk_log")
-    hk_log.setLevel(logging.INFO)
-    hk_log.addHandler(hk_fh)
     # -- Initiate cmd writer --
     cmd_log = logging.getLogger("cmd_log")
     cmd_log.setLevel(logging.INFO)
@@ -69,4 +62,4 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     ack_log.setLevel(logging.INFO)
     ack_log.addHandler(ack_fh)
 
-    return (tm_log, tc_log, event_log, info_log, error_log, abs_log, hk_log, cmd_log, ack_log)
+    return (tm_log, tc_log, event_log, info_log, error_log, abs_log, cmd_log, ack_log)

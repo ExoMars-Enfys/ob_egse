@@ -6,19 +6,17 @@ from bitstruct import unpack_from as upf
 import bitstruct
 import crc8
 import serial.rs485
+from datetime import datetime
 
 import tmstruct
 from cmd_ids import cmd_ids
-from constants import EXP_MODEL_ID
+import constants as const
 
 tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
-hk_log = logging.getLogger("hk_log")
 ack_log = logging.getLogger("ack_log")
 # ----Class definitions-----------------------------------------------------------------------------
-
-
 class getResponse:
     def __init__(self, port: serial.rs485.RS485):
         self.raw_bytes = port.read(1000)
@@ -43,9 +41,9 @@ class getResponse:
             tm_log.error(f"CMD ID Not Found. Got:{self.cmd_id}")
 
     def verify_model_id(self):
-        if self.mod_id != EXP_MODEL_ID:
+        if self.mod_id != const.EXP_MODEL_ID:
             tm_log.error(
-                f"Model ID not as expected. Expected:{EXP_MODEL_ID}, Got: {self.mod_id}"
+                f"Model ID not as expected. Expected:{const.EXP_MODEL_ID}, Got: {self.mod_id}"
             )
 
     def verify_crc(self):
@@ -81,12 +79,16 @@ class getResponse:
 class HK(getResponse):
     def __init__(self, raw_bytes):
         self.raw_bytes = raw_bytes
-        # print(bytes.hex(self.raw_bytes, ' ', 2))
         self.get_cmd_mod_id(self.raw_bytes)
+
+        # Determine log file
+        hk_log_stem = const.get_log_prefix() + "_HK.log"
+        with open (const.get_log_dir() / hk_log_stem, 'a+') as file:
+            file.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            file.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
 
         self.check_len()
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        hk_log.info(f"{bytes.hex(self.raw_bytes, ' ', 2)}")
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.hk), [i[0] for i in tmstruct.hk], raw_bytes
         )

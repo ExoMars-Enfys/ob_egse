@@ -12,15 +12,13 @@ from datetime import datetime
 import serial.rs485
 
 # Local modules
-from crc8Function import crc8Calculate
+import constants as const
 import egse_logger
 import sequences as sq
 import tc
 
 ## ----Constants -----------------------------------------------------------------------------------
-DEBUG_LEVEL = logging.INFO
-DEFAULT_PREFIX = datetime.now().strftime("%Y%m%d_%H%M%S")
-DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
+
 
 
 ## ----Script Start --------------------------------------------------------------------------------
@@ -28,19 +26,20 @@ DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 parser = argparse.ArgumentParser(
                 prog='ob_egse',
                 description = 'Exercise OB EGSE')
-parser.add_argument('-prefix', type=ascii, default=DEFAULT_PREFIX)
-parser.add_argument('-com', type=int, default=DEFAULT_COM_PORT,)
-parser.add_argument('-basedir', type=Path, default=DEFAULT_PATH)
+parser.add_argument('-prefix', type=ascii, default=const.DEFAULT_PREFIX)
+parser.add_argument('-com', type=int, default=const.DEFAULT_COM_PORT,)
+parser.add_argument('-basedir', type=Path, default=const.DEFAULT_PATH)
 args=parser.parse_args()
 
 com_port = 'COM' + str(args.com)
+
 prefix = str(args.prefix).strip("'")
 basedir = args.basedir
 
-if basedir == DEFAULT_PATH:
+if basedir == const.DEFAULT_PATH:
     basedir.mkdir(parents=True)
 
-tm_log, tc_log, event_log, info_log, error_log, abs_log, hk_log, cmd_log, ack_log = egse_logger.get_loggers(basedir, DEBUG_LEVEL)
+tm_log, tc_log, event_log, info_log, error_log, abs_log, cmd_log, ack_log = egse_logger.get_loggers(basedir, prefix, const.DEBUG_LEVEL)
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
 try:
@@ -73,7 +72,6 @@ def clean_exit():
     #! TODO power off power supply
     #! TODO ensure all logs are written
 
-
 start_time = datetime.now()
 
 # hk = tc.hk_request(port)                                                      #cmd 00
@@ -98,12 +96,17 @@ start_time = datetime.now()
 # tc.sci_request(port)
 # cmd_mtr_mov_pos(port, 0x1000, True)
 
+for i in range(0, 50):
+    hk = tc.hk_request(port)
+    print(hk.approx_cal_1V5)
+
 
 # hk = tc.hk_request(port)
 # set_params(HEATERS=False)
 # tc.mtr_mov_abs(port, 0x1FA4)
-sq.verify_sequence(port)
+# sq.verify_sequence(port)
 # continuous_runs()
+# sq.script_repeat_hk(port)
 # start_stops()
 # script_stops()
 end_time = datetime.now()
