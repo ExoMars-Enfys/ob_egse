@@ -23,7 +23,8 @@ def hk_request(port, verify=True):
     port.write(cmd_tc)
 
     ## --- Get Response and check type ---
-    response = tm.getResponse(port)
+    response_bytes = tm.get_response(port)
+    response = tm.Response(response_bytes)
     if response.cmd_type != "HK_Request":
         tc_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
         tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
@@ -61,7 +62,8 @@ def power_control(port, pwr_stat, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Power_Control":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -107,7 +109,8 @@ def heater_control(
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Heater_Control":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -151,7 +154,8 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify: bool = True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Mech_SP":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -203,7 +207,8 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify: bool = True)
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Detec_SP":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -252,7 +257,8 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Param":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -301,7 +307,8 @@ def set_mtr_guard(port, recirc, guard, recval, spisel, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Guard":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -349,7 +356,8 @@ def set_mtr_mon(port, ABS, REL, BACKOFF, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Mon":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -369,7 +377,8 @@ def mtr_homing(port, FORWARD: bool, CAL: bool, HOME: bool, verify=True):
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
     if ack.cmd_type != "MTR_Homing":
@@ -400,7 +409,8 @@ def mtr_mov_pos(port, pos_steps, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
     if ack.cmd_type != "MTR_Mov_Pos":
@@ -429,7 +439,8 @@ def mtr_mov_neg(port, neg_steps, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
     if ack.cmd_type != "MTR_Mov_Neg":
@@ -458,7 +469,8 @@ def mtr_mov_abs(port, abs_pos, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
     if ack.cmd_type != "MTR_Mov_Abs":
@@ -477,7 +489,8 @@ def clear_errors(port, verify=True):
     info_log.info(f"Clearing Errors")
     port.write(cmd_tc)
 
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type != "Clear_Errors":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -491,7 +504,8 @@ def sci_request(port, verify=True):
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}")
     port.write(cmd_tc)
 
-    ack = tm.getResponse(port)
+    ack_bytes = tm.get_response(port)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type == "HK_Request":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
