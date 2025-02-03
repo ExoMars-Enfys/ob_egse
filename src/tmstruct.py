@@ -111,19 +111,14 @@ ack_mtr_homing = [
     ("UNUSED5", "u1"),
     ("DIR", "u1"),
     ("CAL", "u1"),
-    ("HOM", "u1")]
-
-ack_mtr_mov_pos = [
-    ("MTR_POS_STEPS", ">u16")
+    ("HOM", "u1"),
 ]
 
-ack_mtr_mov_neg = [
-    ("MTR_NEG_STEPS", ">u16")
-]
+ack_mtr_mov_pos = [("MTR_POS_STEPS", ">u16")]
 
-ack_mtr_mov_abs = [
-    ("MTR_ABS_STEPS", ">u16")
-]
+ack_mtr_mov_neg = [("MTR_NEG_STEPS", ">u16")]
+
+ack_mtr_mov_abs = [("MTR_ABS_STEPS", ">u16")]
 nack = [
     ("MOD_ID", "u3"),
     ("CMD_ID", "u5"),

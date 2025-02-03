@@ -18,6 +18,7 @@ tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
 
+
 # ----Class definitions-----------------------------------------------------------------------------
 class Response:
     def __init__(self, raw_bytes):
@@ -40,30 +41,30 @@ class Response:
 
     def verify_model_id(self):
         if self.mod_id != const.EXP_MODEL_ID:
-            tm_log.error(
-                f"Model ID not as expected. Expected:{const.EXP_MODEL_ID}, Got: {self.mod_id}"
-            )
+            tm_log.error(f"Model ID not as expected. Expected:{const.EXP_MODEL_ID}, Got: {self.mod_id}")
 
     def verify_crc(self):
         self.hash = crc8.crc8()
         if self.hash.update(self.raw_bytes).hexdigest() != "00":
             tm_log.error(
-                f"Incorrect CRC8. Calculated: 0x{self.hash.hexdigest()}. "
-                f"For Packet {bytes.hex(self.raw_bytes, ' ', 2)}"
+                f"Incorrect CRC8. Calculated: 0x{self.hash.hexdigest()}. For Packet {bytes.hex(self.raw_bytes, ' ', 2)}"
             )
 
+
 class TM:
-    def __init__(self, response:Response):
+    def __init__(self, response: Response):
         self.raw_bytes = response.raw_bytes
         self.get_cmd_mod_id = response.get_cmd_mod_id
-    
+
     @abstractmethod
     def check_len(self):
         pass
 
     def decode_bytes(self, pkt_struct):
         param = bitstruct.unpack_dict(
-            "".join(i[1] for i in pkt_struct), [i[0] for i in pkt_struct], self.raw_bytes
+            "".join(i[1] for i in pkt_struct),
+            [i[0] for i in pkt_struct],
+            self.raw_bytes,
         )
         for k, v in param.items():
             setattr(self, k, v)
@@ -100,23 +101,20 @@ class TM:
             if self.ERRORS.ICI:
                 tm_log.error(f"OB ERROR ICI - Invalid Command ID")
 
-    
 
 class HK(TM):
-    def __init__(self, response:Response):
+    def __init__(self, response: Response):
         super().__init__(response)
 
         const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        
+
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.hk)
-        
+
         # Motor Flags
-        self.MTR_FLAGS = namedtuple(
-            "MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct)
-        )
+        self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct))
         mtr_flags_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_flag_struct),
             [i[0] for i in tmstruct.mtr_flag_struct],
@@ -150,7 +148,7 @@ class HK(TM):
 
 
 class ACK(TM):
-    def __init__(self, response:Response, ack_type):
+    def __init__(self, response: Response, ack_type):
         super().__init__(response)
         self.ack_type = ack_type
 
@@ -162,7 +160,7 @@ class ACK(TM):
         # Allocate variables based on tm struct
         pkt_strct = tmstruct.ack_hdr + ack_type
         tm_log.debug(pkt_strct)
-        
+
         self.decode_bytes(pkt_strct)
         self.decode_error_byte()
         self.check_len()
@@ -170,20 +168,16 @@ class ACK(TM):
 
     def check_len(self):
         expect_strct = tmstruct.ack_hdr + self.ack_type
-        expect_len = (
-            bitstruct.calcsize("".join([i[1] for i in expect_strct])) / 8 + 1
-        )  # +1 for CRC
+        expect_len = bitstruct.calcsize("".join([i[1] for i in expect_strct])) / 8 + 1  # +1 for CRC
 
         if len(self.raw_bytes) != expect_len:
-            tm_log.error(
-                f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}"
-            )
+            tm_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
 
 class NACK(TM):
-    def __init__(self, response:Response):
+    def __init__(self, response: Response):
         super().__init__(response)
-        
+
         const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
@@ -196,19 +190,18 @@ class NACK(TM):
     def check_len(self):
         # TODO: May want to adjust to calculate length based on structure like ACK
         if len(self.raw_bytes) != 4:
-            tm_log.error(
-                f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}"
-            )
+            tm_log.error(f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}")
 
 
-def get_response(port: serial.rs485.RS485, no_of_bytes:int = 1000) -> bytes:
+def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     raw_bytes = port.read(no_of_bytes)
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
+
 def parse_tm(response):
     tm_log.debug(f"Response type: {response.cmd_type}")
-    match (response.cmd_type):
+    match response.cmd_type:
         case "HK_Request":
             ack = HK(response)
             # print(f"{ack.approx_cal_3V3:.3f}    {ack.approx_cal_1V5:.3f}")
@@ -246,8 +239,6 @@ def parse_tm(response):
         case "NACK":
             ack = NACK(response)
         case _:
-            tm_log.warning(
-                f"Response type not defined in parse_tm: {response.cmd_type}"
-            )
+            tm_log.warning(f"Response type not defined in parse_tm: {response.cmd_type}")
             ack = "EMPTY"
     return ack

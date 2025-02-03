@@ -1,14 +1,16 @@
 """
 This module is used for generally sending commands. These are one step higher level than the TC
-module which is mainly used to handle generation of the bytes over the RS-485. This module 
-implements simple logic to verify that it has properly executed and will generally attempt one 
+module which is mainly used to handle generation of the bytes over the RS-485. This module
+implements simple logic to verify that it has properly executed and will generally attempt one
 command retry.
 """
+
 import logging
 
 import tc
 
 tc_log = logging.getLogger("tc_log")
+
 
 def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
     resp = tc.mtr_mov_pos(port, pos_steps, verify=True)

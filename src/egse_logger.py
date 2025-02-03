@@ -1,10 +1,13 @@
 import logging
 from pathlib import Path
 
-def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
+
+def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO):
     # ----Handlers---------------------------------------------------------------------------------------
-    cl_formatter = logging.Formatter("{levelname} - {message}", style="{") # Setting the logging format for console loggers
-    fh_formatter = logging.Formatter('%(asctime)s - %(message)s') # Setting the logging format for file loggers
+    cl_formatter = logging.Formatter(
+        "{levelname} - {message}", style="{"
+    )  # Setting the logging format for console loggers
+    fh_formatter = logging.Formatter("%(asctime)s - %(message)s")  # Setting the logging format for file loggers
     # -- Console Stream Handler --
     hdlr_1 = logging.StreamHandler()
     hdlr_1.setFormatter(cl_formatter)
@@ -13,10 +16,10 @@ def get_loggers(basedir: Path, prefix:str, debug_level:str = logging.INFO):
     info_fh = logging.FileHandler(basedir / (prefix + "_INFO_DUMP.log"))
     info_fh.setFormatter(fh_formatter)
     # -- Error Handler - Streams every Error --
-    error_fh = logging.FileHandler(basedir / (prefix + '_ERROR.log'))
+    error_fh = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
     error_fh.setFormatter(fh_formatter)
     # -- AbsSteps Handler - Streams only every movement and ABS Steps --
-    abs_fh = logging.FileHandler(basedir / (prefix + '_ABS_STEPS.log'))
+    abs_fh = logging.FileHandler(basedir / (prefix + "_ABS_STEPS.log"))
     abs_fh.setFormatter(fh_formatter)
 
     # ----Loggers---------------------------------------------------------------------------------------
