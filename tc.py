@@ -27,7 +27,7 @@ def hk_request(port, verify=True):
     port.write(cmd_tc)
 
     ## --- Get Response and check type ---
-    response_bytes = tm.get_response(port)
+    response_bytes = tm.get_response(port, 66)
     response = tm.Response(response_bytes)
     if response.cmd_type != "HK_Request":
         tc_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
@@ -66,7 +66,7 @@ def power_control(port, pwr_stat, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Power_Control":
@@ -113,7 +113,7 @@ def heater_control(
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Heater_Control":
@@ -158,7 +158,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify: bool = True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Mech_SP":
@@ -211,7 +211,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify: bool = True)
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Detec_SP":
@@ -261,7 +261,7 @@ def set_mtr_param(port, peak_current, pwm_rate, speed, pwm_duty, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Param":
@@ -311,7 +311,7 @@ def set_mtr_guard(port, recirc, guard, recval, spisel, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Guard":
@@ -360,7 +360,7 @@ def set_mtr_mon(port, ABS, REL, BACKOFF, verify=True):
     port.write(cmd_tc)
 
     ## -- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Mon":
@@ -381,7 +381,7 @@ def mtr_homing(port, FORWARD: bool, CAL: bool, HOME: bool, verify=True):
     log_tc_bytes(cmd_tc)
     port.write(cmd_tc)
 
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
@@ -413,7 +413,7 @@ def mtr_mov_pos(port, pos_steps, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
@@ -443,7 +443,7 @@ def mtr_mov_neg(port, neg_steps, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
@@ -473,7 +473,7 @@ def mtr_mov_abs(port, abs_pos, verify=True):
     port.write(cmd_tc)
 
     ## --- Get ACK and check type ---
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
 
@@ -493,7 +493,7 @@ def clear_errors(port, verify=True):
     info_log.info(f"Clearing Errors")
     port.write(cmd_tc)
 
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type != "Clear_Errors":
@@ -508,7 +508,7 @@ def sci_request(port, verify=True):
     log_tc_bytes(cmd_tc)
     port.write(cmd_tc)
 
-    ack_bytes = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 25)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type == "HK_Request":

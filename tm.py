@@ -201,8 +201,8 @@ class NACK(TM):
             )
 
 
-def get_response(port: serial.rs485.RS485) -> bytes:
-    raw_bytes = port.read(1000)
+def get_response(port: serial.rs485.RS485, no_of_bytes:int = 1000) -> bytes:
+    raw_bytes = port.read(no_of_bytes)
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 

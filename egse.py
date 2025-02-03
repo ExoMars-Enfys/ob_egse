@@ -17,10 +17,6 @@ import egse_logger
 import sequences as sq
 import tc
 
-## ----Constants -----------------------------------------------------------------------------------
-
-
-
 ## ----Script Start --------------------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(
@@ -61,7 +57,7 @@ try:
         bytesize=serial.EIGHTBITS,
         parity=serial.PARITY_ODD,
         stopbits=serial.STOPBITS_ONE,
-        timeout=0.2,
+        timeout=1.0,
     )
 except serial.SerialException:
     tc_log.error(f"No device found on COM Port {com_port}, try another")
@@ -71,8 +67,8 @@ port.rs485_mode = serial.rs485.RS485Settings(
     rts_level_for_tx=False,
     rts_level_for_rx=True,
     loopback=False,
-    delay_before_tx=0.1,
-    delay_before_rx=0.1,
+    delay_before_tx=0,
+    delay_before_rx=0,
 )
 port.flushOutput()  # Port Flushing to clear port
 port.flushInput()
