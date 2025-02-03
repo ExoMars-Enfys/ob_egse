@@ -1,0 +1,13 @@
+{
+    "recommendations": [
+        "aaron-bond.better-comments",
+        "mhutchie.git-graph",
+        "bierner.github-markdown-preview",
+        "oderwat.indent-rainbow",
+        "bierner.markdown-checkbox",
+        "bierner.markdown-footnotes",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "tamasfe.even-better-toml"
+    ]
+}

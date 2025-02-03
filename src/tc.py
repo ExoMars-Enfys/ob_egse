@@ -3,7 +3,7 @@ from datetime import datetime
 
 import constants as const
 import tm
-from crc8Function import crc8Calculate
+from crc8_function import crc8Calculate
 
 tc_log = logging.getLogger("tc_log")
 info_log = logging.getLogger("info_log")

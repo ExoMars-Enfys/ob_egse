@@ -5,9 +5,10 @@ description = "Python egse for the Enfys Optical Box"
 authors = ["Barry Whiteside <34492784+Chaldene@users.noreply.github.com>"]
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "bitstruct>=8.19.0",
-    "black>=24.10.0",
-    "crc8>=0.2.1",
-    "pyserial>=3.5",
-]
+dependencies = ["bitstruct>=8.19.0", "crc8>=0.2.1", "pyserial>=3.5"]
+
+[dependency-groups]
+dev = ["pytest>=8.3.4", "ruff>=0.9.4"]
+
+[tool.pytest.ini_options]
+pythonpath = "src"

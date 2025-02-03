@@ -85,16 +85,16 @@ def clean_exit():
 
 t1 = time.perf_counter(), time.process_time()
 
-# hk = tc.hk_request(port)                                                      #cmd 00
+hk = tc.hk_request(port)                                                      #cmd 00
 # tc.clear_errors(port)                                                         #cmd 01
-# TODO: Add set errors      (02)
-# tc.power_control(port, 0x03)                                                  #cmd 04
+# # TODO: Add set errors      (02)
+tc.power_control(port, 0x03)                                                  #cmd 04
 # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
 # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
 # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
-# tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
-# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
-# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)                                  #cmd 0C
+tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
+tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
+tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)                                  #cmd 0C
 # TODO: Add Set Mtr Errors  (0D)
 # tc.mtr_mov_pos(port, 0x2190)                                                  #cmd 10
 # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
@@ -107,10 +107,8 @@ t1 = time.perf_counter(), time.process_time()
 # tc.sci_request(port)
 # cmd_mtr_mov_pos(port, 0x1000, True)
 
-for i in range(0, 50):
-    hk = tc.hk_request(port)
-    print(hk.approx_cal_1V5)
-
+# for i in range(0, 100):
+#     hk = tc.hk_request(port)
 
 # hk = tc.hk_request(port)
 # set_params(HEATERS=False)
