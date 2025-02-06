@@ -57,7 +57,7 @@ error_struct = [
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),
-    ("HOLD", "u1"),
+    ("UNUSED2", "u1"),
     ("DIR", "u1"),
     ("OUTER", "u1"),
     ("BASE", "u1"),
