@@ -71,7 +71,7 @@ port.rs485_mode = serial.rs485.RS485Settings(
     rts_level_for_tx=False,
     rts_level_for_rx=True,
     loopback=False,
-    delay_before_tx=0,
+    delay_before_tx=const.CMD_SPEED_DICT[const.DEFAULT_CMD_SPEED],
     delay_before_rx=0,
 )
 port.flushOutput()  # Port Flushing to clear port
