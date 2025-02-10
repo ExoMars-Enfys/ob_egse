@@ -54,6 +54,16 @@ error_struct = [
     ("ICI", "u1"),
 ]
 
+mtr_error_struct = [
+    ("UNUSED1", "u1"),
+    ("OSI", "u1"),
+    ("BSI", "u1"),
+    ("SCE", "u1"),
+    ("RLE", "u1"),
+    ("ALE", "u1"),
+    ("ASE", "u1"),
+    ("DSE", "u1"),
+]
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),

@@ -16,6 +16,7 @@ info_log = logging.getLogger("info_log")
 abs_log = logging.getLogger("abs_log")
 hk_log = logging.getLogger("hk_log")
 ack_log = logging.getLogger("ack_log")
+error_log = logging.getLogger("error_log")
 # ----Class definitions-----------------------------------------------------------------------------
 
 
@@ -105,6 +106,16 @@ class HK(getResponse):
         for k, v in error_param.items():
             setattr(self.ERRORS, k, v)
 
+        # Motor Errors
+        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[1] for i in tmstruct.mtr_error_struct))
+        mtr_error_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_error_struct),
+            [i[0] for i in tmstruct.mtr_error_struct],
+            self.ERROR_MTR.to_bytes(1),
+        )
+        for k, v in mtr_error_param.items():
+            setattr(self.MTR_ERRORS, k, v)
+
         # Motor Flags
         self.MTR_FLAGS = namedtuple(
             "MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct)
@@ -121,6 +132,7 @@ class HK(getResponse):
 
         self.check_errors()
         self.check_unused()
+        self.check_mtr_error()
 
         # Approximate calibrations
         self.approx_cal_3V3 = self.HK_V_3V3 * 4.05 / 4095 * 2
@@ -134,10 +146,39 @@ class HK(getResponse):
         # TODO: May want to adjust to calculate length based on structure like ACK
         if len(self.raw_bytes) != 66:
             tm_log.error(f"HK Len not 66 bytes as expected. Got: {len(self.raw_bytes)}")
-
+    
     def check_unused(self):
         if self.UNUSED1 == 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
+        # TODO:Fix unused error
+    def check_mtr_error(self):
+        if self.ERROR_MTR != 0x00:
+            error_log.error(f"MTR Error Asserted: {hex(self.ERROR_MTR)} Flags Asserted : {hex(self.MTR_FLAGS_BYTE)}")
+            tm_log.error(f"MTR Error Asserted: {hex(self.ERROR_MTR)} Flags Asserted : {hex(self.MTR_FLAGS_BYTE)}")
+            if self.MTR_ERRORS.UNUSED1:
+                error_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
+                tm_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
+            if self.MTR_ERRORS.OSI:
+                error_log.error(f"MTR ERROR OSI - Outer Stop Ignore")
+                tm_log.error(f"MTR ERROR OSI - Outer Stop Ignore")
+            if self.MTR_ERRORS.BSI:
+                error_log.error(f"MTR ERROR BSI - Base Stop Ignore")
+                tm_log.error(f"MTR ERROR BSI - Base Stop Ignore")
+            if self.MTR_ERRORS.SCE:
+                error_log.error(f"MTR ERROR SCE - Step Change Error")
+                tm_log.error(f"MTR ERROR SCE - Step Change Error")
+            if self.MTR_ERRORS.RLE:
+                error_log.error(f"MTR ERROR RLE - Relative Limit Error")
+                tm_log.error(f"MTR ERROR RLE - Relative Limit Error")
+            if self.MTR_ERRORS.ALE:
+                error_log.error(f"MTR ERROR ALE - Absolute Limit Error")
+                tm_log.error(f"MTR ERROR ALE - Absolute Limit Error")
+            if self.MTR_ERRORS.ASE:
+                error_log.error(f"MTR ERROR ASE - Absolute Step Error")
+                tm_log.error(f"MTR ERROR ASE - Absolute Step Error")
+            if self.MTR_ERRORS.DSE:
+                error_log.error(f"MTR ERROR DSE - Dual Stop Error")
+                tm_log.error(f"MTR ERROR DSE - Dual Stop Error")
 
 
 class ACK(getResponse):
