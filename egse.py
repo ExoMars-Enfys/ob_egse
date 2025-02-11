@@ -25,7 +25,7 @@ DEBUG_LEVEL = logging.INFO
 # COM_PORT = 'COM' + str(args.com)
 # prefix = args.prefix
 # basedir = str(args.basedir)
-COM_PORT = 'COM9'
+COM_PORT = 'COM3'
 prefix = 'Healthcheck_test'
 basedir = 'c:/wdir/ob_egse/loggers'
 
@@ -75,6 +75,7 @@ event_log.addHandler(hdlr_1)
 info_log = logging.getLogger("info_log")
 info_log.setLevel(logging.INFO)
 info_log.addHandler(info_fh)
+info_log.addHandler(hdlr_1)
 # -- Initiate error writer --
 error_log = logging.getLogger("error_log")
 error_log.setLevel(logging.ERROR)
@@ -676,6 +677,236 @@ def start_stops(HEATERS=False):
         time.sleep(1)
 
 
+def heaters_test():
+    tc.power_control(port, 0x03)            #Turn mechanism and detector boards on
+    hk = tc.hk_request(port)
+    info_log.info(f"Power Status: {hk.PWR_STAT}       Expected: 0x03")
+    if hk.PWR_STAT != 0x03:
+        info_log.error(f"Unexpected power status: {hk.PWR_STAT}     Expected: 0x03")
+
+    if hk.THRM_STATUS != 0x00:
+        info_log.error(f"HEATER TEST 0.1: Unexpected thermal status: {hk.THRM_STATUS}    Expected: 0x00")
+
+    #info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected 0x00") #Test for initial after reset
+    info_log.info(f"HEATER TEST 0.2: Initial mechanism heater temperature bounds: {hk.THRM_MECH_ON_SP} - {hk.THRM_MECH_OFF_SP}")
+    info_log.info(f"HEATER TEST 0.3: Initial detector heater temperature bounds: {hk.THRM_DET_ON_SP} - {hk.THRM_DET_OFF_SP}")
+    info_log.info(f"HEATER TEST 0.4: Detector PT1000 Temp: {hk.DETEC_TRP}")
+    info_log.info(f"HEATER TEST 0.5: Mechanism PT1000 Temp: {hk.MECH_TRP}")
+    init_det_temp = hk.DETEC_TRP
+    init_mech_temp = hk.MECH_TRP
+
+    tc.heater_control(port, True, False, False, False, False) #Turn HTR_SCI_TOG on
+    info_log.info("HEATER TEST 1.1: Turning heater science toggle on...")
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 1.1: Thermal Status: {hk.THRM_STATUS}  Expected: 16")
+    tc.heater_control(port, False, False, False, False, False)
+    info_log.info("HEATER TEST 1.2: Turning HTR_SCI_TOG off...")
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 1.2: Thermal Status: {hk.THRM_STATUS}  Expected 0")
+    #TODO MORE TO BE DONE HERE...
+
+    tc.heater_control(port, False, True, False, False, False) #Turn detector manual heater on
+    info_log.info("HEATER TEST 2.1: Turning manual detector heaters on...")
+    #time.sleep(20) #Give it time to heat
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 2.1: Thermal Status: {hk.THRM_STATUS}  Expected: 136") #Verify with HK:THRM_STATUS telemetry
+    tc.heater_control(port, False, False, False, False, False)
+    info_log.info("HEATER TEST 2.2: Turning manual detector heaters off...")
+    #time.sleep(20) #Give it time to cool
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 2.2: Thermal Status: {hk.THRM_STATUS}  Expected: 0") #Verify with HK:THRM_STATUS telemetry
+
+    tc.heater_control(port, False, False, False, True, False) #Turn mechanism manual heater on
+    info_log.info("HEATER TEST 3.1: Turning manual mechanism heaters on...")
+    #time.sleep(20) #Give it time to heat
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 3.1: Thermal Status: {hk.THRM_STATUS}  Expected: 66") #Verify with HK:THRM_STATUS telemetry
+    tc.heater_control(port, False, False, False, False, False)
+    info_log.info("HEATER TEST 3.2: Turning manual mechanism heaters off...")
+    #time.sleep(20) #Give it time to cool
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 3.2: Thermal Status: {hk.THRM_STATUS}  Expected: 0") #Verify with HK:THRM_STATUS telemetry
+    
+    #Set the heater set points to 18-25 degrees Celsius - change this to match what happens w/ variable resistor
+
+    #Set the heater set points to:
+    # DN:2145, Resistance: 1100 Ohms, Temp: 26 degrees C
+    # DN: 2047 , Resistance: 1000 Ohms, Temp: 0 degrees C
+    info_log.info("HEATER TEST 4: Setting heater set points.")
+    #tc.set_detec_sp(port, 3887, 3881)
+    #tc.set_mech_sp(port, 3887, 3881)
+
+    tc.set_detec_sp(port, 5000, 6000)
+    tc.set_mech_sp(port, 5000, 6000)
+    
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 4.1: Detector heater set points: {hk.THRM_DET_ON_SP} - {hk.THRM_DET_OFF_SP}")
+    info_log.info(f"HEATER TEST 4.2: Mechansim heater set points: {hk.THRM_MECH_ON_SP} - {hk.THRM_MECH_OFF_SP}")
+
+    tc.heater_control(port, False, False, True, False, False) #Turn automatic detector heater on
+    info_log.info("HEATER TEST 5.1: Turning automatic detector heaters on...")
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 5.1: Thermal Status: {hk.THRM_STATUS}  Expected: 4 or 132")
+    #Test that threshold functions correctly.
+    # info_log.info("Toggle variable resistor for detector to trigger heaters on or off")
+    # if hk.THRM_STATUS == 4:
+    #     info_log.info("Toggle variable resistor for detector heaters.")
+    #     time.sleep(30)
+    #     hk = tc.hk_request(port)
+    #     if hk.THRM_STATUS == 4:
+    #         info_log.error("Automatic detector heater failed to toggle after 30 seconds.")
+    #         info_log.info(f"Automatic detector heater PT1000 resistance: {hk.DETEC_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+    #     if hk.THRM_STATUS != 4:
+    #         info_log.info(f"***Thermal Status: {hk.THRM_STATUS}    Expected 132")
+    #     else:
+    #         pass
+
+    # if hk.THRM_STATUS == 132:
+    #     info_log.info("Toggle variable resistor for detector heaters")
+    #     time.sleep(30)
+    #     hk = tc.hk_request(port)
+    #     if hk.THRM_STATUS == 132:
+    #         info_log.error("Automatic detector heater failed to toggle after 30 seconds.")
+    #         info_log.info(f"Automatic detector heater PT1000 resistance: {hk.DETEC_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+    #     if hk.THRM_STATUS != 132:
+    #         info_log.info(f"***Thermal Status: {hk.THRM_STATUS}     Expected: 4")
+    #     else:
+    #         pass
+
+    # if hk.THRM_STATUS != 132 or 4:
+    #     info_log.error(f"Unexpected thermal status: {hk.THRM_STATUS}    Expected: 132 or 4")
+
+    # #Toggle variable resistor again to make sure it works for both on and off scenarios.
+    # info_log.info("Toggle variable resistor to trigger detector heaters on or off.")
+
+    # if hk.THRM_STATUS == 4:
+    #     info_log.info("Toggle variable resistor for detector heaters.")
+    #     time.sleep(30)
+    #     hk = tc.hk_request(port)
+    #     if hk.THRM_STATUS == 4:
+    #         info_log.error("Automatic detector heater failed to toggle after 30 seconds.")
+    #         info_log.info(f"Automatic detector heater PT1000 resistance: {hk.DETEC_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+    #     if hk.THRM_STATUS != 4:
+    #         info_log.info(f"***Thermal Status: {hk.THRM_STATUS}    Expected 132")
+    #     else:
+    #         pass
+
+    # if hk.THRM_STATUS == 132:
+    #     info_log.info("Toggle variable resistor for detector heaters")
+    #     time.sleep(30)
+    #     hk = tc.hk_request(port)
+    #     if hk.THRM_STATUS == 132:
+    #         info_log.error("Automatic detector heater failed to toggle after 30 seconds.")
+    #         info_log.info(f"Automatic detector heater PT1000 resistance: {hk.DETEC_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+    #     if hk.THRM_STATUS != 132:
+    #         info_log.info(f"***Thermal Status: {hk.THRM_STATUS}     Expected: 4")
+    #     else:
+    #         pass
+
+    # if hk.THRM_STATUS != 132 or 4:
+    #     info_log.error(f"Unexpected thermal status: {hk.THRM_STATUS}    Expected: 132 or 4")
+
+
+
+    info_log.info(f"HEATER TEST 5.?: Thermal Status: {hk.THRM_STATUS}  Expected: 132 or 4")
+    tc.heater_control(port, False, False, False, False, False)
+    info_log.info("HEATER TEST 5.?: Turning automatic detector heaters off...")
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 5.?: Thermal Status: {hk.THRM_STATUS}  Expected: 0")    
+
+
+
+    tc.heater_control(port, False, False, False, False, True) #Turn automatic mechanism heater on
+    info_log.info("HEATER TEST 6.1: Turning automatic mechanism heaters on...")
+    hk = tc.hk_request(port)
+    info_log.info(f"HEATER TEST 6.1: Thermal Status: {hk.THRM_STATUS}  Expected: 1 or 65")
+
+    #Test that mech threshold functions correctly.
+    info_log.info("HEATER TEST 6.2: Testing automatic heater thresholds by toggling variable resistor to trigger mechanism heaters on or off")
+
+    if hk.THRM_STATUS == 1:
+        info_log.info("HEATER TEST 6.2: Toggle variable resistor for mechanism heaters within the next 30 seconds")
+        time.sleep(30)
+        hk = tc.hk_request(port)
+        if hk.THRM_STATUS == 1:
+            info_log.error("HEATER TEST 6.2: Automatic mechanism heater failed to toggle after 30 seconds.")
+            info_log.info(f"HEATER TEST 6.2.: Automatic mechanism heater PT1000 resistance: {hk.MECH_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+        if hk.THRM_STATUS == 65:
+            info_log.info(f"HEATER TEST 6.2: Thermal Status: {hk.THRM_STATUS}    Expected 65")
+        else:
+            pass
+
+    if hk.THRM_STATUS == 65:
+        info_log.info("HEATER TEST 6.2: Toggle variable resistor for mechanism heaters within the next 30 seconds.")
+        time.sleep(30)
+        hk = tc.hk_request(port)
+        if hk.THRM_STATUS == 65:
+            info_log.error("HEATER TEST 6.2: Automatic mechanism heater failed to toggle after 30 seconds.")
+            info_log.info(f"HEATER TEST 6.2: Automatic mechanism heater PT1000 resistance: {hk.MECH_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+        if hk.THRM_STATUS == 1:
+            info_log.info(f"HEATER TEST 6.2: Thermal Status: {hk.THRM_STATUS}     Expected: 1")
+        else:
+            pass
+
+    if hk.THRM_STATUS != 65 and hk.THRM_STATUS != 1:
+        info_log.error(f"HEATER TEST 6.2: Unexpected thermal status: {hk.THRM_STATUS}    Expected: 65 or 1")
+
+    #Toggle variable resistor again to make sure it works for both on and off scenarios.
+
+    if hk.THRM_STATUS == 1:
+        info_log.info("HEATER TEST 6.3: Toggle variable resistor for mechanism heaters within the next 30 seconds.")
+        time.sleep(30)
+        hk = tc.hk_request(port)
+        if hk.THRM_STATUS == 1:
+            info_log.error("HEATER TEST 6.3: Automatic mechanism heater failed to toggle after 30 seconds.")
+            info_log.info(f"HEATER TEST 6.3: Automatic mechanism heater PT1000 resistance: {hk.MECH_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+        if hk.THRM_STATUS != 1:
+            info_log.info(f"HEATER TEST 6.3: Thermal Status: {hk.THRM_STATUS}    Expected 65")
+        else:
+            pass
+
+    if hk.THRM_STATUS == 65:
+        info_log.info("HEATER TEST 6.3: Toggle variable resistor for mechanism heaters within the next 30 seconds")
+        time.sleep(30)
+        hk = tc.hk_request(port)
+        if hk.THRM_STATUS == 65:
+            info_log.error("HEATER TEST 6.3: Automatic mechanism heater failed to toggle after 30 seconds.")
+            info_log.info(f"HEATER TEST 6.3: Automatic mechanism heater PT1000 resistance: {hk.MECH_TRP}") #To see if resistance toggled but THRM_STATUS failed to change, or if there was just no res toggle
+        if hk.THRM_STATUS != 65:
+            info_log.info(f"HEATER TEST 6.3: {hk.THRM_STATUS}     Expected: 1")
+        else:
+            pass
+
+    if hk.THRM_STATUS != 65 and hk.THRM_STATUS != 1:
+        info_log.error(f"HEATER TEST 6.3: Unexpected thermal status: {hk.THRM_STATUS}    Expected: 65 or 1")
+
+    tc.heater_control(port, False, False, False, False, False)
+    info_log.info("Turning automatic mechanism heaters off...")
+    hk = tc.hk_request(port)
+    info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected: 0")
+
+    #Manual override check for detector heater
+    tc.heater_control(port, False, False, True, False, False) #Turn on automatic detector heater
+    info_log.info("Turning automatic detector heaters on...")
+    hk = tc.hk_request(port)
+    info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected: 4 or 132")
+    tc.heater_control(port, False, True, True, False, False)
+    info_log.info("Turning on automatic and manual detector heaters...")
+    hk = tc.hk_request(port)
+    info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected: 136 or 140")
+    #Temp check should take place here to make sure all is going as expected? Ideally automatic would not be on before
+
+    #Manual override check for mechanism heater
+    tc.heater_control(port, False, False, False, False, True) #Turn on automatic mechanism heater
+    info_log.info("Turning automatic mechanism heaters on...")
+    hk = tc.hk_request(port)
+    info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected: 1 or 65")
+    tc.heater_control(port, False, False, False, True, True)
+    info_log.info("Turning on automatic and manual mechanism heaters...")
+    hk = tc.hk_request(port)
+    info_log.info(f"***Thermal Status: {hk.THRM_STATUS}  Expected: 66 or 67")
+    #Temp check should take place here to make sure all is going as expected? Ideally automatic would not be on before
+
 @atexit.register
 def clean_exit():
     print("Clean exit funtion executed")
@@ -687,10 +918,10 @@ def clean_exit():
 
 start_time = datetime.now()
 
-# hk = tc.hk_request(port)                                                      #cmd 00
-# tc.clear_errors(port)                                                         #cmd 01
+hk = tc.hk_request(port)                                                      #cmd 00
+#tc.clear_errors(port)                                                         #cmd 01
 # TODO: Add set errors      (02)
-tc.power_control(port, 0x03)                                                  #cmd 04
+                                                 #cmd 04
 # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
 # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
 # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
@@ -699,7 +930,7 @@ tc.power_control(port, 0x03)                                                  #c
 # tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)                                  #cmd 0C
 # TODO: Add Set Mtr Errors  (0D)
 # tc.mtr_mov_pos(port, 0x1000)                                                  #cmd 10
-tc.mtr_mov_neg(port, 0x1000)                                                  #cmd 11
+# tc.mtr_mov_neg(port, 0x1000)                                                  #cmd 11
 # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
 # tc.mtr_homing(port, True, False, True)                                        #cmd 13
 # TODO: Add Motor Halt      (15)
@@ -709,15 +940,186 @@ tc.mtr_mov_neg(port, 0x1000)                                                  #c
 # tc.sci_request(port)
 # cmd_mtr_mov_pos(port, 0x1000, True)
 
+# for i in range(100):
+#     hk = tc.hk_request(port) 
+#     info_log.info(f"HK Mech Temp Reading: {hk.MECH_TRP}")
 
-# hk = tc.hk_request(port)
 # set_params(HEATERS=False)
 # tc.mtr_mov_abs(port, 0x1FA4)  
 # verify_Sequence()
 # continuous_runs()
 # start_stops()
 # script_stops()
+
+# print("Start")
+# hk = tc.hk_request(port)
+# print(hk)
+# tc.power_control(port, 0x01) 
+# print(hk)
+# print(f"********Power Status: {hk.PWR_STAT}")
+# tc.power_control(port, 0x00)
+# hk = tc.hk_request(port)
+# if hk.PWR_STAT != 0x05:                                                      #cmd 00
+#     event_log.error(f"Power Status not as expected: Got: {hk.PWR_STAT}, Expected: 0")
+
+# tc.power_control(port, 0x03) 
+# hk = tc.hk_request(port)
+# print(f"********Power Status: {hk.PWR_STAT}")
+
+# tc.power_control(port, 0x01) 
+# hk = tc.hk_request(port)
+# print(f"********Power Status: {hk.PWR_STAT}")
+
+# tc.power_control(port, 0x00) 
+# hk = tc.hk_request(port)
+# print(f"********Power Status: {hk.PWR_STAT}")
+
+# tc.power_control(port, 0x02) 
+# hk = tc.hk_request(port)
+# print(f"********Power Status: {hk.PWR_STAT}")
+
+# hk = tc.hk_request(port)
+# # tc.set_mech_sp(port, 0x0010, 0x0005, verify=True)
+# hk = tc.hk_request(port)
+
+#-----------------
+#Attempt at some test cases for heater commands
+
+# #Test for HTR_DETEC_MAN on/off alone
+# #Ensure bit changes when requested
+# hk = tc.hk_request(port)
+# #tc.heater_control(port, 0x08)
+# tc.heater_control(port, False, True, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #tc.heater_control(port, 0x00)
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #Test for HTR_MECH_MAN on/off alone
+# #Ensure bit changes when requested
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, False, False, True, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #Test for HTR_DETEC_AUTO
+# #Ensure bit changes when requested
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, False, True, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #Test for HTR_MECH_AUTO
+# #Ensure bit changes when requested
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, False, False, False, True)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #Turn HTR_DETEC_MAN and HTR_DETEC_AUTO on simultaneously
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, True, True, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #Turn HTR_MECH_MAN and HTR_MECH_AUTO on simultaneously
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, False, False, True, True)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #HTR_MECH_MAN and HTR_DETEC_MAN on simultaneously
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, True, False, True, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+# #From HTR_MECH_AUTO to HTR_MECH_MAN
+# hk = tc.hk_request(port)
+# tc.heater_control(port, False, False, False, False, True)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+# tc.heater_control(port, False, False, False, True, False)
+# hk = tc.hk_request(port)
+# print(f"*******Heater:{hk.THRM_STATUS}")
+
+
+# tc.power_control(port, 0x01)
+# tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
+# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
+# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)                                  #cmd 0C
+
+# #tc.mtr_mov_pos(port, 0x1000)
+# tc.mtr_mov_neg(port, 0x1000)   
+# time.sleep(2)                                               #cmd 10
+# hk = tc.hk_request(port)
+# print(f"*******MOTOR FLAGS:{hk.MTR_FLAGS_BYTE}")
+# print(f"*******MOTOR ERROR:{hk.MTR_ERR_MSK}")
+# print(f"*******MOTOR RELATIVE STEPS:{hk.MTR_REL_STEPS}")
+
+# time.sleep(5)
+# hk = tc.hk_request(port)
+# print(f"*******MOTOR FLAGS:{hk.MTR_FLAGS_BYTE}")
+# print(f"*******MOTOR ERROR:{hk.MTR_ERR_MSK}")
+# print(f"*******MOTOR RELATIVE STEPS:{hk.MTR_REL_STEPS}")
+
+
+#Making me a lil function for testing the heaters
+
+#heaters_test()
+#tc.power_control(port, 0x03)
+tc.set_mech_sp(port, 4095, 4090)
+hk = tc.hk_request(port) 
+info_log.info(f"Mechanism set points: {hk.THRM_MECH_ON_SP} - {hk.THRM_MECH_OFF_SP}")
+info_log.info(f"HK Mech Temp Reading: {hk.MECH_TRP}")
+
+#Turn manual heater on
+# tc.heater_control(port, False, False, False, True, False)
+# hk = tc.hk_request(port)
+# info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 66")
+
+# #Turn manual heater off
+# tc.heater_control(port, False, False, False, False, False)
+# hk = tc.hk_request(port)
+# info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 0")
+
+#Turn automatic heater on 
+tc.heater_control(port, False, False, False, False, True)
+hk = tc.hk_request(port)
+info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 65")
+
+
 end_time = datetime.now()
+
+
+    
 
 
 print(f"Loop execution time: {(end_time - start_time)/3}")
