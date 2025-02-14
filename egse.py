@@ -495,17 +495,17 @@ start_time = datetime.now()
 # hk = tc.hk_request(port)                                                      #cmd 00
 # tc.clear_errors(port)                                                         #cmd 01
 # TODO: Add set errors      (02)
-tc.power_control(port, 0x03)                                                  #cmd 04
+#tc.power_control(port, 0x03)                                                  #cmd 04
 # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
 # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
 # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
-tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
-tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
-tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)                                  #cmd 0C
+#tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
+#tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
+#tc.set_mtr_mon(port, 0x3200, 0x3200, 0x01E0)                                  #cmd 0C
 # TODO: Add Set Mtr Errors  (0D)
 # tc.mtr_mov_pos(port, 0x2190)                                                  #cmd 10
 # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
-tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
+#tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
 # tc.mtr_homing(port, False, False, True)                                        #cmd 13
 # TODO: Add Motor Halt      (15)
 # TODO: Add SWIR            (18)
