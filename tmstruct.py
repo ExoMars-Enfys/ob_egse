@@ -2,34 +2,36 @@
 # Get names print(''.join(i[1] for i in hk))
 
 #! TODO Same for science
+# HK starting from byte 0
+# Bitfields have the suffix "_Byte" to indicate they'll be unpacked elsewhere in the code.
 hk = [
     ("MOD_ID", "u3"),
-    ("CMD_ID", "u5"),
+    ("UNUSED1", "u1"),
+    ("CMD_ID", "u4"),
     ("CMD_CNT", "u8"),
     ("ERROR_BYTE", "u8"),
-    ("PWR_STAT", "u8"),
-    ("UNUSED1", ">u32"),
     ("ERROR_MTR", "u8"),
+    ("PWR_STAT", "u8"),
+    ("UNUSED2", ">u32"),
     ("MTR_ABS_STEPS", ">u16"),
     ("MTR_REL_STEPS", ">u16"),
     ("MTR_FLAGS_BYTE", "u8"),
-    ("MTR_GUARD", ">u16"),
-    ("MTR_PWM_DUTY", "u8"),
-    ("MTR_PWM_RATE", ">u16"),
+    ("MTR_GUARD", "u8"),
+    ("UNUSED3", ">u32"),
     ("MTR_RECVAL", "u8"),
-    ("MTR_SPISPSEL", ">u16"),
-    ("MTR_CURRENT", ">u16"),
+    ("MECH_LIN_REL", ">u16"),
+    ("MTR_CURRENT", "u8"),
+    ("UNUSED4", "u8"),
     ("MTR_SPEED", "u8"),
     ("MTR_ERR_MSK", "u8"),
-    ("MTR_RECIRC", "u8"),
-    ("MTR_SW_OFFSET", ">u16"),
-    ("UNUSED2", "u8"),
+    ("UNUSED5", ">u32"),
     ("THRM_STATUS", "u8"),
     ("THRM_MECH_OFF_SP", ">u16"),
     ("THRM_MECH_ON_SP", ">u16"),
     ("THRM_DET_OFF_SP", ">u16"),
     ("THRM_DET_ON_SP", ">u16"),
-    ("UNUSED3", ">u32"),
+    ("SWIR_OFFSET", ">u16"),
+    ("MWIR_OFFSET", ">u16"),
     ("HK_V_3V3", ">u16"),
     ("HK_V_1V5", ">u16"),
     ("DIGITAL_TRP", ">u16"),
@@ -39,9 +41,11 @@ hk = [
     ("HK_MECH_CUR", ">u16"),
     ("UNUSED_ADC", ">u16"),
     ("HK_SAMPLES", "u8"),
-    ("UNUSED4", ">u32"),
+    ("UNUSED6", ">u32"),
     ("CRC8", "u8"),
 ]
+
+#TODO: Determine if MSB or LSB
 
 error_struct = [
     ("UNUSED1", "u1"),
