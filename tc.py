@@ -2,6 +2,7 @@ import logging
 import time
 
 from crc8Function import crc8Calculate
+import constants as const
 import tm
 
 tc_log = logging.getLogger("tc_log")
@@ -486,7 +487,7 @@ def clear_errors(port, verify=True):
 
 def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ## --- Send CMD ---
-    cmd = "0E" + f"{swir_offset:04X}" + f"{mwir_offset:04X}" + "00" * 2
+    cmd = "0E" + f"0{swir_offset:03X}" + f"0{mwir_offset:03X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
@@ -518,16 +519,41 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
 
 #TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify=True):
-    cmd = "0F" + f"{sci_adc_samp:04X}" + f"{sci_adc_skip:04X}" + "00" * 2
-    #cmd = "1F" + "01" + "05" + "00" * 4
+    ## --- Check input parameters before sending CMD ---
+    if (sci_adc_samp < 0) or (sci_adc_samp > 0x0A):
+        tc_log.error(
+            f"SCI_Request command sci_adc_samp out of limits. Rejected by EGSE {sci_adc_samp}"
+        )
+        return
+    
+    if (sci_adc_skip < 0) or (sci_adc_skip > 0xFF):
+        tc_log.error(
+            f"SCI_Request command sci_adc_skip out of limits. Rejected by EGSE {sci_adc_skip}"
+        )
+        return
+    
+    ## --- Send CMD ---
+    cmd = "0F" + f"0{sci_adc_samp:01X}" + f"{sci_adc_skip:02X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Requesting Science Reading")
-    info_log.info(f"\nRequesting Science Reading")
+    info_log.info(f"\nRequesting Sci with samp:{sci_adc_samp}, skip:{sci_adc_skip}")
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
-    time.sleep(1)
-    ack = tm.getResponse(port)
-    parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "SCI_Request":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return
+    
+    ## --- Get Response and check type ---
+    # Wait for Sci to be generated
+    delay = (sci_adc_samp + sci_adc_skip) * 8 * 16 * 1e-6 + const.SCI_RESP_MARGIN
+    time.sleep(delay)
+    response = tm.getResponse(port)
+    if response.cmd_type != "SCI_Request":
+        tc_log.error(f"Incorrect response to SCI CMD. Got {response.cmd_type}")
+        tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
+    
+    if not verify:
+        return
+    
+    parsed = tm.parse_tm(response)
+
+    ## --- Verification ---
+    # TODO
+    return parsed

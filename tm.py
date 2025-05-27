@@ -220,6 +220,26 @@ class NACK(getResponse):
                 f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}"
             )
 
+class SCI(getResponse):
+    def __init__(self, raw_bytes):
+        self.raw_bytes = raw_bytes
+        self.get_cmd_mod_id(self.raw_bytes)
+
+        self.check_len()
+        tm_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        # TODO Sci log
+        param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], raw_bytes)
+        
+        for k, v in param.items():
+            setattr(self, k, v)
+
+        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        self.check_errors()
+
+    def check_len(self):
+        if len(self.raw_bytes) != 29:
+            tm_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
 def parse_tm(response):
     tm_log.debug(f"Response type: {response.cmd_type}")
@@ -260,7 +280,7 @@ def parse_tm(response):
         case "SCI_Offset":
             ack = ACK(response.raw_bytes, tmstruct.ack_sci_offset)
         case "SCI_Request":
-            ack = ACK(response.raw_bytes, tmstruct.sci)
+            ack = SCI(response.raw_bytes)
             ##TODO: Parse as a HK
         case "NACK":
             ack = NACK(response.raw_bytes)
