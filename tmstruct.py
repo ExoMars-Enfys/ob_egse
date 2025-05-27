@@ -128,8 +128,37 @@ ack_mtr_mov_neg = [
 ack_mtr_mov_abs = [
     ("MTR_ABS_STEPS", ">u16")
 ]
+
+ack_sci_offset = [
+    ("SWIR_OFFSET", ">u16"),
+    ("MWIR_OFFSET", ">u16")
+]
+
 nack = [
     ("MOD_ID", "u3"),
     ("CMD_ID", "u5"),
     ("ERROR_BYTE", "u8"),
+]
+
+sci = [
+    ("MOD_ID", "u3"),
+    ("UNUSED1", "u1"),
+    ("CMD_ID", "u4"),
+    ("CMD_CNT", "u8"),
+    ("ERROR_BYTE", "u8"),
+    ("MTR_ABS_STEPS", ">u16"),
+    ("THRM_STATUS", "u8"),
+    ("SWIR_OFFSET", ">u16"),
+    ("MWIR_OFFSET", ">u16"),
+    ("SCI_ADC_SAMPLES", "u8"),
+    ("SCI_ADC_SKIP", "u8"),
+    ("SWIR_HIGH", ">u16"),
+    ("SWIR_MED", ">u16"),
+    ("SWIR_LOW", ">u16"),
+    ("MWIR_HIGH", ">u16"),
+    ("MWIR_MED", ">u16"),
+    ("MWIR_LOW", ">u16"),
+    ("HT_SINK_TEMP", ">u16"),
+    ("SWIR_TEMP", ">u16"),
+    ("CRC","u8")
 ]

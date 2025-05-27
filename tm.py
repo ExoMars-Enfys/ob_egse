@@ -257,6 +257,11 @@ def parse_tm(response):
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_mov_neg)
         case "MTR_Mov_Abs":
             ack = ACK(response.raw_bytes, tmstruct.ack_mtr_mov_abs)
+        case "SCI_Offset":
+            ack = ACK(response.raw_bytes, tmstruct.ack_sci_offset)
+        case "SCI_Request":
+            ack = ACK(response.raw_bytes, tmstruct.sci)
+            ##TODO: Parse as a HK
         case "NACK":
             ack = NACK(response.raw_bytes)
         case _:

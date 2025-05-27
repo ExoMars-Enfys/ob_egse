@@ -1,4 +1,5 @@
 import logging
+import time
 
 from crc8Function import crc8Calculate
 import tm
@@ -483,16 +484,50 @@ def clear_errors(port, verify=True):
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
     return parsed
 
-def sci_request(port, verify=True):
-    cmd = "1F" + "01" + "05" + "00" * 4
+def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
+    ## --- Send CMD ---
+    cmd = "0E" + f"{swir_offset:04X}" + f"{mwir_offset:04X}" + "00" * 2
+    cmd_tc = crc8Calculate(cmd)
+    tc_log.info(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
+    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
+    port.write(cmd_tc)
+
+    ## --- Get ACK and check type ---
+    ack = tm.getResponse(port)
+
+    if ack.cmd_type != "SCI_Offset":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+
+    if not verify:
+        return
+    
+    parsed = tm.parse_tm(ack)
+
+    ## --- Verification ---
+    if parsed.SWIR_OFFSET != swir_offset:
+        tc_log.error(
+            f"ACK swir_offset does not match command. Set: x{swir_offset}, "
+            f"Got {parsed.SWIR_OFFSET}"
+        )
+        
+    if parsed.MWIR_OFFSET != mwir_offset:
+        tc_log.error(
+            f"ACK mwir_offset does not match command. Set: x{mwir_offset}, "
+            f"Got {parsed.MWIR_OFFSET}"
+        )
+
+#TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
+def sci_request(port, sci_adc_samp, sci_adc_skip, verify=True):
+    cmd = "0F" + f"{sci_adc_samp:04X}" + f"{sci_adc_skip:04X}" + "00" * 2
+    #cmd = "1F" + "01" + "05" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Requesting Science Reading")
     info_log.info(f"\nRequesting Science Reading")
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
-
+    time.sleep(1)
     ack = tm.getResponse(port)
     parsed = tm.parse_tm(ack)
-    if ack.cmd_type == "HK_Request":
+    if ack.cmd_type == "SCI_Request":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
     return
