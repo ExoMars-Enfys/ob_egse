@@ -25,7 +25,7 @@ DEBUG_LEVEL = logging.INFO
 # COM_PORT = 'COM' + str(args.com)
 # prefix = args.prefix
 # basedir = str(args.basedir)
-COM_PORT = 'COM3'
+COM_PORT = 'COM12'
 prefix = 'Healthcheck_test'
 basedir = 'c:/wdir/ob_egse/loggers'
 
@@ -921,18 +921,20 @@ start_time = datetime.now()
 hk = tc.hk_request(port)                                                      #cmd 00
 #tc.clear_errors(port)                                                         #cmd 01
 # TODO: Add set errors      (02)
-                                                 #cmd 04
+tc.power_control(port, 0x03) 
 # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
 # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
 # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
-# tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)                            #cmd 0A
-# tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)                            #cmd 0B
-# tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)                                  #cmd 0C
+tc.set_mtr_param(port, 0x28,0x20,0x0F,0xF,0x3200)                            #cmd 0A
+hk = tc.hk_request(port)                                                      #cmd 00
+
 # TODO: Add Set Mtr Errors  (0D)
-# tc.mtr_mov_pos(port, 0x1000)                                                  #cmd 10
+tc.mtr_mov_pos(port, 0x100)                                                  #cmd 10
+# time.sleep(5)
+# tc.mtr_mov_neg(port, 0x100)                                                  #cmd 10
 # tc.mtr_mov_neg(port, 0x1000)                                                  #cmd 11
 # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
-# tc.mtr_homing(port, True, False, True)                                        #cmd 13
+# tc.mtr_homing(port, True, False)                                        #cmd 13
 # TODO: Add Motor Halt      (15)
 # TODO: Add SWIR            (18)
 # TODO: Add MWIR            (19)
@@ -1095,10 +1097,10 @@ hk = tc.hk_request(port)                                                      #c
 
 #heaters_test()
 #tc.power_control(port, 0x03)
-tc.set_mech_sp(port, 4095, 4090)
-hk = tc.hk_request(port) 
-info_log.info(f"Mechanism set points: {hk.THRM_MECH_ON_SP} - {hk.THRM_MECH_OFF_SP}")
-info_log.info(f"HK Mech Temp Reading: {hk.MECH_TRP}")
+# tc.set_mech_sp(port, 4095, 4090)
+# hk = tc.hk_request(port) 
+# info_log.info(f"Mechanism set points: {hk.THRM_MECH_ON_SP} - {hk.THRM_MECH_OFF_SP}")
+# info_log.info(f"HK Mech Temp Reading: {hk.MECH_TRP}")
 
 #Turn manual heater on
 # tc.heater_control(port, False, False, False, True, False)
@@ -1111,9 +1113,9 @@ info_log.info(f"HK Mech Temp Reading: {hk.MECH_TRP}")
 # info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 0")
 
 #Turn automatic heater on 
-tc.heater_control(port, False, False, False, False, True)
-hk = tc.hk_request(port)
-info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 65")
+# tc.heater_control(port, False, False, False, False, True)
+# hk = tc.hk_request(port)
+# info_log.info(f"Thermal Status: {hk.THRM_STATUS} / Expected 65")
 
 
 end_time = datetime.now()

@@ -19,7 +19,7 @@ hk = [
     ("MTR_GUARD", "u8"),
     ("UNUSED3", ">u32"),
     ("MTR_RECVAL", "u8"),
-    ("MECH_LIN_REL", ">u16"),
+    ("MECH_LIM_REL", ">u16"),
     ("MTR_CURRENT", "u8"),
     ("UNUSED4", "u8"),
     ("MTR_SPEED", "u8"),
@@ -44,6 +44,7 @@ hk = [
     ("UNUSED6", ">u32"),
     ("CRC8", "u8"),
 ]
+
 
 #TODO: Determine if MSB or LSB
 
@@ -75,6 +76,12 @@ ack_hdr = [
     ("ERROR_BYTE", "u8"),
 ]
 
+nack = [
+    ("MOD_ID", "u3"),
+    ("CMD_ID", "u5"),
+    ("ERROR_BYTE", "u8"),
+]
+
 ack_clear_errors = [()]
 
 # TODO ack_set_errors = [()]
@@ -88,24 +95,28 @@ ack_set_mech_sp = [("THRM_MECH_OFF_SP", "u16"), ("THRM_MECH_ON_SP", "u16")]
 ack_set_detec_sp = [("THRM_DETEC_OFF_SP", "u16"), ("THRM_DETEC_ON_SP", "u16")]
 
 ack_set_mtr_param = [
-    ("MTR_CURRENT", ">u16"),
-    ("MTR_PWM_RATE", ">u16"),
-    ("MTR_SPEED", "u8"),
-    ("MTR_PWM_DUTY", "u8"),
-]
-
-ack_set_mtr_guard = [
-    ("MTR_RECIRC", "u8"),
-    ("MTR_GUARD", ">u16"),
+    ("MTR_CURRENT", "u8"),
+    ("MTR_GUARD", "u8"),    
     ("MTR_RECVAL", "u8"),
-    ("MTR_SPISPSEL", ">u16"),
+    ("UNUSED1", "u1"),
+    ("UNUSED2", "u1"),
+    ("UNUSED3", "u1"),
+    ("UNUSED4", "u1"),
+    ("MTR_SPEED", "u4"),
+    ("MECH_LIM_REL", ">u16")
 ]
 
-ack_set_mtr_mon = [
-    ("MTR_ABS_STEPS", ">u16"),
-    ("MTR_REL_STEPS", ">s16"),
-    ("MTR_SW_OFFSET", ">u16"),
+ack_mtr_mov_pos = [
+    ("UNUSED" , "u1"),
+    ("MTR_POS_STEPS", ">u15")
 ]
+
+ack_mtr_mov_neg = [
+    ("UNUSED" , "u1"),
+    ("MTR_NEG_STEPS", ">u15")
+]
+
+ack_mtr_halt = [()]
 
 ack_mtr_homing = [
     ("UNUSED1", "u1"),
@@ -113,31 +124,17 @@ ack_mtr_homing = [
     ("UNUSED3", "u1"),
     ("UNUSED4", "u1"),
     ("UNUSED5", "u1"),
-    ("DIR", "u1"),
+    ("UNUSED6", "u1"),
     ("CAL", "u1"),
-    ("HOM", "u1")]
+    ("DIR", "u1")]
 
-ack_mtr_mov_pos = [
-    ("MTR_POS_STEPS", ">u16")
-]
-
-ack_mtr_mov_neg = [
-    ("MTR_NEG_STEPS", ">u16")
-]
-
-ack_mtr_mov_abs = [
-    ("MTR_ABS_STEPS", ">u16")
+ack_hk_samples = [
+    ("HK_ADC_SAMP", "u8")
 ]
 
 ack_sci_offset = [
     ("SWIR_OFFSET", ">u16"),
     ("MWIR_OFFSET", ">u16")
-]
-
-nack = [
-    ("MOD_ID", "u3"),
-    ("CMD_ID", "u5"),
-    ("ERROR_BYTE", "u8"),
 ]
 
 sci = [
