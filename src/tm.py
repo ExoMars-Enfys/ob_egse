@@ -30,7 +30,7 @@ class Response:
 
     def get_cmd_mod_id(self):
         self.mod_id = upf("u3", self.raw_bytes, offset=0)[0]
-        self.cmd_id = upf("u5", self.raw_bytes, offset=3)[0]
+        self.cmd_id = upf("u4", self.raw_bytes, offset=4)[0]
 
     def verify_cmd_id(self):
         if self.cmd_id in cmd_ids:
@@ -214,6 +214,10 @@ def parse_tm(response):
             # print(f"HOMED: {hk.MTR_FLAGS.HOMED}")
             # print(f"BASE: {hk.MTR_FLAGS.BASE}")
             # print(f"OUTER: {hk.MTR_FLAGS.OUTER}")
+        case "NACK":
+            ack = NACK(response)
+        case "Clear_Errors":
+            ack = ACK(response, tmstruct.ack_clear_errors)
         case "Power_Control":
             ack = ACK(response, tmstruct.ack_power_control)
         case "Heater_Control":
@@ -224,21 +228,24 @@ def parse_tm(response):
             ack = ACK(response, tmstruct.ack_set_detec_sp)
         case "Set_MTR_Param":
             ack = ACK(response, tmstruct.ack_set_mtr_param)
-        case "Set_MTR_Guard":
-            ack = ACK(response, tmstruct.ack_set_mtr_guard)
-        case "Set_MTR_Mon":
-            ack = ACK(response, tmstruct.ack_set_mtr_mon)
-        case "MTR_Homing":
-            ack = ACK(response, tmstruct.ack_mtr_homing)
         case "MTR_Mov_Pos":
             ack = ACK(response, tmstruct.ack_mtr_mov_pos)
         case "MTR_Mov_Neg":
-            ack = ACK(response, tmstruct.ack_mtr_mov_neg)
-        case "MTR_Mov_Abs":
-            ack = ACK(response, tmstruct.ack_mtr_mov_abs)
-        case "NACK":
-            ack = NACK(response)
+            ack = ACK(response, tmstruct.ack_mtr_mov_neg)    
+        case "MTR_Halt":
+            ack = ACK(response, tmstruct.ack_mtr_halt)        
+        case "MTR_Homing":
+            ack = ACK(response, tmstruct.ack_mtr_homing)
+        case "HK_Samples":
+            ack = ACK(response, tmstruct.ack_hk_samples)
+        case "SCI_Offset":
+            ack = ACK(response, tmstruct.ack_sci_offset)
+        case "SCI_Request":
+            ack = SCI(response)
+            ##TODO: Parse as a HK        
         case _:
-            tm_log.warning(f"Response type not defined in parse_tm: {response.cmd_type}")
+            tm_log.warning(
+                f"Response type not defined in parse_tm: {response.cmd_type}"
+            )
             ack = "EMPTY"
     return ack
