@@ -38,6 +38,38 @@ def script_homing(port, HEATERS=False):
     return
 
 
+def motor_fw_test(port, HEATERS=False):
+    tc.hk_request(port)
+    if HEATERS:
+        tc.power_control(port, 0xC3)
+    else:
+        tc.power_control(port, 0x01)
+    tc.set_mtr_param(port, 0x4000, 0x0000, 0x09, 0x00)
+    tc.set_mtr_guard(port, 0x03, 0x0020, 0x00, 0x0002)
+    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
+    # tc.mtr_homing(port, True, False, True)
+    tc.mtr_mov_pos(port, 0x1000)
+    resp = tc.hk_request(port)
+
+    while resp.MTR_FLAGS.MOVING == 1:
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        event_log.info("Motor still moving ***********")
+    tm_log.info("Motor movement finished")
+
+    time.sleep(3)
+
+    tc.mtr_mov_neg(port, 0x0300)
+    resp = tc.hk_request(port)
+
+    while resp.MTR_FLAGS.MOVING == 1:
+        time.sleep(1)
+        resp = tc.hk_request(port)
+        event_log.info("Motor still moving ***********")
+    tm_log.info("Motor movement finished")
+    return
+
+
 def verify_sequence(port, HEATERS=False):
     tc.clear_errors(port)
     if HEATERS:

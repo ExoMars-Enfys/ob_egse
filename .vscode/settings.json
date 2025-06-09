@@ -10,7 +10,7 @@
     // Ruff configuration
     "ruff.configuration": "${workspaceFolder}/ruff.toml",
     "editor.rulers": [
-        120,
-        150
+        100,
+        120
     ],
 }
