@@ -1,6 +1,6 @@
 import logging
 import time
-
+import send_cmd
 import tc
 
 tm_log = logging.getLogger("tm_log")
@@ -16,27 +16,371 @@ def script_repeat_hk(port):
         tc.hk_request(port)
         time.sleep(2)
 
-
-def script_homing(port, HEATERS=False):
-    tc.hk_request(port)
-    if HEATERS:
-        tc.power_control(port, 0xC3)
-    else:
-        tc.power_control(port, 0x01)
-    tc.set_mtr_param(port, 0x4000, 0x0001, 0x09, 0xFF)
-    tc.set_mtr_guard(port, 0x03, 0x0020, 0x0F, 0x0002)
-    tc.set_mtr_mon(port, 0x3200, 0x3200, 0x00A0)
-    # tc.mtr_homing(port, True, False, True)
-    tc.mtr_mov_pos(port, 0x1000)
+def mech_heater_test(port):
+    resp = send_cmd.cmd_hk(port)
+    send_cmd.cmd_heater_control(port,False, False, False, True,False)
     resp = tc.hk_request(port)
-
-    while resp.MTR_FLAGS.MOVING == 1:
-        time.sleep(1)
-        resp = tc.hk_request(port)
-        event_log.info("Motor still moving ***********")
-    tm_log.info("Motor movement finished")
+    init_mech_trp = resp.MECH_TRP
+    init_motor_trp = resp.MOTOR_TRP
+    if resp.THRM_STATUS == 66 :
+        while resp.THRM_STATUS ==66:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            if ((resp.MECH_TRP - init_mech_trp) >= 10 or (resp.MOTOR_TRP - init_motor_trp) >= 10):
+                event_log.info("Mech and Motor Heater reached temp")
+                send_cmd.cmd_heater_control(port,False, False, False, False,False)
+                pass
+                exit
+    else :           
+        event_log.error(f"Mech Heater Status not On : {resp.THRM_STATUS} ")
+        exit
     return
 
+def check_hk(port) :
+    resp = tc.hk_request(port)
+    event_log.info(
+    f" MOD_ID :{resp.MOD_ID}" + 
+    f"\n Unused1 : {resp.UNUSED1}" + 
+    f"\n CMD_ID :{resp.CMD_ID}" + 
+    f"\n CMD_CNT : {resp.CMD_CNT}" +
+    f"\n ERROR_BYTE : {resp.ERROR_BYTE}" + 
+    f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
+    f"\n PWR_STAT : {resp.PWR_STAT}" +
+    f"\n UNUSED2 :{resp.UNUSED2}" + 
+    f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}" +
+    f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}" + 
+    f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" + 
+    f"\n MTR_GUARD : {resp.MTR_GUARD}" +
+    f"\n UNUSED3 : {resp.UNUSED3}" + 
+    f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
+    f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
+    f"\n MTR_CURRENT :{resp.MTR_CURRENT}" + 
+    f"\n UNUSED4 : {resp.PWR_STAT}" +
+    f"\n MTR_SPEED :{resp.MTR_SPEED}" + 
+    f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" +
+    f"\n UNUSED5 : {resp.UNUSED5}" + 
+    f"\n THRM_STATUS :{resp.THRM_STATUS}" + 
+    f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}" +
+    f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}" + 
+    f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}" + 
+    f"\n THRM_DET_ON_SP : {resp.THRM_DET_ON_SP}" +
+    f"\n SWIR_OFFSET : {resp.SWIR_OFFSET}" + 
+    f"\n MWIR_OFFSET : {resp.MWIR_OFFSET}" +
+    f"\n HK_V_3V3 : {resp.HK_V_3V3}" + 
+    f"\n HK_V_1V5 :{resp.HK_V_1V5}" + 
+    f"\n DIGITAL_TRP : {resp.DIGITAL_TRP}" +
+    f"\n DETEC_TRP :{resp.DETEC_TRP}" + 
+    f"\n MECH_TRP : {resp.MECH_TRP}" +
+    f"\n MOTOR_TRP : {resp.MOTOR_TRP}" + 
+    f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}" + 
+    f"\n UNUSED_ADC : {resp.UNUSED_ADC}" +
+    f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
+    f"\n UNUSED6 :{resp.UNUSED6}" + 
+    f"\n CRC8 : {resp.CRC8}")
+
+def power_up_tests(port) :
+    resp = tc.hk_request(port)
+    if resp.PWR_STAT != 0 : 
+        event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
+        exit
+    else :         
+        send_cmd.cmd_power_control(port,0x01)
+        resp=tc.hk_request(port)
+        if resp.PWR_STAT != 1 : 
+            event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
+            exit
+        else :
+            send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
+            resp = tc.hk_request(port)
+            if (
+            resp.MTR_CURRENT != 40
+            or resp.MTR_GUARD != 32
+            or resp.MTR_RECVAL != 15
+            or resp.MTR_SPEED != 9
+            or resp.MECH_LIM_REL != 12800):
+                event_log.error(f"OB Parameters not initialized correctly:"+
+                                f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
+                                f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                                f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+                                f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                                f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+                # exit
+                send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
+                resp = tc.hk_request(port)
+                if (
+                resp.MTR_CURRENT != 40
+                or resp.MTR_GUARD != 32
+                or resp.MTR_RECVAL != 15
+                or resp.MTR_SPEED != 9
+                or resp.MECH_LIM_REL != 12800):
+                    event_log.error(f"OB Parameters not initialized correctly:"+
+                                    f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
+                                    f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                                    f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+                                    f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                                    f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+
+def positive_test(port):
+    resp = tc.hk_request(port)
+    abs_steps = resp.MTR_ABS_STEPS
+    send_cmd.cmd_mtr_mov_pos(port, 0x140)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    if ((abs(abs_steps - resp.MTR_ABS_STEPS) != 320 or resp.MTR_REL_STEPS != 320)) : 
+        event_log.error(f"Motor Steps Do not match expected : " + 
+                        f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 320" +
+                        f"\n REL : {resp.MTR_REL_STEPS} , Expected : 320")
+        exit
+    return
+
+def negative_test(port):
+    resp = tc.hk_request(port)
+    abs_steps = resp.MTR_ABS_STEPS
+    send_cmd.cmd_mtr_mov_neg(port, 0x140)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    if ((abs(abs_steps - resp.MTR_ABS_STEPS) != 320 or resp.MTR_REL_STEPS != 320)) : 
+        event_log.error(f"Motor Steps Do not match expected : " + 
+                        f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 320" +
+                        f"\n REL : {resp.MTR_REL_STEPS} , Expected : 320")
+        exit
+    return
+
+def cal_test(port):
+    event_log.info("CAL to base")
+    resp = tc.hk_request(port)
+    send_cmd.cmd_mtr_homing(port,True, False)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    if resp.MTR_FLAGS.BASE !=1 : 
+        event_log.error(f"BASE Switch Flag not raised : {resp.MTR_FLAGS.BASE}")
+    else:
+        if resp.MTR_FLAGS.CAL != 1 : 
+            event_log.error(f" Calibration Flag not Asserted : {resp.MTR_FLAGS.CAL}")
+        if resp.MTR_FLAGS.DIR != 0 : 
+            event_log.error(f" Calibration Dir not to Base : {resp.MTR_FLAGS.DIR}")
+        if (resp.MTR_ABS_STEPS != 8960):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
+        if (resp.MTR_REL_STEPS != 0):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+            
+    
+    time.sleep(5)
+    event_log.info("CAL to OUTER")
+    resp = tc.hk_request(port)
+    send_cmd.cmd_mtr_homing(port,True, True)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    if resp.MTR_FLAGS.OUTER !=1 : 
+        event_log.error(f"OUTER Switch Flag not raised : {resp.MTR_FLAGS.OUTER}")
+    else:
+        if resp.MTR_FLAGS.CAL != 1 : 
+            event_log.error(f" Calibration Flag not Asserted : {resp.MTR_FLAGS.CAL}")
+        if resp.MTR_FLAGS.DIR != 1 : 
+            event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
+        if (resp.MTR_ABS_STEPS != 100):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 100")
+        if (resp.MTR_REL_STEPS != 0):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+            
+    return
+
+def homing_test(port):
+    event_log.info("HOME to BASE")
+    resp = tc.hk_request(port)
+    send_cmd.cmd_mtr_homing(port,False, False)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    
+    if resp.MTR_FLAGS.BASE !=1 : 
+        event_log.error(f"BASE Switch Flag not raised : {resp.MTR_FLAGS.BASE}")
+    else:
+        if resp.MTR_FLAGS.CAL != 0 : 
+            event_log.error(f" Calibration Flag Falsely Asserted : {resp.MTR_FLAGS.CAL}")
+        if resp.MTR_FLAGS.DIR != 1 : 
+            event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
+        if (resp.MTR_ABS_STEPS != 8960):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
+        if (resp.MTR_REL_STEPS != 0):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+    
+    time.sleep(5)
+    event_log.info("HOME to OUTER")
+    resp = tc.hk_request(port)
+    send_cmd.cmd_mtr_homing(port,False, True)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    
+    if resp.MTR_FLAGS.OUTER !=1 : 
+        event_log.error(f"OUTER Switch Flag not raised : {resp.MTR_FLAGS.OUTER}")
+    else:
+        if resp.MTR_FLAGS.CAL != 0 : 
+            event_log.error(f" Calibration Flag Falsely Asserted : {resp.MTR_FLAGS.CAL}")
+        if resp.MTR_FLAGS.DIR != 1 : 
+            event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
+        if (resp.MTR_ABS_STEPS != 100):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 100")
+        if (resp.MTR_REL_STEPS != 0):
+            event_log.error(f"Motor Steps Do not match expected : " + 
+                            f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+    return
 
 def motor_fw_test(port, HEATERS=False):
     tc.hk_request(port)
@@ -670,3 +1014,26 @@ def verify_sequence(port, HEATERS=False):
             f"[EVENT] Parked Position Healthcheck PASSED - Checks carried : Moving:{resp.MTR_FLAGS.MOVING} BaseStop:{resp.MTR_FLAGS.BASE} OuterStop:{resp.MTR_FLAGS.OUTER}  AbsSteps:{resp.MTR_ABS_STEPS} RelSteps:{resp.MTR_REL_STEPS}"
         )
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
+
+def check_sci_vs_hk(port):
+    resphk = tc.hk_request(port)
+    respsci = tc.sci_request(port)
+    abs_steps = respsci.MTR_ABS_STEPS
+    send_cmd.cmd_mtr_mov_pos(port, 0x140)    
+    resphk = tc.hk_request(port)
+    if resphk.MTR_FLAGS.MOVING == 1 : 
+        while resphk.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resphk = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    resphk = tc.hk_request(port)
+    if (resphk.MTR_ABS_STEPS != respsci.MTR_ABS_STEPS) : 
+        event_log.error(f"Motor Steps in HK and in SCI packets do not match : " + 
+                        f"\n HK : {resphk.MTR_ABS_STEPS}" +
+                        f"\n SCI : {respsci.MTR_ABS_STEPS}")
+    if (abs(abs_steps - respsci.MTR_ABS_STEPS) != 320) : 
+        event_log.error(f"Motor Steps Do not match expected : " + 
+                        f"\n ABS : {respsci.MTR_ABS_STEPS} , Expected : 320")
+        exit
+    return

@@ -30,7 +30,7 @@ class Response:
 
     def get_cmd_mod_id(self):
         self.mod_id = upf("u3", self.raw_bytes, offset=0)[0]
-        self.cmd_id = upf("u5", self.raw_bytes, offset=3)[0]
+        self.cmd_id = upf("u4", self.raw_bytes, offset=4)[0]
 
     def verify_cmd_id(self):
         if self.cmd_id in cmd_ids:
@@ -81,6 +81,18 @@ class TM:
         for k, v in error_param.items():
             setattr(self.ERRORS, k, v)
 
+    def decode_mtr_error_byte(self):
+        ## Decode bit maps
+        # Motor Errors
+        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[1] for i in tmstruct.mtr_error_struct))
+        mtr_error_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_error_struct),
+            [i[0] for i in tmstruct.mtr_error_struct],
+            self.MTR_ERROR_BYTE.to_bytes(1),
+        )
+        for k, v in mtr_error_param.items():
+            setattr(self.MTR_ERRORS, k, v)
+
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             tm_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
@@ -123,7 +135,7 @@ class HK(TM):
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
 
-        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        # tm_log.info(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_len()
         self.check_errors()
@@ -143,7 +155,7 @@ class HK(TM):
             tm_log.error(f"HK Len not 66 bytes as expected. Got: {len(self.raw_bytes)}")
 
     def check_unused(self):
-        if self.UNUSED1 == 0x00:
+        if self.UNUSED1 != 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
 
 
@@ -173,6 +185,26 @@ class ACK(TM):
         if len(self.raw_bytes) != expect_len:
             tm_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
+class SCI(TM):
+    def __init__(self, raw_bytes):
+        self.raw_bytes = raw_bytes
+        self.get_cmd_mod_id(self.raw_bytes)
+
+        self.check_len()
+        tm_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        # TODO Sci log
+        param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], raw_bytes)
+        
+        for k, v in param.items():
+            setattr(self, k, v)
+
+        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        self.check_errors()
+
+    def check_len(self):
+        if len(self.raw_bytes) != 29:
+            tm_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
 class NACK(TM):
     def __init__(self, response: Response):
@@ -215,6 +247,10 @@ def parse_tm(response):
             # print(f"HOMED: {hk.MTR_FLAGS.HOMED}")
             # print(f"BASE: {hk.MTR_FLAGS.BASE}")
             # print(f"OUTER: {hk.MTR_FLAGS.OUTER}")
+        case "NACK":
+            ack = NACK(response)
+        case "Clear_Errors":
+            ack = ACK(response, tmstruct.ack_clear_errors)
         case "Power_Control":
             ack = ACK(response, tmstruct.ack_power_control)
         case "Heater_Control":
@@ -225,21 +261,24 @@ def parse_tm(response):
             ack = ACK(response, tmstruct.ack_set_detec_sp)
         case "Set_MTR_Param":
             ack = ACK(response, tmstruct.ack_set_mtr_param)
-        case "Set_MTR_Guard":
-            ack = ACK(response, tmstruct.ack_set_mtr_guard)
-        case "Set_MTR_Mon":
-            ack = ACK(response, tmstruct.ack_set_mtr_mon)
-        case "MTR_Homing":
-            ack = ACK(response, tmstruct.ack_mtr_homing)
         case "MTR_Mov_Pos":
             ack = ACK(response, tmstruct.ack_mtr_mov_pos)
         case "MTR_Mov_Neg":
-            ack = ACK(response, tmstruct.ack_mtr_mov_neg)
-        case "MTR_Mov_Abs":
-            ack = ACK(response, tmstruct.ack_mtr_mov_abs)
-        case "NACK":
-            ack = NACK(response)
+            ack = ACK(response, tmstruct.ack_mtr_mov_neg)    
+        case "MTR_Halt":
+            ack = ACK(response, tmstruct.ack_mtr_halt)        
+        case "MTR_Homing":
+            ack = ACK(response, tmstruct.ack_mtr_homing)
+        case "HK_Samples":
+            ack = ACK(response, tmstruct.ack_hk_samples)
+        case "SCI_Offset":
+            ack = ACK(response, tmstruct.ack_sci_offset)
+        case "SCI_Request":
+            ack = SCI(response)
+            ##TODO: Parse as a HK        
         case _:
-            tm_log.warning(f"Response type not defined in parse_tm: {response.cmd_type}")
+            tm_log.warning(
+                f"Response type not defined in parse_tm: {response.cmd_type}"
+            )
             ack = "EMPTY"
     return ack
