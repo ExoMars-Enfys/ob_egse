@@ -81,6 +81,18 @@ class TM:
         for k, v in error_param.items():
             setattr(self.ERRORS, k, v)
 
+    def decode_mtr_error_byte(self):
+        ## Decode bit maps
+        # Motor Errors
+        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[1] for i in tmstruct.mtr_error_struct))
+        mtr_error_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_error_struct),
+            [i[0] for i in tmstruct.mtr_error_struct],
+            self.MTR_ERROR_BYTE.to_bytes(1),
+        )
+        for k, v in mtr_error_param.items():
+            setattr(self.MTR_ERRORS, k, v)
+
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             tm_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
@@ -123,7 +135,7 @@ class HK(TM):
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
 
-        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        # tm_log.info(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_len()
         self.check_errors()
@@ -143,7 +155,7 @@ class HK(TM):
             tm_log.error(f"HK Len not 66 bytes as expected. Got: {len(self.raw_bytes)}")
 
     def check_unused(self):
-        if self.UNUSED1 == 0x00:
+        if self.UNUSED1 != 0x00:
             tm_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
 
 
@@ -173,6 +185,26 @@ class ACK(TM):
         if len(self.raw_bytes) != expect_len:
             tm_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
+class SCI(TM):
+    def __init__(self, raw_bytes):
+        self.raw_bytes = raw_bytes
+        self.get_cmd_mod_id(self.raw_bytes)
+
+        self.check_len()
+        tm_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        # TODO Sci log
+        param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], raw_bytes)
+        
+        for k, v in param.items():
+            setattr(self, k, v)
+
+        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        self.check_errors()
+
+    def check_len(self):
+        if len(self.raw_bytes) != 29:
+            tm_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
 class NACK(TM):
     def __init__(self, response: Response):

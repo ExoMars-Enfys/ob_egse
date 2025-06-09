@@ -59,6 +59,14 @@ error_struct = [
     ("ICI", "u1"),
 ]
 
+mtr_error_struct = [
+    ("UNUSED", "u3"),
+    ("CD","u1"),
+    ("AB","u1"),
+    ("ABS","u1"),
+    ("REL","u1"),
+    ("DSE","u1"),
+]
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),

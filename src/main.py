@@ -80,6 +80,7 @@ port.flushInput()
 
 @atexit.register
 def clean_exit():
+    event_log.info("...Exiting...")
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
@@ -90,13 +91,15 @@ def clean_exit():
 
 
 t1 = time.perf_counter(), time.process_time()
-hk = tc.hk_request(port)
-tc.power_control(port, 0x03)
-tc.set_mtr_param(port, 0x28,0x20,0x0F,0xF,0x3200)
-hk = tc.hk_request(port)
-tc.mtr_mov_pos(port, 0x100)   
+# sq.mech_heater_test(port)
+# sq.check_hk(port)
+# sq.power_up_tests(port)
+tc.power_control(port,0x01)
+# sq.positive_test(port)
+# sq.negative_test(port)
+# sq.cal_test(port)
+# sq.homing_test(port)
+# sq.check_sci_vs_hk(port)
 t2 = time.perf_counter(), time.process_time()
-
-
 print(f" Real time: {t2[0] - t1[0]:.4f} seconds")
 print(f" CPU time: {t2[1] - t1[1]:.4f} seconds")
