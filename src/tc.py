@@ -22,9 +22,9 @@ def hk_request(port, verify=True):
     ## --- Send CMD ---
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
+    # tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    # info_log.info(f"\nSend HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    # cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 
     ## --- Get Response and check type ---
@@ -51,7 +51,8 @@ def clear_errors(port, verify=True):
     info_log.info(f"\nClearing Errors")
     port.write(cmd_tc)
 
-    ack = tm.get_response(port)
+    ack_bytes = tm.get_response(port, 3)
+    ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type != "Clear_Errors":
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
@@ -409,6 +410,24 @@ def mtr_homing(port, CAL: bool, FORWARD: bool, verify=True):
 
     return parsed
 
+def mtr_halt(port, verify = True):
+    cmd = "0B" + "00" * 6
+    cmd_tc = crc8Calculate(cmd)
+    tc_log.info(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.info(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
+    port.write(cmd_tc)
+    time.sleep(5)
+
+    ack_bytes = tm.get_response(port, 4)
+    ack = tm.Response(ack_bytes)
+    parsed = tm.parse_tm(ack)
+    if not verify:
+        return
+    
+    if ack.cmd_type != "Halt":
+        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+    return parsed
+
 def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ## --- Send CMD ---
     cmd = "0E" + f"0{swir_offset:03X}" + f"0{mwir_offset:03X}" + "00" * 2
@@ -469,16 +488,16 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify=True):
     # Wait for Sci to be generated
     delay = (sci_adc_samp + sci_adc_skip) * 8 * 16 * 1e-6 + const.SCI_RESP_MARGIN
     time.sleep(delay)
-    ack_bytes = tm.get_response(port, 25)
-    ack = tm.Response(ack_bytes)
-    if ack.cmd_type != "SCI_Request":
-        tc_log.error(f"Incorrect response to SCI CMD. Got {ack.cmd_type}")
-        tc_log.error(f"Response: {bytes.hex(ack.raw_bytes, ' ', 2)}")
+    sci_bytes = tm.get_response(port, 29)
+    sci = tm.Response(sci_bytes)
+    if sci.cmd_type != "SCI_Request":
+        tc_log.error(f"Incorrect response to SCI CMD. Got {sci.cmd_type}")
+        tc_log.error(f"Response: {bytes.hex(sci.raw_bytes, ' ', 2)}")
     
     if not verify:
         return
     
-    parsed = tm.parse_tm(ack)
+    parsed = tm.parse_tm(sci)
 
     ## --- Verification ---
     # TODO

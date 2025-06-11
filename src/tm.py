@@ -186,15 +186,14 @@ class ACK(TM):
             tm_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
 class SCI(TM):
-    def __init__(self, raw_bytes):
-        self.raw_bytes = raw_bytes
-        self.get_cmd_mod_id(self.raw_bytes)
+    def __init__(self, response: Response):
+        super().__init__(response)
 
         self.check_len()
         tm_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         # TODO Sci log
         param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], raw_bytes)
+            "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], self.raw_bytes)
         
         for k, v in param.items():
             setattr(self, k, v)
@@ -204,7 +203,7 @@ class SCI(TM):
 
     def check_len(self):
         if len(self.raw_bytes) != 29:
-            tm_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
+            tm_log.error(f"SCI Len not 25 bytes as expected. Got: {len(self.raw_bytes)}")
 
 class NACK(TM):
     def __init__(self, response: Response):
@@ -265,7 +264,7 @@ def parse_tm(response):
         case "MTR_Mov_Neg":
             ack = ACK(response, tmstruct.ack_mtr_mov_neg)    
         case "MTR_Halt":
-            ack = ACK(response, tmstruct.ack_mtr_halt)        
+            ack = ACK(response,tmstruct.ack_mtr_halt)        
         case "MTR_Homing":
             ack = ACK(response, tmstruct.ack_mtr_homing)
         case "HK_Samples":
