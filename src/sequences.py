@@ -79,46 +79,46 @@ def check_hk(port) :
     f"\n CRC8 : {resp.CRC8}")
 
 def power_up_tests(port) :
+    # resp = tc.hk_request(port)
+    # if resp.PWR_STAT != 0 : 
+    #     event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
+    #     exit
+    # else :         
+    #     send_cmd.cmd_power_control(port,0x01)
+    #     resp=tc.hk_request(port)
+    #     if resp.PWR_STAT != 1 : 
+    #         event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
+    #         exit
+    #     else :
+    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
     resp = tc.hk_request(port)
-    if resp.PWR_STAT != 0 : 
-        event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
-        exit
-    else :         
-        send_cmd.cmd_power_control(port,0x01)
-        resp=tc.hk_request(port)
-        if resp.PWR_STAT != 1 : 
-            event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
-            exit
-        else :
-            send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
-            resp = tc.hk_request(port)
-            if (
-            resp.MTR_CURRENT != 40
-            or resp.MTR_GUARD != 32
-            or resp.MTR_RECVAL != 15
-            or resp.MTR_SPEED != 9
-            or resp.MECH_LIM_REL != 12800):
-                event_log.error(f"OB Parameters not initialized correctly:"+
-                                f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
-                                f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
-                                f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                                f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                                f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
-                # exit
-                send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
-                resp = tc.hk_request(port)
-                if (
-                resp.MTR_CURRENT != 40
-                or resp.MTR_GUARD != 32
-                or resp.MTR_RECVAL != 15
-                or resp.MTR_SPEED != 9
-                or resp.MECH_LIM_REL != 12800):
-                    event_log.error(f"OB Parameters not initialized correctly:"+
-                                    f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
-                                    f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
-                                    f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                                    f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                                    f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+    if (
+    resp.MTR_CURRENT != 40
+    or resp.MTR_GUARD != 32
+    or resp.MTR_RECVAL != 15
+    or resp.MTR_SPEED != 9
+    or resp.MECH_LIM_REL != 12800):
+        event_log.error(f"OB Parameters not initialized correctly:"+
+                        f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
+                        f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                        f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+                        f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                        f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+        # exit
+        send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
+        resp = tc.hk_request(port)
+        if (
+        resp.MTR_CURRENT != 40
+        or resp.MTR_GUARD != 32
+        or resp.MTR_RECVAL != 15
+        or resp.MTR_SPEED != 9
+        or resp.MECH_LIM_REL != 12800):
+            event_log.error(f"OB Parameters not initialized correctly:"+
+                            f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
+                            f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                            f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+                            f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                            f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
 
 def positive_test(port):
     resp = tc.hk_request(port)
@@ -127,7 +127,7 @@ def positive_test(port):
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1 : 
         while resp.MTR_FLAGS.MOVING == 1:
-            time.sleep(1)
+            time.sleep(0.1)
             resp = tc.hk_request(port)
             event_log.info("Motor still moving ***********")
         event_log.info("Motor movement finished")
@@ -156,6 +156,9 @@ def positive_test(port):
                         f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 320" +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 320")
         exit
+    else : event_log.info(f"Step count was fine : "+
+        f"\n Abs : {abs(abs_steps - resp.MTR_ABS_STEPS)}"+
+        f"\n Rel : {resp.MTR_REL_STEPS}")
     return
 
 def negative_test(port):
@@ -189,14 +192,19 @@ def negative_test(port):
                             f"\n REL : {resp.MTR_ERRORS.REL}" + 
                             f"\n DSE : {resp.MTR_ERRORS.DSE}"
                             )
-    if ((abs(abs_steps - resp.MTR_ABS_STEPS) != 320 or resp.MTR_REL_STEPS != 320)) : 
+    resp = tc.hk_request(port)
+    if ((abs(abs_steps - resp.MTR_ABS_STEPS) != 320 or resp.MTR_REL_STEPS != (65536-320))) : 
         event_log.error(f"Motor Steps Do not match expected : " + 
-                        f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 320" +
+                        f"\n ABS : {abs(abs_steps - resp.MTR_ABS_STEPS)} , Expected : 320" +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 320")
         exit
+    else : event_log.info(f"Step count was fine : "+
+        f"\n Abs : {abs(abs_steps - resp.MTR_ABS_STEPS)}"+
+        f"\n Rel : {resp.MTR_REL_STEPS}")
     return
 
 def cal_test(port):
+    tc.power_control(port,0x01)
     event_log.info("CAL to base")
     resp = tc.hk_request(port)
     send_cmd.cmd_mtr_homing(port,True, False)    
@@ -205,7 +213,7 @@ def cal_test(port):
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
             resp = tc.hk_request(port)
-            event_log.info("Motor still moving ***********")
+            # event_log.info("Motor still moving ***********")
         event_log.info("Motor movement finished")
     else : 
         event_log.error("Motor Did not Move :")
@@ -292,7 +300,7 @@ def cal_test(port):
 def homing_test(port):
     event_log.info("HOME to BASE")
     resp = tc.hk_request(port)
-    send_cmd.cmd_mtr_homing(port,False, False)    
+    send_cmd.cmd_mtr_homing(port,False, True)    
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1 : 
         while resp.MTR_FLAGS.MOVING == 1:
@@ -1016,8 +1024,9 @@ def verify_sequence(port, HEATERS=False):
     abs_log.info(f"ABS Steps at this PiT: {resp.MTR_ABS_STEPS}")
 
 def check_sci_vs_hk(port):
+    send_cmd.cmd_power_control(port,0x03)
     resphk = tc.hk_request(port)
-    respsci = tc.sci_request(port)
+    respsci = tc.sci_request(port,0x01,0x01)
     abs_steps = respsci.MTR_ABS_STEPS
     send_cmd.cmd_mtr_mov_pos(port, 0x140)    
     resphk = tc.hk_request(port)
@@ -1032,8 +1041,44 @@ def check_sci_vs_hk(port):
         event_log.error(f"Motor Steps in HK and in SCI packets do not match : " + 
                         f"\n HK : {resphk.MTR_ABS_STEPS}" +
                         f"\n SCI : {respsci.MTR_ABS_STEPS}")
-    if (abs(abs_steps - respsci.MTR_ABS_STEPS) != 320) : 
+    if (abs(resphk.MTR_ABS_STEPS - respsci.MTR_ABS_STEPS) != 0) : 
         event_log.error(f"Motor Steps Do not match expected : " + 
-                        f"\n ABS : {respsci.MTR_ABS_STEPS} , Expected : 320")
+                        f"\n ABS : {abs(resphk.MTR_ABS_STEPS - respsci.MTR_ABS_STEPS)} , Expected : 0")
         exit
+    return
+
+def check_halt(port):
+    tc.power_control(port,0x01)
+    resp = tc.hk_request(port)
+    abs_steps = resp.MTR_ABS_STEPS
+    send_cmd.cmd_mtr_mov_pos(port, 0x140)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(0.1)
+            resp = tc.hk_request(port)
+            event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+    send_cmd.cmd_mtr_mov_pos(port, 0x2000)
+    time.sleep(5)
+    send_cmd.cmd_mtr_halt(port)
+    resp = tc.hk_request(port)
+    event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                    f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                    f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                    f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                    f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                    f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                    f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                    f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                    )
     return

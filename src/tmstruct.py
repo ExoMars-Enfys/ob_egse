@@ -90,7 +90,8 @@ nack = [
     ("ERROR_BYTE", "u8"),
 ]
 
-ack_clear_errors = [()]
+ack_clear_errors = [
+    ("UNUSED1","u8")]
 
 # TODO ack_set_errors = [()]
 
@@ -124,7 +125,8 @@ ack_mtr_mov_neg = [
     ("MTR_NEG_STEPS", ">u15")
 ]
 
-ack_mtr_halt = [()]
+ack_mtr_halt = [
+    ("UNUSED1","u8")]
 
 ack_mtr_homing = [
     ("UNUSED1", "u1"),
