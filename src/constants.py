@@ -13,9 +13,9 @@ CMD_SPEED_DICT = {
 EXP_MODEL_ID = 0x07
 
 DEBUG_LEVEL = logging.INFO
-DEFAULT_PREFIX = "test"  # datetime.now().strftime("%Y%m%dT%H%M%S")
+DEFAULT_PREFIX = "PSU_LOG_test"  # datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
-DEFAULT_COM_PORT = 10
+DEFAULT_COM_PORT = 12
 DEFAULT_CMD_SPEED = "Fast"  # "steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
 

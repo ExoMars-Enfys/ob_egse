@@ -8,6 +8,7 @@ from pathlib import Path
 import constants as const
 import streamlit as st
 import tc
+import psu
 
 state_pwr_dict = {"OFF": 0x00, "Mech Only": 0x01, "Detec Only": 0x02, "Both": 0x03}
 
@@ -142,6 +143,9 @@ def st_cmd_interface(port):
     st.divider()
     st.subheader("Housekeeping")
     get_hk()
+
+    st.metric(
+        "-12V Channel", value, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
 
 
 def streamlit_gui(com_port: str) -> None:

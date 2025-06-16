@@ -7,6 +7,7 @@ import atexit
 import argparse
 from pathlib import Path
 from datetime import datetime
+import psu
 
 # Local modules
 import comms
@@ -35,7 +36,7 @@ def setup_logs() -> tuple[logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
 
-    tm_log, tc_log, event_log, info_log, error_log, abs_log = egse_logger.get_loggers(
+    tm_log, tc_log, event_log, info_log, error_log, abs_log, psu_log = egse_logger.get_loggers(
         const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL
     )
 
@@ -51,7 +52,7 @@ def setup_logs() -> tuple[logging.Logger]:
     hk_log_name = const.DEFAULT_PREFIX + "_HK.LOG"
     const.HK_LOG_FH = open(const.LOG_PATH / hk_log_name, "a+", encoding="utf-8")
 
-    return (tm_log, tc_log, event_log, info_log, error_log, abs_log)
+    return (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log)
 
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
@@ -72,12 +73,12 @@ def setup_logs() -> tuple[logging.Logger]:
 
 
 def simple_commands(port) -> None:
-    # t1 = time.perf_counter(), time.process_time()
+    t1 = time.perf_counter(), time.process_time()
 
-    hk = tc.hk_request(port)  # cmd 00
+    # hk = tc.hk_request(port)  # cmd 00
     # tc.clear_errors(port)                                                         #cmd 01
     # # TODO: Add set errors      (02)
-    # tc.power_control(port, 0x03)  # cmd 04
+    tc.power_control(port, 0x03)  # cmd 04
     # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
     # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
     # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
@@ -89,7 +90,9 @@ def simple_commands(port) -> None:
     # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
     # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
     # tc.mtr_homing(port, False, False, True)  # cmd 13
-    sq.motor_fw_test(port)
+    sq.power_up_tests(port)
+    sq.homing_test(port)
+    # sq.motor_fw_test(port)
     # TODO: Add Motor Halt      (15)
     # TODO: Add SWIR            (18)
     # TODO: Add MWIR            (19)
@@ -108,7 +111,7 @@ def simple_commands(port) -> None:
     # sq.script_repeat_hk(port)
     # start_stops()
     # script_stops()
-    # t2 = time.perf_counter(), time.process_time()
+    t2 = time.perf_counter(), time.process_time()
 
     # print(f" Real time: {t2[0] - t1[0]:.4f} seconds")
     # print(f" CPU time: {t2[1] - t1[1]:.4f} seconds")
@@ -121,7 +124,7 @@ def main() -> None:
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
-    (tm_log, tc_log, event_log, info_log, error_log, abs_log) = setup_logs()
+    (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
 
@@ -130,6 +133,7 @@ def main() -> None:
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
         simple_commands(port)
+        # psu.setChannels(True,False,False)
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port)

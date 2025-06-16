@@ -1,7 +1,6 @@
 # Get packing formats print(''.join(i[1] for i in hk))
 # Get names print(''.join(i[1] for i in hk))
 
-#! TODO Same for science
 # HK starting from byte 0
 # Bitfields have the suffix "_Byte" to indicate they'll be unpacked elsewhere in the code.
 hk = [

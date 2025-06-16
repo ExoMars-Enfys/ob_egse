@@ -90,6 +90,7 @@ def power_up_tests(port) :
     #         event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
     #         exit
     #     else :
+    tc.power_control(port,0x01)
     send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
     resp = tc.hk_request(port)
     if (
@@ -300,7 +301,7 @@ def cal_test(port):
 def homing_test(port):
     event_log.info("HOME to BASE")
     resp = tc.hk_request(port)
-    send_cmd.cmd_mtr_homing(port,False, True)    
+    send_cmd.cmd_mtr_homing(port,False, False)    
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1 : 
         while resp.MTR_FLAGS.MOVING == 1:

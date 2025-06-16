@@ -6,10 +6,10 @@ import serial.rs485
 
 # Local modules
 import constants as const
+info_log = logging.getLogger("info_log")
 
 
 def initialise_comms(com_port: str) -> serial.rs485.RS485:
-    info_log = logging.getLogger("info_log")
     port = serial.rs485.RS485(
         port=None,  # create a blank class ready to open
         baudrate=115200,
@@ -32,9 +32,10 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
 
 
 def open_comms(port: serial.rs485.RS485) -> None:
-    port.open()
+    try:    
+        port.open()
     except serial.SerialException:
-        info_log.error(f"No device found on COM Port {com_port}, try another")
+        info_log.error(f"No device found on COM Port {port}, try another")
         # raise SystemExit
 
     port.flushOutput()  # Port Flushing to clear port
