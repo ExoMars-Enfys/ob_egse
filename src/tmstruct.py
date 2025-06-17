@@ -13,7 +13,7 @@ hk = [
     ("PWR_STAT", "u8"),
     ("UNUSED2", ">u32"),
     ("MTR_ABS_STEPS", ">u16"),
-    ("MTR_REL_STEPS", ">u16"),
+    ("MTR_REL_STEPS", ">s16"),
     ("MTR_FLAGS_BYTE", "u8"),
     ("MTR_GUARD", "u8"),
     ("UNUSED3", ">u32"),

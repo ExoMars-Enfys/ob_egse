@@ -51,7 +51,7 @@ def clear_errors(port, verify=True):
     info_log.info(f"\nClearing Errors")
     port.write(cmd_tc)
 
-    ack_bytes = tm.get_response(port, 3)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if ack.cmd_type != "Clear_Errors":
@@ -418,7 +418,7 @@ def mtr_halt(port, verify = True):
     port.write(cmd_tc)
     time.sleep(5)
 
-    ack_bytes = tm.get_response(port, 4)
+    ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
     parsed = tm.parse_tm(ack)
     if not verify:

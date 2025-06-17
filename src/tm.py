@@ -88,7 +88,7 @@ class TM:
         mtr_error_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_error_struct),
             [i[0] for i in tmstruct.mtr_error_struct],
-            self.MTR_ERROR_BYTE.to_bytes(1),
+            self.ERROR_MTR.to_bytes(1),
         )
         for k, v in mtr_error_param.items():
             setattr(self.MTR_ERRORS, k, v)
@@ -124,6 +124,8 @@ class HK(TM):
 
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.hk)
+        self.decode_error_byte()
+        self.decode_mtr_error_byte()
 
         # Motor Flags
         self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct))

@@ -16,7 +16,7 @@ DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = "PSU_LOG_test"  # datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 12
-DEFAULT_CMD_SPEED = "Fast"  # "steady" or "Fast"
+DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
 
 LOG_PREFIX = DEFAULT_PREFIX

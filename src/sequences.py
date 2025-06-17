@@ -78,6 +78,31 @@ def check_hk(port) :
     f"\n UNUSED6 :{resp.UNUSED6}" + 
     f"\n CRC8 : {resp.CRC8}")
 
+def check_sci(port):
+    resp = tc.sci_request(port, 3, 1)
+    event_log.info(
+    f"\n MOD_ID: {resp.MOD_ID}" +
+    f"\n UNUSED1: {resp.UNUSED1}" +
+    f"\n CMD_ID: {resp.CMD_ID}" +
+    f"\n CMD_CNT: {resp.CMD_CNT}" +
+    f"\n ERROR_BYTE: {resp.ERROR_BYTE}" +
+    f"\n MTR_ABS_STEPS: {resp.MTR_ABS_STEPS}" +
+    f"\n THRM_STATUS: {resp.THRM_STATUS}" +
+    f"\n SWIR_OFFSET: {resp.SWIR_OFFSET}" +
+    f"\n MWIR_OFFSET: {resp.MWIR_OFFSET}" +
+    f"\n SCI_ADC_SAMPLES: {resp.SCI_ADC_SAMPLES}" +
+    f"\n SCI_ADC_SKIP: {resp.SCI_ADC_SKIP}" +
+    f"\n SWIR_HIGH: {resp.SWIR_HIGH}" +
+    f"\n SWIR_MED: {resp.SWIR_MED}" +
+    f"\n SWIR_LOW: {resp.SWIR_LOW}" +
+    f"\n MWIR_HIGH: {resp.MWIR_HIGH}" +
+    f"\n MWIR_MED: {resp.MWIR_MED}" +
+    f"\n MWIR_LOW: {resp.MWIR_LOW}" +
+    f"\n HT_SINK_TEMP: {resp.HT_SINK_TEMP}" +
+    f"\n SWIR_TEMP: {resp.SWIR_TEMP}" +
+    f"\n CRC: {resp.CRC}"
+    )
+
 def power_up_tests(port) :
     # resp = tc.hk_request(port)
     # if resp.PWR_STAT != 0 : 
