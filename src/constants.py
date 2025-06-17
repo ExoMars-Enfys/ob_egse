@@ -22,6 +22,9 @@ SCI_RESP_MARGIN = 0.020 # seconds
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 
+#PSU Config
+PSU_COMM_PORT = 7
+
 # Set by EGSE.py do not write here.
 ACK_LOG_FH = None
 CMD_LOG_FH = None

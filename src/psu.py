@@ -29,14 +29,10 @@ v5V = 5
 v5I = 0.05
 
 def initialise_psu_mx100qp_comms(com_port: str) -> serial.Serial:
-    port = serial.Serial(port=None, timeout=1.0)
-
-    port.port = com_port  # Assign com_port afterwards to prevent opening immediately
+    port = serial.Serial("COM" + str(com_port), timeout=1.0)
     return port
     
-def setChannels(HTR : bool, v12 : bool , v5 : bool):
-    port = initialise_psu_mx100qp_comms("COM10")
-    port.open()
+def setChannels(port: serial.Serial, HTR : bool, v12 : bool , v5 : bool):
     if HTR : 
         port.write(f"V{vHTRChannel} {vHTRV}\r\n".encode('utf-8'))
         port.read(15)
@@ -50,6 +46,7 @@ def setChannels(HTR : bool, v12 : bool , v5 : bool):
         event_log.info(f"Setting Heater Channel to {responseV} Volts and {responseI} Amps")
         port.write(f"OP{vHTRChannel} 1\r\n".encode('utf-8'))
         port.read(15)
+
 def psuRead(port,channel , type , dir) : 
         port.write(f"{type}{channel}{dir}?\r\n".encode('utf-8'))
         response= port.read(10)

@@ -132,8 +132,11 @@ def main() -> None:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
+
+        # Initialise PSU
+        psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
         simple_commands(port)
-        # psu.setChannels(True,False,False)
+        psu.setChannels(psu_port, True, True, True)
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port)
