@@ -78,8 +78,8 @@ def check_hk(port) :
     f"\n UNUSED6 :{resp.UNUSED6}" + 
     f"\n CRC8 : {resp.CRC8}")
 
-def check_sci(port):
-    resp = tc.sci_request(port, 3, 1)
+def check_sci(port, sci_adc_samp, sci_adc_skip):
+    resp = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
     event_log.info(
     f"\n MOD_ID: {resp.MOD_ID}" +
     f"\n UNUSED1: {resp.UNUSED1}" +
@@ -1108,3 +1108,158 @@ def check_halt(port):
                     f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
                     )
     return
+
+def abu_hk(port, display_contents=False):
+    resp = tc.hk_request(port)
+    if display_contents:
+        event_log.info(
+        f" MOD_ID :{resp.MOD_ID}" + 
+        f"\n Unused1 : {resp.UNUSED1}" + 
+        f"\n CMD_ID :{resp.CMD_ID}" + 
+        f"\n CMD_CNT : {resp.CMD_CNT}" +
+        f"\n ERROR_BYTE : {resp.ERROR_BYTE}" + 
+        f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
+        f"\n PWR_STAT : {resp.PWR_STAT}" +
+        f"\n UNUSED2 :{resp.UNUSED2}" + 
+        f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}" +
+        f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}" + 
+        f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" + 
+        f"\n MTR_GUARD : {resp.MTR_GUARD}" +
+        f"\n UNUSED3 : {resp.UNUSED3}" + 
+        f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
+        f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
+        f"\n MTR_CURRENT :{resp.MTR_CURRENT}" + 
+        f"\n UNUSED4 : {resp.PWR_STAT}" +
+        f"\n MTR_SPEED :{resp.MTR_SPEED}" + 
+        f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" +
+        f"\n UNUSED5 : {resp.UNUSED5}" + 
+        f"\n THRM_STATUS :{resp.THRM_STATUS}" + 
+        f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}" +
+        f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}" + 
+        f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}" + 
+        f"\n THRM_DET_ON_SP : {resp.THRM_DET_ON_SP}" +
+        f"\n SWIR_OFFSET : {resp.SWIR_OFFSET}" + 
+        f"\n MWIR_OFFSET : {resp.MWIR_OFFSET}" +
+        f"\n HK_V_3V3 : {resp.HK_V_3V3}" + 
+        f"\n HK_V_1V5 :{resp.HK_V_1V5}" + 
+        f"\n DIGITAL_TRP : {resp.DIGITAL_TRP}" +
+        f"\n DETEC_TRP :{resp.DETEC_TRP}" + 
+        f"\n MECH_TRP : {resp.MECH_TRP}" +
+        f"\n MOTOR_TRP : {resp.MOTOR_TRP}" + 
+        f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}" + 
+        f"\n UNUSED_ADC : {resp.UNUSED_ADC}" +
+        f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
+        f"\n UNUSED6 :{resp.UNUSED6}" + 
+        f"\n CRC8 : {resp.CRC8}")
+
+
+def abu_dac(port):
+    tc.power_control(port, 0x02)
+    tc.sci_offset(927, 2350)
+    
+    check_hk(port)
+    
+def abu_motor(port):
+    #TODO: Update all to "send_cmd"
+    # Power on mechanism board
+    tc.power_control(port, 0x03)
+    resp = tc.hk_request(port)
+    if resp.PWR_STAT != 0x03:
+        event_log.error("Mechanism and detector are not powered.")
+    
+    # Set motor parameters
+    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+    resp = tc.hk_request(port)
+    if (
+    resp.MTR_CURRENT != 0x40
+    or resp.MTR_GUARD != 0x20
+    or resp.MTR_RECVAL != 0x0F
+    or resp.MTR_SPEED != 0x9
+    or resp.MECH_LIM_REL != 0x3200):
+        event_log.error(f"OB Parameters not initialized correctly:"+
+                        f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
+                        f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                        f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+                        f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                        f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+        
+    #Cal to outer
+    send_cmd.cmd_mtr_homing(port,True, True)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        event_log.info("Moving to the outer, waiting for switch to be pressed.")
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+        event_log.info("Motor movement finished")
+    else : 
+        event_log.error("Motor Did not Move :")
+
+    #Check motor status now its stopped.
+    resp = tc.hk_request(port)  
+    if resp.MTR_FLAGS.OUTER !=1 : 
+        event_log.error(f"OUTER Switch Flag not raised : {resp.MTR_FLAGS.OUTER}")
+    if resp.MTR_FLAGS.CAL != 1 : 
+        event_log.error(f" Calibration Flag not Asserted : {resp.MTR_FLAGS.CAL}")
+    if resp.MTR_FLAGS.DIR != 0 : 
+        event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
+    if (resp.MTR_ABS_STEPS != 100):
+        event_log.error(f"Motor Steps Do not match expected : " + 
+                        f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 100")
+    if (resp.MTR_REL_STEPS == 0):
+        event_log.error(f"Motor Steps Do not match expected : " + 
+                        f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+        
+    event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
+
+    
+    
+def abu_offset(port, swir_offset, mwir_offset, sci_adc_samp=8, sci_adc_skip=100):
+
+    #Dark measurement to determine offset to be applied 
+    #Set SWIR and MWIR offset
+    tc.sci_offset(port, swir_offset, mwir_offset)
+    hk = tc.hk_request(port)
+    if hk.SWIR_OFFSET != swir_offset:
+        event_log.error(f"SWIR offset not updated in HK. Got {hk.SWIR_OFFSET}")
+    if hk.MWIR_OFFSET != mwir_offset:
+        event_log.error(f"MWIR offset not updated in HK. Got {hk.MWIR_OFFSET}")
+
+    #Take SCI reading and check. 
+    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+    if sci.SWIR_OFFSET != swir_offset:
+        event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}")
+    if sci.MWIR_OFFSET != mwir_offset:
+        event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
+
+def abu_reading(port, steps, sci_adc_samp=8, sci_adc_skip=100):
+
+    #To be done after offset is found and applied; and after motor position is calibrated.
+
+    #Move motor in a positive direction.
+    tc.mtr_mov_pos(port, steps)
+    #HK reading to check (not sure how to go about this once steps have been
+    # appended a few times without massively complicating things)
+    hk = tc.hk_request
+    #TODO: Verify
+
+    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+    info_log.info(f"SWIR_LOW: {sci.SWIR_LOW}" + 
+                  f"\n SWIR_MED: {sci.SWIR_MED}" +
+                  f"\n SWIR_HIGH: {sci.SWIR_HIGH}" +
+                  f"\n MWIR_LOW: {sci.MWIR_LOW}"
+                  f"\n MWIR_MED: {sci.MWIR_MED}" +
+                  f"\n MWIR_HIGH: {sci.MWIR_HIGH}")
+    
+    
+    
+
+
+
+
+
+
+
+
+
+

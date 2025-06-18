@@ -134,9 +134,17 @@ def main() -> None:
         port = comms.open_comms(port)
 
         # Initialise PSU
-        psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
-        simple_commands(port)
-        psu.setChannels(psu_port, True, True, True)
+        # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
+        # psu.setChannels(psu_port, True, True, True)
+
+        # User add commands or sequences here
+        #sq.abu_hk(port, True)
+
+        #sq.abu_motor(port)
+        tc.power_control(port, 0x03)
+        sq.abu_offset(port, 100, 200)
+
+
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port)
