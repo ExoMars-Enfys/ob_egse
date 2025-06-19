@@ -147,6 +147,7 @@ def main() -> None:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
+        # TODO: Ensure sequence runs are recorded in info log as well.
 
         # Initialise PSU
         # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
@@ -155,13 +156,14 @@ def main() -> None:
         # User add commands or sequences here
         sq.abu_hk(port, False)
         sq.abu_cal_motor(port)
-        sq.abu_dac_mwir_offset(port, 2048)
+        mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
+        swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
         # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
         # sq.abu_set_offset(port, 2750, 3200)
         # sq.abu_rtn_to_base(port)
         sq.abu_measure(port, 0)
-        for i in range(0, 500, 100):
-            sq.abu_measure(port, 100)
+        for i in range(0, 8600, 50):
+            sq.abu_measure(port, 50)
 
     else:
         info_log.info("Running GUI")

@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 CMD_SPEED_DICT = {
-    "Steady": 1.0,
+    "Steady": 0.25,
     "Fast": 0,
 }
 
@@ -37,5 +37,5 @@ hk_queue = deque(maxlen=100)
 # DAC Offset
 SWIR_DAC_MIN_TH = 100
 SWIR_DAC_MAX_TH = 300
-MWIR_DAC_MIN_TH = 100
-MWIR_DAC_MAX_TH = 300
+MWIR_DAC_MIN_TH = 3300
+MWIR_DAC_MAX_TH = 3500
