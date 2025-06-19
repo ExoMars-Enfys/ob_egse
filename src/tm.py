@@ -52,6 +52,7 @@ class Response:
 
 
 class TM:
+    # TODO Be consistent with how the bytes are named when they unpacked to the flags
     def __init__(self, response: Response):
         self.raw_bytes = response.raw_bytes
         self.get_cmd_mod_id = response.get_cmd_mod_id
@@ -59,7 +60,7 @@ class TM:
     @abstractmethod
     def check_len(self):
         pass
-
+    
     def decode_bytes(self, pkt_struct):
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in pkt_struct),
@@ -199,7 +200,6 @@ class SCI(TM):
         for k, v in param.items():
             setattr(self, k, v)
 
-        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
         self.check_errors()
 
     def check_len(self):
