@@ -18,7 +18,6 @@ DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 12
 DEFAULT_CMD_SPEED = "Fast"  # "steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
-
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 
@@ -29,3 +28,6 @@ HK_LOG_FH = None
 
 # HK queue
 hk_queue = deque(maxlen=100)
+
+#SCI queue
+sci_queue = deque(maxlen=100)

@@ -78,7 +78,7 @@ def simple_commands(port) -> None:
     # hk = tc.hk_request(port)  # cmd 00
     # tc.clear_errors(port)                                                         #cmd 01
     # # TODO: Add set errors      (02)
-    tc.power_control(port, 0x03)  # cmd 04
+    # tc.power_control(port, 0x03)  # cmd 04
     # tc.heater_control(port, False, True, False, False, True, verify=True)         #cmd 05
     # tc.set_mech_sp(port, 0x0ABC, 0x0123)                                          #cmd 06
     # tc.set_detec_sp(port, 0x0DEF, 0x0456)                                         #cmd 07
@@ -90,8 +90,19 @@ def simple_commands(port) -> None:
     # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
     # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
     # tc.mtr_homing(port, False, False, True)  # cmd 13
-    sq.power_up_tests(port)
-    sq.homing_test(port)
+    # tc.cle
+    # ar_errors(port)
+    # sq.power_up_tests(port)
+    # sq.positive_test(port)
+    
+    # sq.negative_test(port)
+    # sq.check_hk(port)
+    # sq.homing_test(port)
+    # tc.power_control(port,0x03)
+    # sq.abu_hk(port)
+    # sq.abu_cal_motor(port)
+    # sq.abu_rtn_to_base(port)
+    sq.abu_measure(port,0x100)
     # sq.motor_fw_test(port)
     # TODO: Add Motor Halt      (15)
     # TODO: Add SWIR            (18)
@@ -127,7 +138,7 @@ def main() -> None:
     (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
-
+    
     if args.script:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
