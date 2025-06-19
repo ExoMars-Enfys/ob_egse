@@ -52,6 +52,10 @@ def setup_logs() -> tuple[logging.Logger]:
     hk_log_name = const.DEFAULT_PREFIX + "_HK.LOG"
     const.HK_LOG_FH = open(const.LOG_PATH / hk_log_name, "a+", encoding="utf-8")
 
+    # Create SCI Byte Log
+    sci_log_name = const.DEFAULT_PREFIX + "_SCI.LOG"
+    const.SCI_LOG_FH = open(const.LOG_PATH / sci_log_name, "a+", encoding="utf-8")
+
     return (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log)
 
 
@@ -63,6 +67,7 @@ def setup_logs() -> tuple[logging.Logger]:
 #     const.ACK_LOG_FH.close()
 #     const.CMD_LOG_FH.close()
 #     const.HK_LOG_FH.close()
+#     const.SCI_LOG_FH.close()
 #     sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
@@ -75,7 +80,12 @@ def setup_logs() -> tuple[logging.Logger]:
 def simple_commands(port) -> None:
     t1 = time.perf_counter(), time.process_time()
 
+    # tc.heater_control(port, False, False, False, False, False)
+    # tc.set_mech_sp(port, 2000, 1000)
+    # tc.set_detec_sp(port, 2000, 1000)
+    # tc.sci_offset(port, 2045, 973)
     # hk = tc.hk_request(port)  # cmd 00
+    # sq.check_hk(port)
     # tc.clear_errors(port)                                                         #cmd 01
     # # TODO: Add set errors      (02)
     # tc.power_control(port, 0x03)  # cmd 04
@@ -90,25 +100,18 @@ def simple_commands(port) -> None:
     # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
     # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
     # tc.mtr_homing(port, False, False, True)  # cmd 13
-    # tc.cle
-    # ar_errors(port)
-    # sq.power_up_tests(port)
-    # sq.positive_test(port)
-    
-    # sq.negative_test(port)
-    # sq.check_hk(port)
-    # sq.homing_test(port)
-    # tc.power_control(port,0x03)
-    # sq.abu_hk(port)
-    # sq.abu_cal_motor(port)
-    # sq.abu_rtn_to_base(port)
-    sq.abu_measure(port,0x100)
+    #sq.power_up_tests(port)
+    #sq.homing_test(port)
     # sq.motor_fw_test(port)
     # TODO: Add Motor Halt      (15)
     # TODO: Add SWIR            (18)
     # TODO: Add MWIR            (19)
     # TODO: Add HK Samples      (1B)
-    # tc.sci_request(port)
+    # sci = tc.sci_request(port, 3, 1)
+    # sq.check_sci(port)
+    #event_log.info(f"HK SWIR offset: {hk.SWIR_OFFSET}; SCI SWIR offset: {sci.SWIR_OFFSET}")
+    #event_log.info(f"HK MWIR offset: {hk.MWIR_OFFSET}; SCI MWIR offset: {sci.MWIR_OFFSET}")
+
     # cmd_mtr_mov_pos(port, 0x1000, True)
 
     # for i in range(0, 100):
@@ -122,6 +125,7 @@ def simple_commands(port) -> None:
     # sq.script_repeat_hk(port)
     # start_stops()
     # script_stops()
+
     t2 = time.perf_counter(), time.process_time()
 
     # print(f" Real time: {t2[0] - t1[0]:.4f} seconds")
@@ -143,8 +147,22 @@ def main() -> None:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
-        simple_commands(port)
-        # psu.setChannels(True,False,False)
+
+        # Initialise PSU
+        # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
+        # psu.setChannels(psu_port, True, True, True)
+
+        # User add commands or sequences here
+        sq.abu_hk(port, False)
+        sq.abu_cal_motor(port)
+        sq.abu_dac_mwir_offset(port, 2048)
+        # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
+        # sq.abu_set_offset(port, 2750, 3200)
+        # sq.abu_rtn_to_base(port)
+        sq.abu_measure(port, 0)
+        for i in range(0, 500, 100):
+            sq.abu_measure(port, 100)
+
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port)
