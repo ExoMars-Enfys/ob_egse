@@ -1,5 +1,6 @@
 import logging
 import time
+import constants as const
 import send_cmd
 import tc
 
@@ -1105,7 +1106,7 @@ def check_halt(port):
                     )
     return
 
-def abu_hk(port, display_contents=False):
+def abu_hk(port, display_contents=True):
     resp = tc.hk_request(port)
     if display_contents:
         event_log.info(
@@ -1151,10 +1152,10 @@ def abu_hk(port, display_contents=False):
 def abu_cal_motor(port):
     #TODO: Update all to "send_cmd"
     # Power on mechanism board only
-    tc.power_control(port, 0x01)
+    tc.power_control(port, 0x03)
     resp = tc.hk_request(port)
-    if resp.PWR_STAT != 0x01:
-        event_log.error("Mechanism not powered.")
+    if resp.PWR_STAT != 0x03:
+        event_log.error("Mechanism and detector not powered.")
     
     # Set motor parameters
     send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
@@ -1279,16 +1280,16 @@ def abu_pos_steps(port, pos_steps):
     
     # Then print a summary of the motor movement
     event_log.info(f"HK After Motor Movement Complete:" +
-                   f"\n Error Byte: {hk.ERROR_BYTE}" +
-                   f"\n Error MTR: {hk.ERROR_MTR}" +
-                   f"\n MTR_ABS_STEPS: {hk.MTR_ABS_STEPS}" +
-                   f"\n MTR_REL_STEPS: {hk.MTR_REL_STEPS}" +
-                   f"\n MTR_FLAGS: {hk.MTR_FLAGS}"
+                   f"\t Error Byte: {hk.ERROR_BYTE}" +
+                   f"\t Error MTR: {hk.ERROR_MTR}" +
+                   f"\t MTR_ABS_STEPS: {hk.MTR_ABS_STEPS}" +
+                   f"\t MTR_REL_STEPS: {hk.MTR_REL_STEPS}" +
+                   f"\t MTR_FLAGS: {hk.MTR_FLAGS_BYTE}"
                    )
     
     return
 
-def abu_offset(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
+def abu_set_offset(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     # Power on Detector and Mechanism
     tc.power_control(port, 0x03)
     resp = tc.hk_request(port)
@@ -1311,6 +1312,42 @@ def abu_offset(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     if sci.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
 
+def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
+    """
+    This automatically determines and reports the DAC offsets
+    """
+    # Ensure the detector and mechanism are powered
+    hk = tc.hk_request(port)
+    if hk.PWR_STAT != 0x03:
+        event_log.error("Mechanism and Detector not powered.")
+        return
+
+    mwir_value = 0x0 # Bit 11 set to 1 everything else 0
+
+    for i in range(12, 0, -1):
+        event_log.info(f"Testing bit {i} out of 12")
+        mwir_delta = 0x1 << (i - 1)
+        event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
+        tc.sci_offset(port, swir_initial, mwir_value + mwir_delta)
+        sci = check_sci(port, sci_adc_samp, sci_adc_skip)
+        if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
+            event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value}")
+        
+        event_log.info(f"Got the following MWIR High Reading: {sci.MWIR_HIGH}")
+
+        # Check if we are within the range (we are done) otherwise loop
+        if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
+            event_log.info(f"MWIR offset in threshold finished!")
+            event_log.info(f"Final MWIR value: {mwir_value}")
+            return
+
+        # If the HIGH reading is greater than threshold (keep value)
+        if sci.MWIR_HIGH > const.MWIR_DAC_MIN_TH:
+            mwir_value = mwir_value + mwir_delta
+    
+    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
+
+
 def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
@@ -1329,11 +1366,7 @@ def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     # Request a Science Mesaurement and log to the screen.
     sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
     event_log.info(f"MTR_ABS_STEPS: {sci.MTR_ABS_STEPS}" +
-                  f"\t SWIR_LOW: {sci.SWIR_LOW}" + 
-                  f"\t SWIR_MED: {sci.SWIR_MED}" +
                   f"\t SWIR_HIGH: {sci.SWIR_HIGH}" +
-                  f"\t MWIR_LOW: {sci.MWIR_LOW}"
-                  f"\t MWIR_MED: {sci.MWIR_MED}" +
                   f"\t MWIR_HIGH: {sci.MWIR_HIGH}" +
                   f"\t HT_TEMP: {sci.HT_SINK_TEMP}" +
                   f"\t SWIR_TEMP: {sci.SWIR_TEMP}")

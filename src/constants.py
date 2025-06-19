@@ -13,7 +13,7 @@ CMD_SPEED_DICT = {
 EXP_MODEL_ID = 0x07
 
 DEBUG_LEVEL = logging.INFO
-DEFAULT_PREFIX = "PSU_LOG_test"  # datetime.now().strftime("%Y%m%dT%H%M%S")
+DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 12
 DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
@@ -29,6 +29,13 @@ PSU_COMM_PORT = 7
 ACK_LOG_FH = None
 CMD_LOG_FH = None
 HK_LOG_FH = None
+SCI_LOG_FH = None
 
 # HK queue
 hk_queue = deque(maxlen=100)
+
+# DAC Offset
+SWIR_DAC_MIN_TH = 100
+SWIR_DAC_MAX_TH = 300
+MWIR_DAC_MIN_TH = 100
+MWIR_DAC_MAX_TH = 300

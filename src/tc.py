@@ -23,7 +23,7 @@ def hk_request(port, verify=True):
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
     port.write(cmd_tc)
 

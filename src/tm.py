@@ -138,7 +138,7 @@ class HK(TM):
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
 
-        # tm_log.info(f"CMD Count: {self.CMD_CNT=}")
+        tm_log.info(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_len()
         self.check_errors()
@@ -192,8 +192,10 @@ class SCI(TM):
         super().__init__(response)
 
         self.check_len()
+        const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+        const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-        # TODO Sci log
+
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.sci), [i[0] for i in tmstruct.sci], self.raw_bytes)
         
