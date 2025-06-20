@@ -157,23 +157,27 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         sq.abu_hk(port, False)
-        for i in range(0, 610, 10):
-            sq.abu_measure(port, 0)
-            sq.abu_neg_steps(port, 10)
-        # sq.abu_neg_steps(port, 300)
-        # sq.abu_measure(port, 0)
+
+        # Cal to Base
+        sq.abu_cal_motor(port)
 
         # Home to Outer
-        #sq.abu_outer_home(port)
-        # Drive to Laser Peak
-        #sq.abu_pos_steps(port, 2800)
-        # Take a measurement there
-        #sq.abu_measure(port, 0)
+        sq.abu_outer_home(port)
+        
+        # Dark Offsets
+        mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
+        swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
 
-        # Move from peak
-        # sq.abu_pos_steps(port, 300)
-        # Take a measurement there
-        # sq.abu_measure(port, 0)
+        # Drive to Laser Peak
+        sq.abu_pos_steps(port, 2800)
+        # Take a measurement there for 45min
+        loop_len = int(45 * 60 / 5)
+        event_log.info(f"Running stability test for loop: {loop_len} times")
+        for i in range(0, loop_len):
+            sq.abu_measure(port, 0)
+            time.sleep(5)
+
+        event_log.info(f"Stability Test Finished")
 
     else:
         info_log.info("Running GUI")
