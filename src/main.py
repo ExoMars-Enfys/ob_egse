@@ -156,32 +156,20 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sq.abu_hk(port, False)
+        sq.abu_measurement_scan(port, 200)
         
-        # Cal to Base
-        sq.abu_cal_motor(port)
 
-        # Home to Outer
-        sq.abu_outer_home(port)
+        # # Drive to Laser Peak
+        # sq.abu_pos_steps(port, 2900)
 
-        # MWIR Offset determination
-        mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
-        
-        # SWIR Offset determination
-        swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
+        # # Measurement
+        # sq.abu_measure(port, 0)
 
-        # Measurement sequence
-        # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
-        event_log.info("Starting Science Measurements")
-        sq.abu_measure(port, 0)
-        for i in range(0, 8600, 50):
-            sq.abu_measure(port, 50)
-        
         # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
         # sq.abu_set_offset(port, 2750, 3200)
         # sq.abu_rtn_to_base(port)
 
-        event_log.info("Science Measurements Completed!!")
+
 
     else:
         info_log.info("Running GUI")

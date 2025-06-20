@@ -1477,15 +1477,42 @@ def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     
     return
     
+def abu_measurement_scan(port, step_spacing:50, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Goes to the Outer
+    Performs Dark Measurement Offsets
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    Once Base Stop is reached
+    Repeats the Dark Mesaurement Offsets at Base
+    """
+    event_log.info("Running ABU Measurement Scan")
+    abu_hk(port, False)
+        
+    # Cal to Base
+    abu_cal_motor(port)
 
+    # Home to Outer
+    abu_outer_home(port)
+
+    # MWIR Offset determination
+    mwir_offset = abu_dac_mwir_offset(port, 2048, sci_adc_samp, sci_adc_skip)
+        
+    # SWIR Offset determination
+    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
+
+    # Measurement sequence
+    # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
+    event_log.info("Starting Science Measurements")
+    abu_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    for i in range(0, 8600, step_spacing):
+        abu_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
     
+    # MWIR Offset determination at the end
+    mwir_offset = abu_dac_mwir_offset(port, swir_offset, sci_adc_samp, sci_adc_skip)
 
+    # SWIR Offset determination at the end
+    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
-
-
-
-
-
-
-
-
+    event_log.info("Science Measurements Completed!!")
