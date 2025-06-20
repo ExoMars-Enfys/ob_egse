@@ -438,7 +438,7 @@ def mtr_cmds(port,last_hk):
     if col5.button(label = "Negative Test"):
         sq.negative_test(port)
     if col6.button(label = "Set Errors"):
-        tc.set_errors(port)
+        tc.set_errors(port,False,False,False,False,False,False,False,False,False,True,True,False,False,False)
 def get_sci():
     try:
         last_sci = const.sci_queue.pop()

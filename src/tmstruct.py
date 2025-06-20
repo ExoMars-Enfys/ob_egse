@@ -102,9 +102,25 @@ nack = [
 
 # ACK Structures for commands
 ack_clear_errors = ack_hdr + ack_template
-ack_set_errors = ack_hdr +[("UNUSED1","u8"),("UNUSED2","u8"),("COIL","u8")]+ ack_template[3:]
-# TODO ack_set_errors = [()]
-
+ack_set_errors = ack_hdr +[
+    ("UNUSED1", "u6"),
+    ("TMO", "u1"),    
+    ("IPA", "u1"),
+    ("UNUSED2", "u3"),
+    ("CD","u1"),
+    ("AB","u1"),
+    ("ABS","u1"),
+    ("REL","u1"),
+    ("DSE","u1"),
+    ("IG_B","u1"),
+    ("IG_O","u1"),    
+    ("UNUSED3", "u1"),
+    ("M_CD","u1"),
+    ("M_AB","u1"),
+    ("M_ABS","u1"),
+    ("M_REL","u1"),
+    ("M_DSE","u1"),
+]+ ack_template[3:]
 ack_power_control = ack_hdr + [("PWR_STAT", "u8")] + ack_template[1:]
 
 ack_heater_control = ack_hdr + [("HEATER_STAT", "u8")] + ack_template[1:]

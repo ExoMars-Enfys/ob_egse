@@ -9,6 +9,7 @@ tc_log = logging.getLogger("tc_log")
 info_log = logging.getLogger("info_log")
 error_log = logging.getLogger("error_log")
 cmd_log = logging.getLogger("cmd_log")
+event_log = logging.getLogger("event_log")
 # TODO: Have a return pass/fail for each TC, so extra logic can be added to script
 
 
@@ -58,19 +59,59 @@ def clear_errors(port, verify=True):
         tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
     return parsed
 
-def set_errors(port, verify = True):
-    cmd = "03" + "00" * 2 + "FF" + "00" *3
+def set_errors(port,
+    tmo : bool,
+    ipa : bool,
+    cd : bool,
+    ab : bool,
+    abs : bool,
+    rel : bool,
+    dse : bool,
+    ig_b : bool,
+    ig_o : bool,
+    m_cd : bool,
+    m_ab : bool,
+    m_abs : bool,
+    m_rel : bool,
+    m_dse : bool):
+
+    param1 = (
+        (0*6 << 7) +
+        (tmo << 1) +
+        (ipa )
+    )
+    param2 = (
+        (0*3<<7)+
+        (cd << 4) +
+        (ab << 3) +
+        (abs << 2) +
+        (rel << 1) +
+        (dse)
+    )
+    param3 = (
+        (ig_b << 7) +
+        (ig_o << 6) +
+        (0 << 5) +
+        (m_cd << 4) +
+        (m_ab << 3) +
+        (m_abs << 2) +
+        (m_rel << 1) +
+        (m_dse)      
+    )
+    cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Setting Errors")
     info_log.info(f"\nSetting Errors")
+    event_log.info(f"SettingErrors : {cmd_tc}")
     port.write(cmd_tc)
+# TODO : parse the response
+    # ack_bytes = tm.get_response(port, 9)
+    # ack = tm.Response(ack_bytes)
 
-    ack_bytes = tm.get_response(port, 9)
-    ack = tm.Response(ack_bytes)
-    parsed = tm.parse_tm(ack)
-    if ack.cmd_type != "Set_Errors":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-    return parsed
+    # parsed = tm.parse_tm(ack)
+    # if ack.cmd_type != "Set_Errors":
+    #     tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+    return 
 
 
 def power_control(port, pwr_stat, verify=True):

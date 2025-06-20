@@ -100,6 +100,8 @@ def simple_commands(port) -> None:
     # tc.mtr_mov_neg(port, 0x02190)                                                  #cmd 11
     # tc.mtr_mov_abs(port, 0x1FA4)                                                  #cmd 12
     # tc.mtr_homing(port, False, False, True)  # cmd 13
+    tc.set_errors(port,False,False,False,False,False,False,False,False,False,True,True,False,False,False)
+
     #sq.power_up_tests(port)
     #sq.homing_test(port)
     # sq.motor_fw_test(port)
@@ -147,21 +149,25 @@ def main() -> None:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
+        sq.check_hk(port)
+        tc.set_errors(port,False,False,False,False,False,False,False,False,False,True,True,False,False,False)
+        sq.check_hk(port)
+        # tc.hk_request(port)
 
         # Initialise PSU
         # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
         # psu.setChannels(psu_port, True, True, True)
 
         # User add commands or sequences here
-        sq.abu_hk(port, False)
-        sq.abu_cal_motor(port)
-        sq.abu_dac_mwir_offset(port, 2048)
+        # sq.abu_hk(port, False)
+        # sq.abu_cal_motor(port)
+        # sq.abu_dac_mwir_offset(port, 2048)
         # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
         # sq.abu_set_offset(port, 2750, 3200)
         # sq.abu_rtn_to_base(port)
-        sq.abu_measure(port, 0)
-        for i in range(0, 500, 100):
-            sq.abu_measure(port, 100)
+        # sq.abu_measure(port, 0)
+        # for i in range(0, 500, 100):
+        #     sq.abu_measure(port, 100)
 
     else:
         info_log.info("Running GUI")
