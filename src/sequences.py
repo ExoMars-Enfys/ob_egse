@@ -1300,13 +1300,12 @@ def abu_rtn_to_base(port):
    
 def abu_pos_steps(port, pos_steps):
     """
-    Script that moves the mechanism a certain number of steps positive towards the base.
+    Script that moves the mechanism a certain number of steps positive (towards the base).
     Automatically checks that we are not already at the base.
     """
 
     # First check that there we are are not already at the base.
     hk = tc.hk_request(port)
-    prev_abs_steps = hk.MTR_ABS_STEPS
     # TODO! Can uncomment once bug is resolved
     # if hk.MTR_FLAGS.BASE:
     #     event_log.error("Request to move positive steps but already at the base, skipping movement")
@@ -1317,9 +1316,8 @@ def abu_pos_steps(port, pos_steps):
 
     # Request a HK and wait until no longer moving
     hk = tc.hk_request(port)
-    if hk.MTR_ABS_STEPS == prev_abs_steps:
-        while hk.MTR_FLAGS.MOVING:
-            hk = tc.hk_request(port)
+    while hk.MTR_FLAGS.MOVING:
+        hk = tc.hk_request(port)
 
     if hk.ERROR_MTR != 0:
         event_log.error(f"***MOTOR ERROR*** got the following: " +
@@ -1340,6 +1338,36 @@ def abu_pos_steps(port, pos_steps):
     #                )
     
     return
+
+def abu_neg_steps(port, pos_steps):
+    """
+    Script that moves the mechanism a certain number of steps negative (towards the outer).
+    Automatically checks that we are not already at the outer.
+    """
+
+    # First check that we are not already at the outer.
+    hk = tc.hk_request(port)
+    # TODO! Can uncomment once bug is resolved
+    # if hk.MTR_FLAGS.OUTER:
+    #     event_log.error("Request to move negative steps but already at the outer, skipping movement")
+    #     return
+
+    # Then move the desired number of steps
+    send_cmd.cmd_mtr_mov_neg(port, pos_steps)
+
+    # Request a HK and wait until no longer moving
+    hk = tc.hk_request(port)
+    while hk.MTR_FLAGS.MOVING:
+        hk = tc.hk_request(port)
+
+    if hk.ERROR_MTR != 0:
+        event_log.error(f"***MOTOR ERROR*** got the following: " +
+                        f"\n CD : {hk.MTR_ERRORS.CD}"+
+                        f"\n AB : {hk.MTR_ERRORS.AB}" + 
+                        f"\n ABS : {hk.MTR_ERRORS.ABS}" + 
+                        f"\n REL : {hk.MTR_ERRORS.REL}" + 
+                        f"\n DSE : {hk.MTR_ERRORS.DSE}"
+                        )
 
 def abu_set_offset(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     event_log.info("Running abu_set_offset")
