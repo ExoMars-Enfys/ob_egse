@@ -26,10 +26,6 @@ def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> 
     error_fh = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
     error_fh.setFormatter(fh_formatter)
     
-    # -- AbsSteps Handler - Streams only every movement and ABS Steps --
-    abs_fh = logging.FileHandler(basedir / (prefix + "_ABS_STEPS.log"))
-    abs_fh.setFormatter(fh_formatter)
-    
     # -- PSU Handler - Streams only PSU logs --
     psu_fh = logging.FileHandler(basedir / (prefix + "_PSU.log"))
     psu_fh.setFormatter(fh_formatter)
@@ -60,15 +56,10 @@ def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> 
     error_log = logging.getLogger("error_log")
     error_log.setLevel(logging.ERROR)
     error_log.addHandler(error_fh)
-    
-    # -- Initiate abs steps writer --
-    abs_log = logging.getLogger("abs_log")
-    abs_log.setLevel(logging.INFO)
-    abs_log.addHandler(abs_fh)
 
     # -- Initiate psu writer --
     psu_log = logging.getLogger("psu_log")
     psu_log.setLevel(logging.INFO)
     psu_log.addHandler(psu_fh)
 
-    return (tm_log, tc_log, event_log, info_log, error_log, abs_log, psu_log)
+    return (tm_log, tc_log, event_log, info_log, error_log, psu_log)

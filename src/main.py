@@ -36,7 +36,7 @@ def setup_logs() -> tuple[logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
 
-    tm_log, tc_log, event_log, info_log, error_log, abs_log, psu_log = egse_logger.get_loggers(
+    tm_log, tc_log, event_log, info_log, error_log, psu_log = egse_logger.get_loggers(
         const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL
     )
 
@@ -56,7 +56,7 @@ def setup_logs() -> tuple[logging.Logger]:
     sci_log_name = const.DEFAULT_PREFIX + "_SCI.LOG"
     const.SCI_LOG_FH = open(const.LOG_PATH / sci_log_name, "a+", encoding="utf-8")
 
-    return (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log)
+    return (tm_log, tc_log, event_log, info_log, error_log, psu_log)
 
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
@@ -139,7 +139,7 @@ def main() -> None:
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
-    (tm_log, tc_log, event_log, info_log, error_log, abs_log,psu_log) = setup_logs()
+    (tm_log, tc_log, event_log, info_log, error_log, psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
 
@@ -153,17 +153,35 @@ def main() -> None:
         # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
         # psu.setChannels(psu_port, True, True, True)
 
-        # User add commands or sequences here
+        # ------------------------------------------------------------------------------------------
+        # User add commands or sequences from here:
+        # ------------------------------------------------------------------------------------------
         sq.abu_hk(port, False)
+        
+        # Cal to Base
         sq.abu_cal_motor(port)
+
+        # Home to Outer
+        sq.abu_outer_home(port)
+
+        # MWIR Offset determination
         mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
+        
+        # SWIR Offset determination
         swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
-        # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
-        # sq.abu_set_offset(port, 2750, 3200)
-        # sq.abu_rtn_to_base(port)
+
+        # Measurement sequence
+        # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
+        event_log.info("Starting Science Measurements")
         sq.abu_measure(port, 0)
         for i in range(0, 8600, 50):
             sq.abu_measure(port, 50)
+        
+        # sq.abu_set_offset(port, 2170, 2048) # DAC Offsets Determined
+        # sq.abu_set_offset(port, 2750, 3200)
+        # sq.abu_rtn_to_base(port)
+
+        event_log.info("Science Measurements Completed!!")
 
     else:
         info_log.info("Running GUI")

@@ -16,7 +16,6 @@ from cmd_ids import cmd_ids
 
 tm_log = logging.getLogger("tm_log")
 info_log = logging.getLogger("info_log")
-abs_log = logging.getLogger("abs_log")
 
 
 # ----Class definitions-----------------------------------------------------------------------------

@@ -138,8 +138,8 @@ def cmd_mtr_halt(port, repeat = True, exit_if_error=True):
     return resp
 
 #TODO Finish this
-def cmd_mtr_homing(port, cal, dir, repeat = True, exit_if_error=True):
-    resp = tc.mtr_homing(port,cal ,dir, verify=True)
+def cmd_mtr_homing(port, cal:bool, outer:bool, repeat = True, exit_if_error=True):
+    resp = tc.mtr_homing(port,cal , outer, verify=True)
     if resp != "ERROR":
         return resp
 

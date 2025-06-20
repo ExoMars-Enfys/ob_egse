@@ -387,9 +387,9 @@ def mtr_mov_neg(port, neg_steps, verify=True):
 
     return parsed
 
-def mtr_homing(port, CAL: bool, FORWARD: bool, verify=True):
+def mtr_homing(port, CAL: bool, OUTER: bool, verify=True):
     # Todo review checks properly
-    param = (CAL << 1) + (FORWARD)
+    param = (CAL << 1) + (OUTER)
     cmd = "0C" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
     tc_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
