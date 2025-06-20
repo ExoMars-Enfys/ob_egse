@@ -135,7 +135,7 @@ def heater_control(
     parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
-    if parsed.HTR_STAT != param:
+    if parsed.HEATER_STAT != param:
         tc_log.error(
             f"Response does not match value. Got {parsed.Param0}, expected {param}"
         )

@@ -158,26 +158,29 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         sq.abu_hk(port, False)
 
-        # Cal to Base
-        sq.abu_cal_motor(port)
+        # # Cal to Base
+        # sq.abu_cal_motor(port)
 
-        # Home to Outer
-        sq.abu_outer_home(port)
+        # # Home to Outer
+        # sq.abu_outer_home(port)
         
-        # Dark Offsets
-        mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
-        swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
+        # # Dark Offsets
+        # mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
+        # swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
 
-        # Drive to Laser Peak
-        sq.abu_pos_steps(port, 2800)
-        # Take a measurement there for 45min
-        loop_len = int(45 * 60 / 5)
-        event_log.info(f"Running stability test for loop: {loop_len} times")
+        # # Drive to Laser Peak
+        # sq.abu_pos_steps(port, 2800)
+    
+        # Take an averaging measurement there with detec heaters on 20 times.
+        loop_len = 90
+        event_log.info(f"Running rover heater test for-loop every 2 seconds: {loop_len} times")
         for i in range(0, loop_len):
             sq.abu_measure(port, 0)
-            time.sleep(5)
-
-        event_log.info(f"Stability Test Finished")
+            hk = tc.hk_request(port)
+            event_log.info(f"Digital board temperature: {hk.DIGITAL_TRP}")
+            time.sleep(2)
+        
+        event_log.info(f"Rover Heater Test Finished")
 
     else:
         info_log.info("Running GUI")
