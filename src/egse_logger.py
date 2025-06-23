@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 # TODO! : Need to have better control of logging levels and what is displayed. Perhaps in constants file.
+# TODO! : Define the purpose and contents of each log file.
 
 def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> tuple[logging.Logger]:
     # ----Handlers---------------------------------------------------------------------------------------
