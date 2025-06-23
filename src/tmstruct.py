@@ -77,21 +77,18 @@ mtr_flag_struct = [
     ("HOMED", "u1"),
 ]
 
-ack_template = [
-    ("UNUSED2", "u8"),
-    ("UNUSED3", "u8"),
-    ("UNUSED4", "u8"),
-    ("UNUSED5", "u8"),
-    ("UNUSED6", "u8"),
-    ("UNUSED7", "u8"),
-    ("CRC", "u8")
-]
-
-ack_hdr = [
+ack_struct = [
     ("MOD_ID", "u3"),
     ("UNUSED1", "u1"),
     ("CMD_ID", "u4"),
     ("ERROR_BYTE", "u8"),
+    ("PARAM1", "u8"),
+    ("PARAM2", "u8"),
+    ("PARAM3", "u8"),
+    ("PARAM4", "u8"),
+    ("PARAM5", "u8"),
+    ("PARAM6", "u8"),
+    ("CRC8", "u8"),
 ]
 
 nack = [
@@ -99,40 +96,6 @@ nack = [
     ("CMD_ID", "u5"),
     ("ERROR_BYTE", "u8"),
 ]
-
-# ACK Structures for commands
-ack_clear_errors = ack_hdr + ack_template
-
-# TODO ack_set_errors = [()]
-
-ack_power_control = ack_hdr + [("PWR_STAT", "u8")] + ack_template[1:]
-
-ack_heater_control = ack_hdr + [("HEATER_STAT", "u8")] + ack_template[1:]
-
-ack_set_mech_sp = ack_hdr + [("THRM_MECH_OFF_SP", "u16"), ("THRM_MECH_ON_SP", "u16")] + ack_template[4:]
-
-ack_set_detec_sp = ack_hdr + [("THRM_DETEC_OFF_SP", "u16"), ("THRM_DETEC_ON_SP", "u16")] + ack_template[4:]
-
-ack_set_mtr_param = ack_hdr + [
-    ("MTR_CURRENT", "u8"),
-    ("MTR_GUARD", "u8"),    
-    ("MTR_RECVAL", "u8"),
-    ("UNUSED1", "u4"),
-    ("MTR_SPEED", "u4"),
-    ("MECH_LIM_REL", ">u16")
-] + ack_template[6:]
-
-ack_mtr_mov_pos = ack_hdr + [("UNUSED" , "u1"), ("MTR_POS_STEPS", ">u15")] + ack_template[2:]
-
-ack_mtr_mov_neg = ack_hdr + [("UNUSED" , "u1"), ("MTR_NEG_STEPS", ">u15")] + ack_template[2:]
-
-ack_mtr_halt = ack_hdr + ack_template
-
-ack_mtr_homing = ack_hdr + [("UNUSED1", "u6"), ("CAL", "u1"), ("DIR", "u1")] + ack_template[1:]
-
-ack_hk_samples = ack_hdr + [("HK_ADC_SAMP", "u8")] + ack_template[1:]
-
-ack_sci_offset = ack_hdr + [("UNUSED1", "u4"), ("SWIR_OFFSET", ">u12"), ("UNUSED2", "u4"), ("MWIR_OFFSET", ">u12")] + ack_template[4:]
 
 sci = [
     ("MOD_ID", "u3"),
