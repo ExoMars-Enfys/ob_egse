@@ -113,7 +113,6 @@ class TM:
             if self.ERRORS.ICI:
                 tm_log.error(f"OB ERROR ICI - Invalid Command ID")
 
-
 class HK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
@@ -162,18 +161,15 @@ class HK(TM):
 
 
 class ACK(TM):
-    def __init__(self, response: Response, ack_struct):
+    def __init__(self, response: Response):
         super().__init__(response)
-        self.ack_struct = ack_struct
 
         const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         tm_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         info_log.info(f"ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
-        # Allocate variables based on tm struct
-
-        self.decode_bytes(ack_struct)
+        self.decode_bytes(tmstruct.ack_struct)
         self.decode_error_byte()
         self.check_len()
         self.check_errors()
@@ -181,7 +177,7 @@ class ACK(TM):
         # TODO Check CRC
 
     def check_len(self):
-        expect_strct = self.ack_struct
+        expect_strct = tmstruct.ack_struct
         expect_len = bitstruct.calcsize("".join([i[1] for i in expect_strct])) / 8
         if len(self.raw_bytes) != expect_len:
             tm_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
@@ -224,50 +220,51 @@ class NACK(TM):
         if len(self.raw_bytes) != 4:
             tm_log.error(f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}")
 
-
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     raw_bytes = port.read(no_of_bytes)
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
-
 def parse_tm(response):
+
     tm_log.debug(f"Response type: {response.cmd_type}")
-    match response.cmd_type:
-        case "HK_Request":
-            ack = HK(response)
-            const.hk_queue.append(ack)
-        case "NACK":
-            ack = NACK(response)
-        case "Clear_Errors":
-            ack = ACK(response, tmstruct.ack_clear_errors)
-        case "Power_Control":
-            ack = ACK(response, tmstruct.ack_power_control)
-        case "Heater_Control":
-            ack = ACK(response, tmstruct.ack_heater_control)
-        case "Set_Mech_SP":
-            ack = ACK(response, tmstruct.ack_set_mech_sp)
-        case "Set_Detec_SP":
-            ack = ACK(response, tmstruct.ack_set_detec_sp)
-        case "Set_MTR_Param":
-            ack = ACK(response, tmstruct.ack_set_mtr_param)
-        case "MTR_Mov_Pos":
-            ack = ACK(response, tmstruct.ack_mtr_mov_pos)
-        case "MTR_Mov_Neg":
-            ack = ACK(response, tmstruct.ack_mtr_mov_neg)
-        case "MTR_Halt":
-            ack = ACK(response, tmstruct.ack_mtr_halt)
-        case "MTR_Homing":
-            ack = ACK(response, tmstruct.ack_mtr_homing)
-        case "HK_Samples":
-            ack = ACK(response, tmstruct.ack_hk_samples)
-        case "SCI_Offset":
-            ack = ACK(response, tmstruct.ack_sci_offset)
-        case "SCI_Request":
-            ack = SCI(response)
-        case _:
-            tm_log.warning(
-                f"Response type not defined in parse_tm: {response.cmd_type}"
-            )
-            ack = "EMPTY"
+    
+    if response.cmd_type == "HK_Request":
+        ack = HK(response)
+        const.hk_queue.append(ack)
+    elif response.cmd_type == "SCI_Request":
+        ack = SCI(response)
+    elif response.cmd_type == "NACK":
+        ack = NACK(response)
+    else:        
+        match response.cmd_type:
+            case "Clear_Errors":
+                ack = ACK(response)
+            case "Power_Control":
+                ack = ACK(response)
+            case "Heater_Control":
+                ack = ACK(response)
+            case "Set_Mech_SP":
+                ack = ACK(response)
+            case "Set_Detec_SP":
+                ack = ACK(response)
+            case "Set_MTR_Param":
+                ack = ACK(response)
+            case "MTR_Mov_Pos":
+                ack = ACK(response)
+            case "MTR_Mov_Neg":
+                ack = ACK(response)
+            case "MTR_Halt":
+                ack = ACK(response)
+            case "MTR_Homing":
+                ack = ACK(response)
+            case "HK_Samples":
+                ack = ACK(response)
+            case "SCI_Offset":
+                ack = ACK(response)
+            case _:
+                tm_log.warning(
+                    f"Response type not defined in parse_tm: {response.cmd_type}"
+                )
+                ack = "EMPTY"
     return ack
