@@ -1505,7 +1505,7 @@ def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     
     return
     
-def abu_measurement_scan(port, step_spacing:50, sci_adc_samp=4, sci_adc_skip=20):
+def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
     """
     Performs the basic Enfys science measurement
     Homes and Calibrates to Base

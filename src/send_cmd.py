@@ -30,7 +30,7 @@ def cmd_hk(port, repeat=True, exit_if_error=False):
     return resp
 
 def cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False):
-    resp = tc.power_control(port, pwr_stat, verify=True)
+    resp = tc.power_control(port, pwr_stat, verify_ack=True)
 
     if resp != "ERROR":
         return resp
@@ -48,7 +48,7 @@ def cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False):
     return resp
 
 def cmd_heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_man,htr_mech_auto, repeat=True, exit_if_error=False):
-    resp = tc.heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_man,htr_mech_auto,verify = True)
+    resp = tc.heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_man,htr_mech_auto,verify_ack = True)
 
     if resp != "ERROR":
         return resp
@@ -66,7 +66,7 @@ def cmd_heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_ma
     return resp
 
 def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, repeat=True, exit_if_error = False):
-    resp = tc.set_mtr_param(port,peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, verify = True)
+    resp = tc.set_mtr_param(port,peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, verify_ack = True)
 
     if resp != "ERROR":
         return resp
@@ -79,12 +79,12 @@ def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_
         tc_log.warning("Clearing errors")
         tc.clear_errors(port)
         tc_log.warning("Repeating Set Motor Paramscommand")
-        resp = cmd_mtr_mov_pos(port,peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, verify = True)
+        resp = cmd_mtr_mov_pos(port,peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, verify_ack = True)
 
     return resp
 
 def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
-    resp = tc.mtr_mov_pos(port, pos_steps, verify=True)
+    resp = tc.mtr_mov_pos(port, pos_steps, verify_ack=True)
 
     if resp != "ERROR":
         return resp
@@ -102,7 +102,7 @@ def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
     return resp
 
 def cmd_mtr_mov_neg(port, neg_steps, repeat=True, exit_if_error=False):
-    resp = tc.mtr_mov_neg(port, neg_steps, verify=True)
+    resp = tc.mtr_mov_neg(port, neg_steps, verify_ack=True)
 
     if resp != "ERROR":
         return resp
@@ -120,7 +120,7 @@ def cmd_mtr_mov_neg(port, neg_steps, repeat=True, exit_if_error=False):
     return resp
 
 def cmd_mtr_halt(port, repeat = True, exit_if_error=True):
-    resp = tc.mtr_halt(port, verify=True)
+    resp = tc.mtr_halt(port, verify_ack=True)
 
     if resp != "ERROR":
         return resp
