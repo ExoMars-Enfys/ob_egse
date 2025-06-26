@@ -9,7 +9,7 @@ import logging
 
 import tc
 
-tc_log = logging.getLogger("tc_log")
+info_log = logging.getLogger("info_log")
 
 def cmd_hk(port, repeat=True, exit_if_error=False):
     resp = tc.hk_request(port,verify=True)
@@ -18,13 +18,13 @@ def cmd_hk(port, repeat=True, exit_if_error=False):
         return resp
 
     if exit_if_error:
-        tc_log.error("HK Exit on Error i set")
+        info_log.error("HK Exit on Error i set")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating HK command")
+        info_log.warning("Repeating HK command")
         cmd_hk(port, repeat=True, exit_if_error=False)
 
     return resp
@@ -36,13 +36,13 @@ def cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False):
         return resp
 
     if exit_if_error:
-        tc_log.error("Power Control Exit on Error i set")
+        info_log.error("Power Control Exit on Error i set")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating Power Control command")
+        info_log.warning("Repeating Power Control command")
         cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False)
 
     return resp
@@ -54,13 +54,13 @@ def cmd_heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_ma
         return resp
 
     if exit_if_error:
-        tc_log.error("Heater Control Exit on Error i set")
+        info_log.error("Heater Control Exit on Error i set")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating Power Control command")
+        info_log.warning("Repeating Power Control command")
         cmd_heater_control(port,htr_sci_tog,htr_detec_man,htr_detec_auto,htr_mech_man,htr_mech_auto, repeat=False, exit_if_error=False)
 
     return resp
@@ -72,13 +72,13 @@ def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_
         return resp
 
     if exit_if_error:
-        tc_log.error("Set Motor Params exit on error asserted")
+        info_log.error("Set Motor Params exit on error asserted")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating Set Motor Paramscommand")
+        info_log.warning("Repeating Set Motor Paramscommand")
         resp = cmd_mtr_mov_pos(port,peak_current, mtr_guard, mtr_recval,mtr_speed, mech_lim_rel, verify_ack = True)
 
     return resp
@@ -90,13 +90,13 @@ def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
         return resp
 
     if exit_if_error:
-        tc_log.error("MTR_MOV_POS exit on error asserted")
+        info_log.error("MTR_MOV_POS exit on error asserted")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating MTR_MOV_POS command")
+        info_log.warning("Repeating MTR_MOV_POS command")
         resp = cmd_mtr_mov_pos(port, pos_steps, repeat=False, exit_if_error=True)
 
     return resp
@@ -108,13 +108,13 @@ def cmd_mtr_mov_neg(port, neg_steps, repeat=True, exit_if_error=False):
         return resp
 
     if exit_if_error:
-        tc_log.error("MTR_MOV_POS exit on error asserted")
+        info_log.error("MTR_MOV_POS exit on error asserted")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating MTR_MOV_POS command")
+        info_log.warning("Repeating MTR_MOV_POS command")
         resp = cmd_mtr_mov_neg(port, neg_steps, repeat=False, exit_if_error=True)
 
     return resp
@@ -126,13 +126,13 @@ def cmd_mtr_halt(port, repeat = True, exit_if_error=True):
         return resp
 
     if exit_if_error:
-        tc_log.error("MTR HALT exit on error asserted")
+        info_log.error("MTR HALT exit on error asserted")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating MTR HALT command")
+        info_log.warning("Repeating MTR HALT command")
         resp = cmd_mtr_halt(port,repeat=False, exit_if_error=True)
 
     return resp
@@ -144,13 +144,13 @@ def cmd_mtr_homing(port, cal:bool, outer:bool, repeat = True, exit_if_error=True
         return resp
 
     if exit_if_error:
-        tc_log.error("MTR HALT exit on error asserted")
+        info_log.error("MTR HALT exit on error asserted")
         return "ERROR"
 
     if repeat:
-        tc_log.warning("Clearing errors")
+        info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        tc_log.warning("Repeating MTR Homing command")
+        info_log.warning("Repeating MTR Homing command")
         resp = cmd_mtr_homing(port,repeat=False, exit_if_error=True)
 
     return resp

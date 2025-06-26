@@ -36,7 +36,7 @@ def setup_logs() -> tuple[logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
 
-    tm_log, tc_log, event_log, info_log, error_log, psu_log = egse_logger.get_loggers(
+    event_log, info_log, psu_log = egse_logger.get_loggers(
         const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL
     )
 
@@ -56,7 +56,7 @@ def setup_logs() -> tuple[logging.Logger]:
     sci_log_name = const.DEFAULT_PREFIX + "_SCI.LOG"
     const.SCI_LOG_FH = open(const.LOG_PATH / sci_log_name, "a+", encoding="utf-8")
 
-    return (tm_log, tc_log, event_log, info_log, error_log, psu_log)
+    return (event_log, info_log, psu_log)
 
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
@@ -80,7 +80,7 @@ def main() -> None:
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
-    (tm_log, tc_log, event_log, info_log, error_log, psu_log) = setup_logs()
+    (event_log, info_log, psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
 

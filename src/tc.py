@@ -5,10 +5,7 @@ import constants as const
 import tm
 from crc8_function import crc8Calculate
 
-tc_log = logging.getLogger("tc_log")
 info_log = logging.getLogger("info_log")
-error_log = logging.getLogger("error_log")
-cmd_log = logging.getLogger("cmd_log")
 
 """
 The verify used in the TC is only to verify the ACK response. Any HK checking or response checking
@@ -17,30 +14,31 @@ beyond that should be done at a higher level, such as in the main script or send
 
 # TODO! Need to decide how to return errors and hadnle them at a higher level.
 # TODO Add type hints to the functions and full docstrings for clarity.
-# TODO Verify CMD log, and just have the bytes written in the CMD log. Use info_log for everything else.
 
-def log_tc_bytes(cmd_bytes: bytes):
+def send_tc(port, cmd_bytes: bytes):
+    # TODO: Would be nice to have a way to also include the short name of the command in the log.
     const.CMD_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
     const.CMD_LOG_FH.write(f" - {bytes.hex(cmd_bytes, ' ', 2)}\n")
+    port.write(cmd_bytes)
     return
 
 def verify_ack_hdr(parsed):
     if parsed.MOD_ID != const.EXP_MODEL_ID:
-        tc_log.error(f"ACK MOD_ID does not match expected. Got: {parsed.MOD_ID}, Expected: {const.EXP_MODEL_ID}")
+        info_log.error(f"ACK MOD_ID does not match expected. Got: {parsed.MOD_ID}, Expected: {const.EXP_MODEL_ID}")
 
     if parsed.UNUSED1 != 0:
-        tc_log.error(f"ACK UNUSED1 does not match expected. Got: {parsed.UNUSED1}, Expected: 0")
+        info_log.error(f"ACK UNUSED1 does not match expected. Got: {parsed.UNUSED1}, Expected: 0")
     
     # No need to verify CMD_ID as it is already used by the TM response case selection
 
     if parsed.ERROR_BYTE != 0:
-        tc_log.error(f"ACK ERROR_BYTE asserted. Got: {parsed.ERROR_BYTE}")
+        info_log.error(f"ACK ERROR_BYTE asserted. Got: {parsed.ERROR_BYTE}")
     return
 
 def verify_blank_ack_params(parsed: tm.ACK, start_index:int = 1):
     """This function verifies that all unused parameters in the ACK resposne are set to 0. Saves
     having to check them all individually in each command. If the value is not 0, then a
-    tc_log.error is raised.
+    info_log.error is raised.
 
     Args:
         parsed (tm.ACK): The parsed ACK response object that already has the parameters decoded.
@@ -56,9 +54,9 @@ def verify_blank_ack_params(parsed: tm.ACK, start_index:int = 1):
         if hasattr(parsed, key):
             value = getattr(parsed, key)
             if value != 0:
-                tc_log.error(f"ACK {key} does not match expected. Got: {value}, Expected: 0")
+                info_log.error(f"ACK {key} does not match expected. Got: {value}, Expected: 0")
         else:
-            tc_log.error(f"ACK {key} not found in parsed response.")
+            info_log.error(f"ACK {key} not found in parsed response.")
     return
 
 
@@ -69,18 +67,16 @@ def hk_request(port, verify=True):
     ## --- Send CMD ---
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
     response_bytes = tm.get_response(port, 66)
     response = tm.Response(response_bytes)
 
     if response.cmd_type != "HK_Request":
-        tc_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
-        tc_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
+        info_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
+        info_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
 
     parsed = tm.parse_tm(response)
 
@@ -96,17 +92,15 @@ def clear_errors(port, verify_ack=True):
     ## --- Send CMD ---
     cmd = "02" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Clearing Errors")
-    info_log.info(f"\nClearing Errors")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Clearing Errors")
+    send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Clear_Errors":
-        tc_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
     
     if not verify_ack:
         return
@@ -117,7 +111,7 @@ def clear_errors(port, verify_ack=True):
     verify_ack_hdr(parsed)
 
     if parsed.ERROR_BYTE != 0:
-        tc_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.LAST_ERROR}.")
+        info_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.LAST_ERROR}.")
     
     verify_blank_ack_params(parsed, start_index=1)
 
@@ -128,7 +122,7 @@ def clear_errors(port, verify_ack=True):
 def power_control(port, pwr_stat, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
     if (pwr_stat < 0) or (pwr_stat > 0x03):
-        tc_log.error(
+        info_log.error(
             f"Power_Control command power_status out of limits. Rejected by EGSE {pwr_stat}"
         )
         return
@@ -136,17 +130,15 @@ def power_control(port, pwr_stat, verify_ack=True):
     ## --- Send CMD ---
     cmd = "04" + f"{pwr_stat:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Power_Control":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify_ack:
         return
@@ -157,7 +149,7 @@ def power_control(port, pwr_stat, verify_ack=True):
 
     # First parameter is the power status, so we can check it directly
     if parsed.PARAM1 != pwr_stat:
-        tc_log.error(
+        info_log.error(
             f"Response does not match value. Got {parsed.PARAM1}, expected {pwr_stat}"
         )
 
@@ -186,17 +178,15 @@ def heater_control(port,
     )
     cmd = "05" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Heater_Control":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify_ack:
         return
@@ -207,7 +197,7 @@ def heater_control(port,
 
     # First parameter is the heater status, so we can check it directly
     if parsed.PARAM1 != param:
-        tc_log.error(
+        info_log.error(
             f"Response does not match value. Got {parsed.Param1}, expected {param}"
         )
 
@@ -218,19 +208,19 @@ def heater_control(port,
 def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True):
     ## --- Check input parameters before sending CMD ---
     if (thrm_mech_off_sp < 0) or (thrm_mech_off_sp > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set_Mech_SP command thrm_mech_off_sp out of limits. Rejected by EGSE {thrm_mech_off_sp}"
         )
         return
 
     if (thrm_mech_on_sp < 0) or (thrm_mech_on_sp > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set_Mech_SP command thrm_mech_on_sp out of limits. Rejected by EGSE {thrm_mech_on_sp}"
         )
         return
 
     if thrm_mech_on_sp > thrm_mech_off_sp:
-        tc_log.error(
+        info_log.error(
             f"Set_Mech_SP command thrm_mech_on_sp, on_sp:{thrm_mech_on_sp} is greater than off_sp:{thrm_mech_off_sp}. Rejected by EGSE"
         )
         return
@@ -238,17 +228,15 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
     ## --- Send CMD ---
     cmd = "06" + f"{thrm_mech_off_sp:04X}" + f"{thrm_mech_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Mech_SP":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify_ack:
         return
@@ -260,7 +248,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
     # First 2 parameters are the OFF SP
     value = (parsed.PARAM1 << 8) + (parsed.PARAM2)
     if value != thrm_mech_off_sp:
-        tc_log.error(
+        info_log.error(
             f"ACK mech_off_sp does not match command. Set: x{thrm_mech_off_sp}, "
             f"Got {value:04X}"
         )
@@ -268,7 +256,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
     # Next 2 parameters are the ON SP
     value = (parsed.PARAM3 << 8) + (parsed.PARAM4)
     if value != thrm_mech_on_sp:
-        tc_log.error(
+        info_log.error(
             f"ACK mech_on_sp does not match command. Set: x{thrm_mech_on_sp}, "
             f"Got {value:04X}"
         )
@@ -280,19 +268,19 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
 def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = True):
     ## --- Check input parameters before sending CMD ---
     if (thrm_detec_off_sp < 0) or (thrm_detec_off_sp > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set_Detec_SP command thrm_detec_off_sp out of limits. Rejected by EGSE {thrm_detec_off_sp}"
         )
         return
 
     if (thrm_detec_on_sp < 0) or (thrm_detec_on_sp > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set_Detec_SP command thrm_detec_on_sp out of limits. Rejected by EGSE {thrm_detec_on_sp}"
         )
         return
 
     if thrm_detec_on_sp > thrm_detec_off_sp:
-        tc_log.error(
+        info_log.error(
             f"Set_Detec_SP command thrm_detec_on_sp, on_sp:{thrm_detec_on_sp} is greater than off_sp:{thrm_detec_off_sp}. Rejected by EGSE"
         )
         return
@@ -300,17 +288,15 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     ## --- Send CMD ---
     cmd = "07" + f"{thrm_detec_off_sp:04X}" + f"{thrm_detec_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_Detec_SP":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify_ack:
         return
@@ -322,7 +308,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     # First 2 parameters are the OFF SP
     value = (parsed.PARAM1 << 8) + (parsed.PARAM2)
     if value != thrm_detec_off_sp:
-        tc_log.error(
+        info_log.error(
             f"ACK detec_off_sp does not match command. Set: x{thrm_detec_off_sp}, "
             f"Got {value:04X}"
         )
@@ -330,7 +316,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     # Next 2 parameters are the ON SP
     value = (parsed.PARAM3 << 8) + (parsed.PARAM4)
     if value != thrm_detec_on_sp:
-        tc_log.error(
+        info_log.error(
             f"ACK detec_on_sp does not match command. Set: x{thrm_detec_on_sp}, "
             f"Got {value:04X}"
         )
@@ -344,47 +330,40 @@ def set_mtr_param(port, peak_current,guard,recval,speed,mech_lim_rel, verify_ack
     # TODO check strings are correct format using constants instead
     if (peak_current < 0) or (peak_current > 0xFF):
         # TODO limit the max current to ensure safe operations
-        tc_log.error(f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}")
-        error_log.error(f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}")
+        info_log.error(f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}")
         return
 
     if (guard < 0) or (guard > 0xFF):
         # TODO limit the guard to ensure safe operations
-        tc_log.error(f"Set_MTR_Param command guard out of limits. Rejected by EGSE {guard}")
-        error_log.error(f"Set_MTR_Param command guard out of limits. Rejected by EGSE {guard}")
+        info_log.error(f"Set_MTR_Param command guard out of limits. Rejected by EGSE {guard}")
         return
     
     if (recval < 0) or (recval > 0xFF):
         # TODO limit the guard to ensure safe operations
-        tc_log.error(f"Set_MTR_Param command recval out of limits. Rejected by EGSE {recval}")
-        error_log.error(f"Set_MTR_Param command recval out of limits. Rejected by EGSE {recval}")
+        info_log.error(f"Set_MTR_Param command recval out of limits. Rejected by EGSE {recval}")
         return
     
     if (speed < 0) or (speed > 0x0F):
         # TODO limit the guard to ensure safe operations
-        tc_log.error(f"Set_MTR_Param command speed out of limits. Rejected by EGSE {speed}"        )
-        error_log.error(f"Set_MTR_Param command speed out of limits. Rejected by EGSE {speed}")
+        info_log.error(f"Set_MTR_Param command speed out of limits. Rejected by EGSE {speed}")
         return    
 
     if (mech_lim_rel < 0) or (mech_lim_rel > 0xFFFF):
-        tc_log.error(f"Set_MTR_Param command pwm_duty out of limits. Rejected by EGSE {mech_lim_rel}"        )
-        error_log.error(f"Set_MTR_Param command pwm_duty out of limits. Rejected by EGSE {mech_lim_rel}")
+        info_log.error(f"Set_MTR_Param command pwm_duty out of limits. Rejected by EGSE {mech_lim_rel}")
         return
 
     ## --- Send CMD ---
     cmd = "08" + f"{peak_current:02X}{guard:02X}{recval:02X}{speed:02X}{mech_lim_rel:04X}"
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## -- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Set_MTR_Param":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify_ack:
         return
@@ -394,32 +373,32 @@ def set_mtr_param(port, peak_current,guard,recval,speed,mech_lim_rel, verify_ack
     verify_ack_hdr(parsed)
 
     if parsed.PARAM1 != peak_current:
-        tc_log.error(
+        info_log.error(
             f"ACK peak current not as commanded. Set: x{peak_current:02X}, "
             f"Got: x{parsed.PARAM1:02X}"
         )
     
     if parsed.PARAM2 != guard:
-        tc_log.error(
+        info_log.error(
             f"ACK peak guard not as commanded. Set: x{guard:02X}, "
             f"Got: x{parsed.PARAM2:02X}"
         )
 
     if parsed.PARAM3 != recval:
-        tc_log.error(
+        info_log.error(
             f"ACK peak recval not as commanded. Set: x{recval:02X}, "
             f"Got: x{parsed.PARAM3:02X}"
         )
 
     if parsed.PARAM4 != speed:
-        tc_log.error(
+        info_log.error(
             f"ACK peak speed not as commanded. Set: x{speed:01X}, "
             f"Got: x{parsed.PARAM4:01X}"
         )
 
     value = (parsed.PARAM5 << 8) + (parsed.PARAM6)
     if value != mech_lim_rel:
-        tc_log.error(
+        info_log.error(
             f"ACK peak mech_lim_rel not as commanded. Set: x{mech_lim_rel:04X}, "
             f"Got: x{value:04X}"
         )
@@ -429,7 +408,7 @@ def set_mtr_param(port, peak_current,guard,recval,speed,mech_lim_rel, verify_ack
 def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
     if (pos_steps < 0) or (pos_steps > 0x3200):
-        tc_log.error(
+        info_log.error(
             f"Move Pos Steps command pos_steps out of limits. Rejected by EGSE {pos_steps}"
         )
         return
@@ -437,17 +416,15 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ## --- Send CMD ---
     cmd = "09" + f"{pos_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "MTR_Mov_Pos":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
@@ -460,7 +437,7 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
     # First 2 parameters are the postive steps
     value = (parsed.PARAM1 << 8) + (parsed.PARAM2)
     if value != pos_steps:
-        tc_log.error(
+        info_log.error(
             f"ACK pos_steps does not match command. Set: x{pos_steps:04X}, "
             f"Got {value:04X}"
         )
@@ -472,7 +449,7 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
 def mtr_mov_neg(port, neg_steps, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
     if (neg_steps < 0) or (neg_steps > 0x3200):
-        tc_log.error(
+        info_log.error(
             f"Move Neg Steps command pos_steps out of limits. Rejected by EGSE {neg_steps}"
         )
         return
@@ -480,17 +457,15 @@ def mtr_mov_neg(port, neg_steps, verify_ack=True):
     ## --- Send CMD ---
     cmd = "0A" + f"{neg_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "MTR_Mov_Neg":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
@@ -503,7 +478,7 @@ def mtr_mov_neg(port, neg_steps, verify_ack=True):
     # First 2 parameters are the negative steps
     value = (parsed.PARAM1 << 8) + (parsed.PARAM2)
     if value != neg_steps:
-        tc_log.error(
+        info_log.error(
             f"ACK neg_steps does not match command. Set: x{neg_steps:04X}, "
             f"Got {value:04X}"
         )
@@ -520,17 +495,15 @@ def mtr_homing(port, CAL:bool, OUTER:bool, verify=True):
     param = (CAL << 1) + (OUTER)
     cmd = "0C" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "MTR_Homing":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify:
@@ -542,12 +515,12 @@ def mtr_homing(port, CAL:bool, OUTER:bool, verify=True):
 
     # First parameter is the homing status, so we can check it directly
     if parsed.PARAM1 != param:
-        tc_log.error(
+        info_log.error(
             f"ACK homing status does not match command. Set: x{param:02X}, "
             f"Got: x{parsed.PARAM1:02X}"
         )
 
-    verify_blank_ack_params
+    verify_blank_ack_params(parsed, start_index=2)
 
     return parsed
 
@@ -558,17 +531,15 @@ def mtr_halt(port, verify = True):
     ## --- Send CMD ---
     cmd = "0B" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
     info_log.info(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "Halt":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify:
         return
@@ -584,13 +555,13 @@ def mtr_halt(port, verify = True):
 def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ## --- Check input parameters before sending CMD ---
     if (swir_offset < 0) or (swir_offset > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set Sci Offset command swir_offset out of limits. Rejected by EGSE {swir_offset}"
         )
         return
     
     if (mwir_offset < 0) or (mwir_offset > 0xFFF):
-        tc_log.error(
+        info_log.error(
             f"Set Sci Offset command mwir_offset out of limits. Rejected by EGSE {mwir_offset}"
         )
         return
@@ -598,17 +569,15 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ## --- Send CMD ---
     cmd = "0E" + f"0{swir_offset:03X}" + f"0{mwir_offset:03X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
-    info_log.info(f"\nSend Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
+    info_log.info(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
 
     ## --- Get ACK and check type ---
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
     if ack.cmd_type != "SCI_Offset":
-        tc_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
 
     if not verify:
         return
@@ -620,14 +589,14 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     # First parameter is the swir_offset
     value = (parsed.PARAM1 << 8) + (parsed.PARAM2)
     if value != swir_offset:
-        tc_log.error(
+        info_log.error(
             f"ACK swir_offset does not match command. Set: x{swir_offset}, "
             f"Got {value:04X}"
         )
         
     value = (parsed.PARAM3 << 8) + (parsed.PARAM4)
     if value != mwir_offset:
-        tc_log.error(
+        info_log.error(
             f"ACK mwir_offset does not match command. Set: x{mwir_offset}, "
             f"Got {value:04X}"
         )
@@ -640,13 +609,13 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Check input parameters before sending CMD ---
     if (sci_adc_samp < 0) or (sci_adc_samp > 0x0A):
-        tc_log.error(
+        info_log.error(
             f"SCI_Request command sci_adc_samp out of limits. Rejected by EGSE {sci_adc_samp}"
         )
         return
     
     if (sci_adc_skip < 0) or (sci_adc_skip > 0xFF):
-        tc_log.error(
+        info_log.error(
             f"SCI_Request command sci_adc_skip out of limits. Rejected by EGSE {sci_adc_skip}"
         )
         return
@@ -654,11 +623,9 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Send CMD ---
     cmd = "0F" + f"0{sci_adc_samp:01X}" + f"{sci_adc_skip:02X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    tc_log.info(f"Requesting Science Reading")
-    info_log.info(f"\nRequesting Sci with samp:{sci_adc_samp}, skip:{sci_adc_skip}")
-    cmd_log.info(f"{bytes.hex(cmd_tc, ' ', 2)}\n")
-    port.write(cmd_tc)
-    
+    info_log.info(f"Requesting Science Reading")
+    send_tc(port, cmd_tc)
+
     ## --- Get Response and check type ---
     # Wait for Sci to be generated
     delay = (sci_adc_samp + sci_adc_skip) * 8 * 16 * 1e-6 + const.SCI_RESP_MARGIN
@@ -667,8 +634,8 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     sci = tm.Response(sci_bytes)
     
     if sci.cmd_type != "SCI_Request":
-        tc_log.error(f"Incorrect response to SCI CMD. Got {sci.cmd_type}")
-        tc_log.error(f"Response: {bytes.hex(sci.raw_bytes, ' ', 2)}")
+        info_log.error(f"Incorrect response to SCI CMD. Got {sci.cmd_type}")
+        info_log.error(f"Response: {bytes.hex(sci.raw_bytes, ' ', 2)}")
         return
     
     if not verify_resp:
