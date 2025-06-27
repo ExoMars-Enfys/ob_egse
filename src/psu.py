@@ -14,9 +14,9 @@ psu_log = logging.getLogger("psu_log")
 
 # Initialising Voltage constants
 #-12V Channel
-v12Channel = "1"
-v12V = "12"
-v12I = "0.376"
+v12Channel = 1
+v12V = 12
+v12I = 0.150
 
 #-12V Channel
 vHTRChannel = 2
@@ -28,41 +28,50 @@ v5Channel = 3
 v5V = 5
 v5I = 0.05
 
-def initialise_psu_mx100qp_comms(com_port: str) -> serial.Serial:
-    port = serial.Serial("COM" + str(com_port), timeout=1.0)
-    return port
-    
-def setChannels(port: serial.Serial, HTR : bool, v12 : bool , v5 : bool):
-    if HTR : 
-        port.write(f"V{vHTRChannel} {vHTRV}\r\n".encode('utf-8'))
-        port.read(15)
-        port.write(f"I{vHTRChannel} {vHTRI}\r\n".encode('utf-8'))
-        port.read(15)
-        port.write(f"V{vHTRChannel}?\r\n".encode('utf-8'))
-        responseV = port.read(15)
-        event_log.info(f"Response: {responseV}")
-        port.write(f"I{vHTRChannel}?\r\n".encode('utf-8'))
-        responseI = port.read(15)
-        event_log.info(f"Setting Heater Channel to {responseV} Volts and {responseI} Amps")
-        port.write(f"OP{vHTRChannel} 1\r\n".encode('utf-8'))
-        port.read(15)
+def init_psu_comms(psu_port: str) -> serial.Serial:
+    psuport = serial.Serial(port=None, timeout=1.0)
+    psuport.port = psu_port  # Assign com_port afterwards to prevent opening immediately
+    return psuport
+def open_psu_comms(psuport: serial.Serial) -> None:
+    try:    
+        psuport.open()
+    except serial.SerialException:
+        info_log.error(f"No device found on COM Port {psuport.port}, try another")
+        # raise SystemExit
 
-def psuRead(port,channel , type , dir) : 
-        port.write(f"{type}{channel}{dir}?\r\n".encode('utf-8'))
-        response= port.read(10)
-        return response
+    psuport.flushOutput()  # Port Flushing to clear port
+    psuport.flushInput()
+
+    return psuport
+
+def close_psu_comms(psuport: serial.Serial) -> None:
+    psuport.close()
+    return
+
+def setChannels( v12 : bool ,HTR : bool, v5 : bool):
+    psuport = init_psu_comms("COM10")
+    psuport.open()
+    psuport.write(f"V{v12Channel} {v12V}\r\n".encode('utf-8'))
+    psuport.write(f"I{v12Channel} {v12I}\r\n".encode('utf-8'))
+    psuport.write(f"OP{v12Channel} {int(v12)}\r\n".encode('utf-8'))
+    psuport.write(f"V{vHTRChannel} {vHTRV}\r\n".encode('utf-8'))
+    psuport.write(f"I{vHTRChannel} {vHTRI}\r\n".encode('utf-8'))
+    psuport.write(f"OP{vHTRChannel} {int(HTR)}\r\n".encode('utf-8'))
+    psuport.write(f"V{v5Channel} {v5V}\r\n".encode('utf-8'))
+    psuport.write(f"I{v5Channel} {v5I}\r\n".encode('utf-8'))
+    psuport.write(f"OP{v5Channel} {int(v5)}\r\n".encode('utf-8'))
+    psuport.flushOutput()
+    psuport.flushInput()
+
+def psuRead(channel, type) :        
+    psuport = init_psu_comms("COM10")
+    psuport.open()
+    psuport.write(f"{type}{channel}O?\r\n".encode('utf-8'))
+    response= psuport.read(8).decode('utf-8')    
+    psuport.flushOutput()
+    psuport.flushInput()
+    return response
         
-        
-        # if HTR : 
-        #     port.write(f"V{vHTRChannel} {vHTRV}\r\n".encode('utf-8'))
-        #     port.write(f"I{vHTRChannel} {vHTRV}\r\n".encode('utf-8' ))
-        # event_log.info("writing to PSU")
-        # response = port.write("OP1 ?\r\n".encode("utf-8"))
-        # psu_log.info("Powered on Channel one " + response)
-        # port.write("OP1 0\r\n".encode('utf-8'))
-        # event_log.info("writing to PSU")
-        # response = port.write("OP1 ?\r\n".encode("utf-8"))
-        # psu_log.info("Powered on Channel one " + response)
 ## TODO: Create a log for this - 
 # #?Done
 ## TODO: Create a clear settings file, Voltages to be set, Current limits

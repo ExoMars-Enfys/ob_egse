@@ -110,7 +110,7 @@ def power_up_tests(port) :
     #         event_log.error(f"OB Initialised in wrong Power State : {resp.PWR_STAT}")
     #         exit
     #     else :
-    tc.power_control(port,0x01)
+    tc.power_control(port,0x03)
     send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
     resp = tc.hk_request(port)
     if (
@@ -1126,6 +1126,16 @@ def abu_outer_home(port):
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
             resp = tc.hk_request(port)
+            event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                                        f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                                        f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                                        f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                                        f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                                        f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                                        f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                                        f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                                        )
+            event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
         event_log.info("Motor movement finished")
     else : 
         event_log.error("Motor Did not Move :")
@@ -1173,6 +1183,15 @@ def abu_rtn_to_base(port):
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
             resp = tc.hk_request(port)
+            event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
         event_log.info("Motor movement finished")
     else : 
         event_log.error("Motor Did not Move :")

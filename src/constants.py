@@ -18,7 +18,6 @@ DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 12
 DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
-
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 
@@ -39,3 +38,6 @@ SWIR_DAC_MIN_TH = 100
 SWIR_DAC_MAX_TH = 300
 MWIR_DAC_MIN_TH = 3300
 MWIR_DAC_MAX_TH = 3500
+
+#SCI queue
+sci_queue = deque(maxlen=100)
