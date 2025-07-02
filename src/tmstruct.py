@@ -39,7 +39,7 @@ hk = [
     ("HK_MECH_CUR", ">u16"),
     ("UNUSED_ADC", ">u16"),
     ("HK_SAMPLES", "u8"),
-    ("UNUSED6", ">u40"),
+    ("UNUSED5", ">u40"),
     ("CRC8", "u8"),
 ]
 

@@ -43,21 +43,20 @@ def check_hk(port) :
     f"\n CMD_ID :{resp.CMD_ID}" + 
     f"\n CMD_CNT : {resp.CMD_CNT}" +
     f"\n ERROR_BYTE : {resp.ERROR_BYTE}" + 
-    f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
-    f"\n PWR_STAT : {resp.PWR_STAT}" +
     f"\n UNUSED2 :{resp.UNUSED2}" + 
+    f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
+    f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" + 
+    f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" +
     f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}" +
     f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}" + 
-    f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" + 
-    f"\n MTR_GUARD : {resp.MTR_GUARD}" +
-    f"\n UNUSED3 : {resp.UNUSED3}" + 
-    f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
-    f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
     f"\n MTR_CURRENT :{resp.MTR_CURRENT}" + 
-    f"\n UNUSED4 : {resp.PWR_STAT}" +
-    f"\n MTR_SPEED :{resp.MTR_SPEED}" + 
-    f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" +
-    f"\n UNUSED5 : {resp.UNUSED5}" + 
+    f"\n MTR_GUARD : {resp.MTR_GUARD}" + 
+    f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
+    f"\n UNUSED3 : {resp.UNUSED3}" +
+    f"\n MTR_SPEED :{resp.MTR_SPEED}" +
+    f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
+    f"\n UNUSED4 : {resp.PWR_STAT}" +  
+    f"\n PWR_STAT : {resp.PWR_STAT}" +
     f"\n THRM_STATUS :{resp.THRM_STATUS}" + 
     f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}" +
     f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}" + 
@@ -74,7 +73,7 @@ def check_hk(port) :
     f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}" + 
     f"\n UNUSED_ADC : {resp.UNUSED_ADC}" +
     f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
-    f"\n UNUSED6 :{resp.UNUSED6}" + 
+    f"\n UNUSED5 :{resp.UNUSED5}" + 
     f"\n CRC8 : {resp.CRC8}")
 
 def check_sci(port, sci_adc_samp, sci_adc_skip):
@@ -1003,43 +1002,42 @@ def abu_hk(port, display_contents=True):
     if display_contents:
         event_log.info(
         f" MOD_ID :{resp.MOD_ID}" + 
-        f"\n Unused1 : {resp.UNUSED1}" + 
-        f"\n CMD_ID :{resp.CMD_ID}" + 
-        f"\n CMD_CNT : {resp.CMD_CNT}" +
-        f"\n ERROR_BYTE : {resp.ERROR_BYTE}" + 
-        f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
-        f"\n PWR_STAT : {resp.PWR_STAT}" +
-        f"\n UNUSED2 :{resp.UNUSED2}" + 
-        f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}" +
-        f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}" + 
-        f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" + 
-        f"\n MTR_GUARD : {resp.MTR_GUARD}" +
-        f"\n UNUSED3 : {resp.UNUSED3}" + 
-        f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
-        f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
-        f"\n MTR_CURRENT :{resp.MTR_CURRENT}" + 
-        f"\n UNUSED4 : {resp.PWR_STAT}" +
-        f"\n MTR_SPEED :{resp.MTR_SPEED}" + 
-        f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" +
-        f"\n UNUSED5 : {resp.UNUSED5}" + 
-        f"\n THRM_STATUS :{resp.THRM_STATUS}" + 
-        f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}" +
-        f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}" + 
-        f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}" + 
-        f"\n THRM_DET_ON_SP : {resp.THRM_DET_ON_SP}" +
-        f"\n SWIR_OFFSET : {resp.SWIR_OFFSET}" + 
-        f"\n MWIR_OFFSET : {resp.MWIR_OFFSET}" +
-        f"\n HK_V_3V3 : {resp.HK_V_3V3}" + 
-        f"\n HK_V_1V5 :{resp.HK_V_1V5}" + 
-        f"\n DIGITAL_TRP : {resp.DIGITAL_TRP}" +
-        f"\n DETEC_TRP :{resp.DETEC_TRP}" + 
-        f"\n MECH_TRP : {resp.MECH_TRP}" +
-        f"\n MOTOR_TRP : {resp.MOTOR_TRP}" + 
-        f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}" + 
-        f"\n UNUSED_ADC : {resp.UNUSED_ADC}" +
-        f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
-        f"\n UNUSED6 :{resp.UNUSED6}" + 
-        f"\n CRC8 : {resp.CRC8}")
+    f"\n Unused1 : {resp.UNUSED1}" + 
+    f"\n CMD_ID :{resp.CMD_ID}" + 
+    f"\n CMD_CNT : {resp.CMD_CNT}" +
+    f"\n ERROR_BYTE : {resp.ERROR_BYTE}" + 
+    f"\n UNUSED2 :{resp.UNUSED2}" + 
+    f"\n ERROR_MTR :{resp.ERROR_MTR}" + 
+    f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}" + 
+    f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}" +
+    f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}" +
+    f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}" + 
+    f"\n MTR_CURRENT :{resp.MTR_CURRENT}" + 
+    f"\n MTR_GUARD : {resp.MTR_GUARD}" + 
+    f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
+    f"\n UNUSED3 : {resp.UNUSED3}" +
+    f"\n MTR_SPEED :{resp.MTR_SPEED}" +
+    f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
+    f"\n UNUSED4 : {resp.PWR_STAT}" +  
+    f"\n PWR_STAT : {resp.PWR_STAT}" +
+    f"\n THRM_STATUS :{resp.THRM_STATUS}" + 
+    f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}" +
+    f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}" + 
+    f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}" + 
+    f"\n THRM_DET_ON_SP : {resp.THRM_DET_ON_SP}" +
+    f"\n SWIR_OFFSET : {resp.SWIR_OFFSET}" + 
+    f"\n MWIR_OFFSET : {resp.MWIR_OFFSET}" +
+    f"\n HK_V_3V3 : {resp.HK_V_3V3}" + 
+    f"\n HK_V_1V5 :{resp.HK_V_1V5}" + 
+    f"\n DIGITAL_TRP : {resp.DIGITAL_TRP}" +
+    f"\n DETEC_TRP :{resp.DETEC_TRP}" + 
+    f"\n MECH_TRP : {resp.MECH_TRP}" +
+    f"\n MOTOR_TRP : {resp.MOTOR_TRP}" + 
+    f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}" + 
+    f"\n UNUSED_ADC : {resp.UNUSED_ADC}" +
+    f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
+    f"\n UNUSED5 :{resp.UNUSED5}" + 
+    f"\n CRC8 : {resp.CRC8}")
     
 def abu_cal_motor(port):
     event_log.info("Running abu_cal_motor")
@@ -1464,3 +1462,56 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
+
+def vsense_test(port) : 
+    tc.power_control(port,0x03)
+    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+    resp = tc.hk_request(port)
+    event_log.info("HOME to BASE")
+    resp = tc.hk_request(port)
+    send_cmd.cmd_mtr_homing(port,False, False)    
+    resp = tc.hk_request(port)
+    if resp.MTR_FLAGS.MOVING == 1 : 
+        while resp.MTR_FLAGS.MOVING == 1:
+            time.sleep(1)
+            resp = tc.hk_request(port)
+            event_log.info("Motor still moving ***********")
+        event_log.info("Motor movement finished")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+    else : 
+        event_log.error("Motor Did not Move :")
+        event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+        event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+        if resp.ERROR_MTR != 0:
+            event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            ) 

@@ -98,7 +98,7 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         sq.abu_hk(port, False)
-
+        sq.vsense_check(port)
         # # Cal to Base
         # sq.abu_cal_motor(port)
 
