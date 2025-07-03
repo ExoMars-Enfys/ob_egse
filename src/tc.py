@@ -6,7 +6,6 @@ import tm
 from crc8_function import crc8Calculate
 
 info_log = logging.getLogger("info_log")
-event_log = logging.getLogger("event_log")
 
 """
 The verify used in the TC is only to verify the ACK response. Any HK checking or response checking
@@ -69,13 +68,11 @@ def hk_request(port, verify=True):
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
     info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    event_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
     response_bytes = tm.get_response(port, 66)
     response = tm.Response(response_bytes)
-    event_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
 
     if response.cmd_type != "HK_Request":
         info_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
