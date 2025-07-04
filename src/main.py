@@ -27,6 +27,7 @@ def init_arparse() -> argparse.ArgumentParser:
     )
     parser.add_argument("-prefix", type=ascii, default=const.DEFAULT_PREFIX)
     parser.add_argument("-com", type=int, default=const.DEFAULT_COM_PORT)
+    parser.add_argument("-psuport", type = int, default = const.PSU_COM_PORT)
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
     parser.add_argument("-s", "--script", action="store_true")
     return parser
@@ -63,11 +64,16 @@ def setup_logs() -> tuple[logging.Logger]:
 
 
 # @atexit.register
-# def clean_exit():
+# def clean_exit(psuport):
+#     # Adding parsing to be able to shut down psu 
+#     # !TODO: Make sure this is the correct way?
+
+
 #     const.ACK_LOG_FH.close()
 #     const.CMD_LOG_FH.close()
 #     const.HK_LOG_FH.close()
 #     const.SCI_LOG_FH.close()
+#     psu.emergencyShutDown(psuport)
 #     sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
@@ -83,22 +89,42 @@ def main() -> None:
     (event_log, info_log, psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
+    psu_com = "COM" + str(args.psuport)
 
     if args.script:
         info_log.info("Running Script")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
+        # ------------------------------------------------------------------------------------------
+        # PSU Setting and Switch On
+        # ------------------------------------------------------------------------------------------
+        # psuport = psu.init_psu_comms(psu_com)        
+        # psuport = psu.open_psu_comms(psuport)
+        # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+        # if int(psu.psuRead(psuport, "1", "OP",False)) == 0:
+        #     psu.switchPSU(psuport)
         # TODO: Ensure sequence runs are recorded in info log as well.
-
-        # Initialise PSU
-        # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
-        # psu.setChannels(psu_port, True, True, True)
-
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sq.abu_hk(port, False)
-        sq.vsense_check(port)
+        # MSSL Checks : 
+        # sq.script_repeat_hk(port)
+        # sq.mech_heater_test(port)
+        # tc.power_control(port,0x01)
+        # tc.clear_errors(port)
+        # sq.check_hk(port)
+        # sq.positive_test(port)
+        # sq.homing_test(port)
+        # sq.cal_test(port)
+        # sq.check_hk(port)
+        # tc.set_errors(port,True,False,False,False,False,False,False,False,False,False,False,False,False,False)
+        sq.check_hk(port)
+        # tc.clear_errors(port)
+        # sq.check_hk(port)
+        # psu_log.info(f"{psu.psuRead(psuport, "1", "V",True)}")
+        # psu.switchPSU(psuport)
+        # sq.abu_hk(port, False)
+        # sq.vsense_test(port)
         # # Cal to Base
         # sq.abu_cal_motor(port)
 
@@ -113,19 +139,19 @@ def main() -> None:
         # sq.abu_pos_steps(port, 2800)
     
         # Take an averaging measurement there with detec heaters on 20 times.
-        loop_len = 90
-        event_log.info(f"Running rover heater test for-loop every 2 seconds: {loop_len} times")
-        for i in range(0, loop_len):
-            sq.abu_measure(port, 0)
-            hk = tc.hk_request(port)
-            event_log.info(f"Digital board temperature: {hk.DIGITAL_TRP}")
-            time.sleep(2)
+        # loop_len = 90
+        # event_log.info(f"Running rover heater test for-loop every 2 seconds: {loop_len} times")
+        # for i in range(0, loop_len):
+        #     sq.abu_measure(port, 0)
+        #     hk = tc.hk_request(port)
+        #     event_log.info(f"Digital board temperature: {hk.DIGITAL_TRP}")
+        #     time.sleep(2)
         
-        event_log.info(f"Rover Heater Test Finished")
+        # event_log.info(f"Rover Heater Test Finished")
 
     else:
         info_log.info("Running GUI")
-        gui.streamlit_gui(com_port)
+        gui.streamlit_gui(com_port,psu_com)
 
 
 if __name__ == "__main__":

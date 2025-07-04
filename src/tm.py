@@ -237,6 +237,8 @@ def parse_tm(response):
         match response.cmd_type:
             case "Clear_Errors":
                 ack = ACK(response)
+            case "Set_Errors":
+                ack = ACK(response)
             case "Power_Control":
                 ack = ACK(response)
             case "Heater_Control":
