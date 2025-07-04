@@ -7,13 +7,14 @@ import atexit
 import argparse
 from pathlib import Path
 from datetime import datetime
-import psu
+import threading
 
 # Local modules
 import comms
 import constants as const
 import egse_logger
 import gui
+import psu
 import sequences as sq
 import tc
 
@@ -93,16 +94,20 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
+        info_log.info("Initialising RS-485 Comms")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
-        # ------------------------------------------------------------------------------------------
-        # PSU Setting and Switch On
-        # ------------------------------------------------------------------------------------------
-        # psuport = psu.init_psu_comms(psu_com)        
-        # psuport = psu.open_psu_comms(psuport)
-        # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
-        # if int(psu.psuRead(psuport, "1", "OP",False)) == 0:
-        #     psu.switchPSU(psuport)
+
+        info_log.info("Initialising PSU Comms")
+        psuport = psu.init_psu_comms(psu_com)       
+        psuport = psu.open_psu_comms(psuport)
+        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+        psu.switchPSU(psuport, 1)  # Switch on PSU
+
+        stop_event = threading.Event()
+        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event), daemon=True)
+        psu_thread.start()
+
         # TODO: Ensure sequence runs are recorded in info log as well.
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
@@ -149,6 +154,14 @@ def main() -> None:
         
         # event_log.info(f"Rover Heater Test Finished")
 
+        # ------------------------------------------------------------------------------------------
+        # Clean up and exit
+        # ------------------------------------------------------------------------------------------
+        stop_event.set()
+        psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+        # TODO! Add ability to give back local control of PSU
+        psu.close_psu_comms(psuport)
+        comms.close_comms(port)
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port,psu_com)
