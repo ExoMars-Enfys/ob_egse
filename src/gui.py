@@ -7,6 +7,7 @@ import math
 # Added packages
 import constants as const
 import streamlit as st
+
 import tc
 import psu
 import sequences as sq
@@ -41,16 +42,20 @@ def st_state_initialise() -> None:
     if "state_htr_mech_auto" not in st.session_state:
         st.session_state.state_htr_mech_auto = False
 
+    if "state_psu" not in st.session_state:
+        st.session_state.state_psu= False
+
     if "state_rs485" not in st.session_state:
         st.session_state.state_rs485 = None
 
 
 def toggle_cmd_interface():
     st.session_state.ob_active = not st.session_state.ob_active
+    
 
 
 @st.fragment()
-def st_comms_config(port: serial.rs485.RS485) -> None:
+def st_comms_config(port: serial.rs485.RS485, psuport : serial.Serial) -> None:
     if st.session_state.ob_active:
         title,gap,rs485 = st.columns([1,3,1],vertical_alignment = "bottom")
         title.title("OB EGSE V3.0")
@@ -58,9 +63,11 @@ def st_comms_config(port: serial.rs485.RS485) -> None:
             label="Close RS485",
             disabled=not st.session_state.ob_active,
             on_click=toggle_cmd_interface(),
-        )        
+        )       
+
         comms.open_comms(port)
-        st_cmd_interface(port)
+        hk_fragment(port)
+        st_cmd_interface(port,psuport)
     else:
         title,gap,rs485 = st.columns([1,3,1],vertical_alignment = "bottom")
         title.title("OB EGSE V3.0")
@@ -72,6 +79,9 @@ def st_comms_config(port: serial.rs485.RS485) -> None:
         
         comms.close_comms(port)
         st.session_state.state_rs485 = False
+        st.session_state.state_psu = False
+        psu.switchPSU(psuport,"0")
+        
 
 def st_cmd_pwr(port):
     state_pwr_int = state_pwr_dict.get(st.session_state.state_pwr)
@@ -87,13 +97,28 @@ def st_cmd_htr(port):
         st.session_state.state_htr_mech_auto,
     )
 
-def  st_psu_cmd() : 
-    psu.setChannels(
-        st.session_state.state_12vChannel, 
-        st.session_state.state_htrChannel, 
-        st.session_state.state_5vChannel
-        )
-    
+def st_psu_toggle(psuport :serial.Serial) :
+    psu.open_psu_comms(psuport)
+    psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+    psu.switchPSU(psuport,st.session_state.state_psu)
+    if st.session_state.state_psu : 
+        psu_display(psuport)
+    else:
+        st.session_state.state_psu= False
+        psu.switchPSU(psuport,st.session_state.state_psu)
+        psu.close_psu_comms(psuport)
+def psu_display(psuport) : 
+    col1,col2,col3,empty = st.columns([1,1,1,5])
+    col1.subheader("+12V")
+    col1.metric("Voltage", value = psu.psuRead(psuport, "1", "V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
+    col1.metric("Current", value = psu.psuRead(psuport, "1", "I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+    col2.subheader("-12V")
+    col2.metric("Voltage", value = psu.psuRead(psuport, "2", "V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
+    col2.metric("Current", value = psu.psuRead(psuport, "2", "I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+    col3.subheader("+5V")
+    col3.metric("Voltage", value = psu.psuRead(psuport,"3","V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
+    col3.metric("Current", value = psu.psuRead(psuport,"3","I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+
 def st_mtr_param(port):
     current = st.session_state.state_current
     speed = st.session_state.state_speed
@@ -110,25 +135,62 @@ def get_hk():
     try:
         last_hk = const.hk_queue.pop()
         st.write(f"HK Data: {bytes.hex(last_hk.raw_bytes, ' ', 2)}")
-        col1, col2,col3 = st.columns(3)
+        col1, col2,col3,empty,errors = st.columns([1,1,1,3,2])
         col1.metric('Power Status', last_hk.PWR_STAT, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
         col2.metric('Thermal Status', last_hk.THRM_STATUS, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
         col3.metric('Last Error', last_hk.ERROR_BYTE, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
-        st.subheader("OB ERRORS")
-        # col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-        # col1.metric("Time Out",value = last_hk.ERRORS.TMO,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col2.metric("Invalid OB State",value = last_hk.ERRORS.IOS,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col3.metric("Rel Limit Reached",value = last_hk.ERRORS.LIM,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col4.metric("Monitor Limit Reached",value = last_hk.ERRORS.LMO,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col5.metric("Invalid CRC",value = last_hk.ERRORS.ICR,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col6.metric("Invalid Parity",value = last_hk.ERRORS.IPA,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
-        # col7.metric("Invalid Command ID",value = last_hk.ERRORS.ICI,delta = None,delta_color="normal",help=None,label_visibility="visible",border=True)
+        
+        errors.subheader("OB ERRORS")
+        col1, col2, col3, col4, col5, col6, col7 = errors.columns(7)
+        if last_hk.ERRORS.TMO == 1 :
+            TMOvalue = "‼️"
+        else :
+            TMOvalue = "✅"
+        if last_hk.ERRORS.IOS == 1 :
+            IOSvalue = "‼️"
+        else :
+            IOSvalue = "✅"
+        if last_hk.ERRORS.LIM == 1 :
+            LIMvalue = "‼️"
+        else :
+            LIMvalue = "✅"
+        if last_hk.ERRORS.ICI == 1 :
+            LMOvalue = "‼️"
+        else :
+            LMOvalue = "✅"
+        if last_hk.ERRORS.ICR == 1 :
+            ICRvalue = "‼️"
+        else :
+            ICRvalue = "✅"
+        if last_hk.ERRORS.IPA == 1 :
+            IPAvalue = "‼️"
+        else :
+            IPAvalue = "✅"
+        if last_hk.ERRORS.ICI == 1 :
+            ICIvalue = "‼️"
+        else :
+            ICIvalue = "✅"
+        col1.write("TMO")
+        col1.write(TMOvalue)
+        col2.write("IOS")
+        col2.write(IOSvalue)
+        col3.write("LIM")
+        col3.write(LIMvalue)
+        col4.write("LMO")
+        col4.write(LMOvalue)
+        col5.write("ICR")
+        col5.write(ICRvalue)
+        col6.write("IPA")
+        col6.write(IPAvalue)
+        col7.write("ICI")
+        col7.write(ICIvalue)
         return last_hk
     except IndexError:
         st.write("No HK data available")
 
-def get_mtr_hk(port,last_hk) : 
-    try:
+def get_mtr_hk(port) : 
+    try:        
+        last_hk = const.hk_queue.pop()
         st.subheader("Motor Settings")
         col1, col2, col3, col4, col5= st.columns(5)
         current,empty1,empty2,speed,sendmtrparam = st.columns(5,vertical_alignment= "bottom")
@@ -285,7 +347,8 @@ def get_mtr_hk(port,last_hk) :
             label_visibility="visible",
             border=True,
         )
-        return last_hk
+        mtr_cmds(port,last_hk)
+        
     except IndexError:
         st.write("No HK data available")
 
@@ -429,6 +492,7 @@ def mtr_cmds(port,last_hk):
         sq.positive_test(port)
     if col5.button(label = "Negative Test"):
         sq.negative_test(port)
+
 def get_sci():
     try:
         last_sci = const.sci_queue.pop()
@@ -441,8 +505,21 @@ def get_sci():
         st.write("No SCI data available")
 
 @st.fragment()
-def st_cmd_interface(port):
-    
+def hk_fragment(port):
+    st.subheader("Housekeeping")
+    if st.button("Request HK"):
+        tc.hk_request(port)
+    get_hk()
+@st.fragment()
+def st_cmd_interface(port,psuport):
+    st.divider()
+    st.subheader("PSU CONTROL")
+    col1,col2,col3 = st.columns([1,2,2])
+    col1.toggle(
+            label="PSU Switch",
+            key="state_psu",
+            on_change=st_psu_toggle(psuport)
+        )
     tab1,tab2,tab3 = st.tabs(["Main Menu","Detector Board","Mechanism Board"])
     
     with tab1:
@@ -495,11 +572,6 @@ def st_cmd_interface(port):
             on_change=st_cmd_htr,
             args=(port,),
     )
-        st.divider()
-        st.subheader("Housekeeping")
-        if st.button("Request HK"):
-            tc.hk_request(port)
-        get_hk()
     with tab2:
         st.title("Detector Board")
         if st.button("Request SCI"):
@@ -524,46 +596,11 @@ def st_cmd_interface(port):
         
     with tab3:
         st.subheader("Mechanism Subsystem")
-        tc.hk_request(port)
-        last_hk = get_hk()
-        get_mtr_hk(port,last_hk)
-        mtr_cmds(port,last_hk)
-        
-
-    
-
-    st.divider()
-    st.subheader("PSU CONTROL")
-    # col1,col2,col3 = st.columns(3)
-    # col1.write("+12V Channel")
-    # col1.metric("Voltage", value = psu.psuRead("1","V"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-    # col1.metric("Current", value = psu.psuRead("1","I"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-    # col2.write("-12V Channel")
-    # col2.metric("Voltage", value = psu.psuRead("2","V"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-    # col2.metric("Current", value = psu.psuRead("2","I"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-    # col3.write("+5V Channel")
-    # col3.metric("Voltage", value = psu.psuRead("3","V"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-    # col3.metric("Current", value = psu.psuRead("3","I"), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
-
-    # col1.toggle(
-    #         label="+12V Channel",
-    #         key="state_12vChannel",
-    #         on_change=st_psu_cmd,
-    #     )
-    # col2.toggle(
-    #         label="Heater Channel",
-    #         key="state_htrChannel",
-    #         on_change=st_psu_cmd,
-    #     )
-    # col3.toggle(
-    #         label="+5V Channel",
-    #         key="state_5vChannel",
-    #         on_change=st_psu_cmd,
-    #     )
-
-    
-
-def streamlit_gui(com_port: str) -> None:
+        if st.button("RequestHK"):
+            tc.hk_request(port)
+        get_mtr_hk(port)
+def streamlit_gui(com_port: str, psu_com : str) -> None:
     st_state_initialise()
     port = comms.initialise_comms(com_port)
-    st_comms_config(port)
+    psuport = psu.init_psu_comms(psu_com)
+    st_comms_config(port,psuport)

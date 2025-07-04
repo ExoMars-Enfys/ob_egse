@@ -117,7 +117,61 @@ def clear_errors(port, verify_ack=True):
 
     return
 
-# TODO! def set_errors(port)
+def set_errors(port,
+    tmo : bool,
+    ipa : bool,
+    cd : bool,
+    ab : bool,
+    abs : bool,
+    rel : bool,
+    dse : bool,
+    ig_b : bool,
+    ig_o : bool,
+    m_cd : bool,
+    m_ab : bool,
+    m_abs : bool,
+    m_rel : bool,
+    m_dse : bool,
+    verify_ack = True):
+
+    param1 = (
+        (0*6 << 7) +
+        (tmo << 1) +
+        (ipa )
+    )
+    param2 = (
+        (0*3<<7)+
+        (cd << 4) +
+        (ab << 3) +
+        (abs << 2) +
+        (rel << 1) +
+        (dse)
+    )
+    param3 = (
+        (ig_b << 7) +
+        (ig_o << 6) +
+        (0 << 5) +
+        (m_cd << 4) +
+        (m_ab << 3) +
+        (m_abs << 2) +
+        (m_rel << 1) +
+        (m_dse)      
+    )
+    cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
+    cmd_tc = crc8Calculate(cmd)
+    info_log.info(f"\nSetting Errors")    
+    port.write(cmd_tc)
+# TODO : parse the response
+    ack_bytes = tm.get_response(port, 9)
+    ack = tm.Response(ack_bytes)
+
+    if ack.cmd_type != "Set_Errors":
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+
+    if not verify_ack:
+        return
+    parsed = tm.parse_tm(ack)
+
 
 def power_control(port, pwr_stat, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
@@ -407,7 +461,7 @@ def set_mtr_param(port, peak_current,guard,recval,speed,mech_lim_rel, verify_ack
 
 def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
-    if (pos_steps < 0) or (pos_steps > 0x3200):
+    if (pos_steps < 0) or (pos_steps > 0x3500):
         info_log.error(
             f"Move Pos Steps command pos_steps out of limits. Rejected by EGSE {pos_steps}"
         )
