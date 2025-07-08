@@ -104,7 +104,7 @@ def main() -> None:
         psuport = psu.open_psu_comms(psuport,args.nopsu)
         psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I,args.nopsu)
         psu.switchPSU(psuport, 1, args.nopsu)  # Switch on PSU
-
+        time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
         stop_event = threading.Event()
         psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ,args.nopsu), daemon=True)
         psu_thread.start()
@@ -154,15 +154,16 @@ def main() -> None:
         #     time.sleep(2)
         
         # event_log.info(f"Rover Heater Test Finished")
-
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # TODO! Add ability to give back local control of PSU
-        psu.emergencyShutDown(psuport,args.nopsu)
-        # psu.close_psu_comms(psuport)
+        psuport.write(f"LOCAL\r\n".encode('utf-8'))
+        psu.close_psu_comms(psuport)
+        # psu.emergencyShutDown(psuport,args.nopsu)
+        
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")

@@ -35,9 +35,7 @@ def close_psu_comms(psu_com: serial.Serial) -> None:
     psu_com.close()
     return
 
-def psuRead(psu_com, channel, type,nopsurequired,output=False,) :
-    if nopsurequired : 
-            return  
+def psuRead(psu_com, channel, type,output=False,) :
     if output == False : 
         psu_com.write(f"{type}{channel}?\r\n".encode('utf-8'))
         response= psu_com.read(8).decode('utf-8')
@@ -64,9 +62,9 @@ def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
             
             # Log the readings
             psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
-            if (not(11.2 < float(ch1_v.strip("V"))) or not(11.2 < float(ch2_v.strip("V")) > 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
+            if (not(11.2 < float(ch1_v.strip("V")) < 13.2) or not(11.2 < float(ch2_v.strip("V")) < 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
                 psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                emergencyShutDown(psu_com)          
+                emergencyShutDown(psu_com,nopsurequired)          
 
             if (float(ch1_i.strip("A")) >=150) or (float(ch2_i.strip("A")) >=90)or (float(ch3_i.strip("A")) >=150):
                 psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
