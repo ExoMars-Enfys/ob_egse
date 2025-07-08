@@ -39,31 +39,37 @@ def psuRead(psu_com, channel, type,output=False) :
         response= psu_com.read(8).decode('utf-8')
     else   :
         psu_com.write(f"{type}{channel}O?\r\n".encode('utf-8'))
-        response= psu_com.read(8).decode('utf-8') 
+        response= psu_com.read(8).decode('utf-8')
+        
     psu_com.flushOutput()
     psu_com.flushInput()
     return response
 
-def psu_monitor_thread(psu_com, stop_event):
+def psu_monitor_thread(psu_com, stop_event,freq):
     while not stop_event.is_set():
         try:
             # Read the voltage and current for each channel
-            ch1_v = psuRead(psu_com, "1", "V")
-            ch1_i = psuRead(psu_com, "1", "I")
-            ch2_v = psuRead(psu_com, "2", "V")
-            ch2_i = psuRead(psu_com, "2", "I")
-            ch3_v = psuRead(psu_com, "3", "V")
-            ch3_i = psuRead(psu_com, "3", "I")
-
+            ch1_v = psuRead(psu_com, "1", "V",True).rstrip()
+            ch1_i = psuRead(psu_com, "1", "I",True).rstrip()
+            ch2_v = psuRead(psu_com, "2", "V",True).rstrip()
+            ch2_i = psuRead(psu_com, "2", "I",True).rstrip()
+            ch3_v = psuRead(psu_com, "3", "V",True).rstrip()
+            ch3_i = psuRead(psu_com, "3", "I",True).rstrip()
+            
             # Log the readings
-            psu_log.info(f"{ch1_v}\t{ch1_i}\t{ch2_v}\t{ch2_i}\t{ch3_v}\t{ch3_i}")
+            psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+            if (not(11.2 < float(ch1_v.strip("V"))) or not(11.2 < float(ch2_v.strip("V")) > 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
+                psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
+                emergencyShutDown(psu_com)          
 
-            # TODO! Check for out of limits
-            # TODO! Variable sample rate, currently 10Hz.
+            if (float(ch1_i.strip("A")) >=150) or (float(ch2_i.strip("A")) >=90)or (float(ch3_i.strip("A")) >=150):
+                psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
+                emergencyShutDown(psu_com)  
 
         except Exception as e:
             psu_log.error(f"Error in PSU monitor thread: {e}")
-        stop_event.wait(0.1)  # Sleep for 200 ms before the next reading
+        waitTime = 1/(freq)
+        stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
 def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
     # Set the voltage and current limits for each channel
@@ -83,7 +89,7 @@ def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
     psu_com.write(f"OVP3 {ch3_ovp} 1\r\n".encode('utf-8'))
 
     psu_log.info("PSU Channels set successfully")
-    psu_log.info("   CH1_V \t   CH1_I \t   CH2_V \t   CH2_I \t   CH3_V \t   CH3_I")
+    psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
     psu_com.flushOutput()
     psu_com.flushInput()
 
@@ -94,6 +100,9 @@ def switchPSU(psu_com,state) :
 
 def emergencyShutDown(psu_com) : 
     psu_com.write(f"OPALL 0\r\n".encode('utf-8'))
+    psu_log.error(f"Closing all channels")
+    psu_com.write(f"LOCAL\r\n".encode('utf-8'))
+    psu_log.error(f"Setting to Local control")
     psu_com.flushOutput()
     psu_com.flushInput()
     psu_com.close()
@@ -104,6 +113,9 @@ def emergencyShutDown(psu_com) :
 # ?Done in the constants file
 ## TODO: Add monitoring, such that we have warning current limits and alarm limits
 ## TODO: If alarm limit, automatically shutdown
+# ?Done using emergency shut down function - closes outputs and switches to local control before closing comms
 ## TODO: Close the comms
+# ?See above
 ## TODO: Report the link status
 ## TODO: Loop through every 1s (async?)
+# ?Done with threading

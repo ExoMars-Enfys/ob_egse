@@ -105,7 +105,7 @@ def main() -> None:
         psu.switchPSU(psuport, 1)  # Switch on PSU
 
         stop_event = threading.Event()
-        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event), daemon=True)
+        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
         psu_thread.start()
 
         # TODO: Ensure sequence runs are recorded in info log as well.
@@ -117,13 +117,13 @@ def main() -> None:
         # sq.mech_heater_test(port)
         # tc.power_control(port,0x01)
         # tc.clear_errors(port)
-        # sq.check_hk(port)
+        sq.check_hk(port)
         # sq.positive_test(port)
         # sq.homing_test(port)
         # sq.cal_test(port)
         # sq.check_hk(port)
         # tc.set_errors(port,True,False,False,False,False,False,False,False,False,False,False,False,False,False)
-        sq.check_hk(port)
+        # sq.check_hk(port)
         # tc.clear_errors(port)
         # sq.check_hk(port)
         # psu_log.info(f"{psu.psuRead(psuport, "1", "V",True)}")
@@ -157,10 +157,14 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
+        for i in range(3):
+            time.sleep(1)
+            event_log.info(f"Countdown : {i+1}")
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # TODO! Add ability to give back local control of PSU
-        psu.close_psu_comms(psuport)
+        # psu.emergencyShutDown(psuport)
+        # psu.close_psu_comms(psuport)
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
