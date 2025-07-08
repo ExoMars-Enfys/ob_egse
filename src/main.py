@@ -30,6 +30,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-com", type=int, default=const.DEFAULT_COM_PORT)
     parser.add_argument("-psuport", type = int, default = const.PSU_COM_PORT)
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
+    parser.add_argument("-np","--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     return parser
 
@@ -100,12 +101,12 @@ def main() -> None:
 
         info_log.info("Initialising PSU Comms")
         psuport = psu.init_psu_comms(psu_com)       
-        psuport = psu.open_psu_comms(psuport)
-        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
-        psu.switchPSU(psuport, 1)  # Switch on PSU
+        psuport = psu.open_psu_comms(psuport,args.nopsu)
+        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I,args.nopsu)
+        psu.switchPSU(psuport, 1, args.nopsu)  # Switch on PSU
 
         stop_event = threading.Event()
-        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
+        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ,args.nopsu), daemon=True)
         psu_thread.start()
 
         # TODO: Ensure sequence runs are recorded in info log as well.
@@ -117,12 +118,12 @@ def main() -> None:
         # sq.mech_heater_test(port)
         # tc.power_control(port,0x01)
         # tc.clear_errors(port)
-        sq.check_hk(port)
+        # sq.check_hk(port)
         # sq.positive_test(port)
         # sq.homing_test(port)
         # sq.cal_test(port)
         # sq.check_hk(port)
-        # tc.set_errors(port,True,False,False,False,False,False,False,False,False,False,False,False,False,False)
+        # tc.set_errors(port,False,False,True,True,False,False,False,False,False,False,False,False,False,False)
         # sq.check_hk(port)
         # tc.clear_errors(port)
         # sq.check_hk(port)
@@ -157,13 +158,10 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
-        for i in range(3):
-            time.sleep(1)
-            event_log.info(f"Countdown : {i+1}")
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # TODO! Add ability to give back local control of PSU
-        # psu.emergencyShutDown(psuport)
+        psu.emergencyShutDown(psuport,args.nopsu)
         # psu.close_psu_comms(psuport)
         comms.close_comms(port)
     else:

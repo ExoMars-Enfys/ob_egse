@@ -17,8 +17,10 @@ def init_psu_comms(psu_com: str) -> serial.Serial:
     psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
     return psuport
 
-def open_psu_comms(psu_com: serial.Serial) -> None:
-    try:    
+def open_psu_comms(psu_com: serial.Serial,nopsurequired) -> None:
+    try:
+        if nopsurequired : 
+            return    
         psu_com.open()
     except serial.SerialException:
         info_log.error(f"No device found on COM Port {psu_com.port}, try another")
@@ -33,7 +35,9 @@ def close_psu_comms(psu_com: serial.Serial) -> None:
     psu_com.close()
     return
 
-def psuRead(psu_com, channel, type,output=False) :
+def psuRead(psu_com, channel, type,nopsurequired,output=False,) :
+    if nopsurequired : 
+            return  
     if output == False : 
         psu_com.write(f"{type}{channel}?\r\n".encode('utf-8'))
         response= psu_com.read(8).decode('utf-8')
@@ -45,9 +49,11 @@ def psuRead(psu_com, channel, type,output=False) :
     psu_com.flushInput()
     return response
 
-def psu_monitor_thread(psu_com, stop_event,freq):
+def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
     while not stop_event.is_set():
         try:
+            if nopsurequired : 
+                return  
             # Read the voltage and current for each channel
             ch1_v = psuRead(psu_com, "1", "V",True).rstrip()
             ch1_i = psuRead(psu_com, "1", "I",True).rstrip()
@@ -71,7 +77,9 @@ def psu_monitor_thread(psu_com, stop_event,freq):
         waitTime = 1/(freq)
         stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
-def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
+def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i,nopsurequired):
+    if nopsurequired : 
+            return  
     # Set the voltage and current limits for each channel
     psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
     psu_com.write(f"V1 12\r\n".encode('utf-8'))
@@ -93,12 +101,16 @@ def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
     psu_com.flushOutput()
     psu_com.flushInput()
 
-def switchPSU(psu_com,state) :
+def switchPSU(psu_com,state, nopsurequired) :
     # psu_status = int(psuRead(psu_com, "1", "OP",False))
     # psu_status = not psu_status
+    if nopsurequired : 
+            return  
     psu_com.write(f"OPALL {int(state)}\r\n".encode('utf-8'))
 
-def emergencyShutDown(psu_com) : 
+def emergencyShutDown(psu_com, nopsurequired) : 
+    if nopsurequired : 
+            return  
     psu_com.write(f"OPALL 0\r\n".encode('utf-8'))
     psu_log.error(f"Closing all channels")
     psu_com.write(f"LOCAL\r\n".encode('utf-8'))

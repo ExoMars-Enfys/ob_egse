@@ -159,18 +159,10 @@ def set_errors(port,
     )
     cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"\nSetting Errors")    
+    info_log.info(f"\nSetting Errors - {bytes.hex(cmd_tc, ' ', 2)}")    
     port.write(cmd_tc)
-# TODO : parse the response
-    ack_bytes = tm.get_response(port, 9)
-    ack = tm.Response(ack_bytes)
 
-    if ack.cmd_type != "Set_Errors":
-        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
-
-    if not verify_ack:
-        return
-    parsed = tm.parse_tm(ack)
+    #!No ACK
 
 
 def power_control(port, pwr_stat, verify_ack=True):
