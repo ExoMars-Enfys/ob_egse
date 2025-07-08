@@ -92,7 +92,7 @@ def clear_errors(port, verify_ack=True):
     ## --- Send CMD ---
     cmd = "02" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Clearing Errors")
+    info_log.info(f"Clearing Errors:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
@@ -101,6 +101,7 @@ def clear_errors(port, verify_ack=True):
 
     if ack.cmd_type != "Clear_Errors":
         info_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
+        return
     
     if not verify_ack:
         return
@@ -159,7 +160,7 @@ def set_errors(port,
     )
     cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"\nSetting Errors - {bytes.hex(cmd_tc, ' ', 2)}")    
+    info_log.info(f"Setting Errors - {bytes.hex(cmd_tc, ' ', 2)}")    
     port.write(cmd_tc)
 
     #!No ACK
