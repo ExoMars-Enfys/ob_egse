@@ -113,57 +113,19 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # MSSL Checks : 
-        # sq.script_repeat_hk(port)
-        # sq.mech_heater_test(port)
-        # tc.power_control(port,0x01)
-        # tc.clear_errors(port)
-        # sq.check_hk(port)
-        # sq.positive_test(port)
-        # sq.homing_test(port)
-        # sq.cal_test(port)
-        # sq.check_hk(port)
-        # tc.set_errors(port,False,False,True,True,False,False,False,False,False,False,False,False,False,False)
-        # sq.check_hk(port)
-        # tc.clear_errors(port)
-        # sq.check_hk(port)
-        # psu_log.info(f"{psu.psuRead(psuport, "1", "V",True)}")
-        # psu.switchPSU(psuport)
-        # sq.abu_hk(port, False)
-        # sq.vsense_test(port)
-        # # Cal to Base
-        # sq.abu_cal_motor(port)
 
-        # # Home to Outer
-        # sq.abu_outer_home(port)
-        
-        # # Dark Offsets
-        # mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
-        # swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
 
-        # # Drive to Laser Peak
-        # sq.abu_pos_steps(port, 2800)
-    
-        # Take an averaging measurement there with detec heaters on 20 times.
-        # loop_len = 90
-        # event_log.info(f"Running rover heater test for-loop every 2 seconds: {loop_len} times")
-        # for i in range(0, loop_len):
-        #     sq.abu_measure(port, 0)
-        #     hk = tc.hk_request(port)
-        #     event_log.info(f"Digital board temperature: {hk.DIGITAL_TRP}")
-        #     time.sleep(2)
-        
-        # event_log.info(f"Rover Heater Test Finished")
+
+
+
+
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        # TODO! Add ability to give back local control of PSU
         psuport.write(f"LOCAL\r\n".encode('utf-8'))
-        psu.close_psu_comms(psuport)
-        # psu.emergencyShutDown(psuport,args.nopsu)
-        
+        psu.close_psu_comms(psuport)        
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
