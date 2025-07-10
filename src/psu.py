@@ -19,12 +19,13 @@ def init_psu_comms(psu_com: str) -> serial.Serial:
 
 def open_psu_comms(psu_com: serial.Serial,nopsurequired) -> None:
     try:
-        if nopsurequired : 
-            return    
         psu_com.open()
     except serial.SerialException:
-        info_log.error(f"No device found on COM Port {psu_com.port}, try another")
-        # raise SystemExit
+        if nopsurequired : 
+            return
+        else :  
+            info_log.error(f"No device found on COM Port {psu_com.port}, try another")
+            raise SystemExit
 
     psu_com.flushOutput()  # Port Flushing to clear port
     psu_com.flushInput()
@@ -48,74 +49,70 @@ def psuRead(psu_com, channel, type,output=False,) :
     return response
 
 def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
-    while not stop_event.is_set():
-        try:
-            if nopsurequired : 
-                return  
-            # Read the voltage and current for each channel
-            ch1_v = psuRead(psu_com, "1", "V",True).rstrip()
-            ch1_i = psuRead(psu_com, "1", "I",True).rstrip()
-            ch2_v = psuRead(psu_com, "2", "V",True).rstrip()
-            ch2_i = psuRead(psu_com, "2", "I",True).rstrip()
-            ch3_v = psuRead(psu_com, "3", "V",True).rstrip()
-            ch3_i = psuRead(psu_com, "3", "I",True).rstrip()
-            
-            # Log the readings
-            psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
-            if (not(11.2 < float(ch1_v.strip("V")) < 13.2) or not(11.2 < float(ch2_v.strip("V")) < 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
-                psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                emergencyShutDown(psu_com,nopsurequired)          
+    while psu_com:
+        while not stop_event.is_set():
+            try:
+                # Read the voltage and current for each channel
+                ch1_v = psuRead(psu_com, "1", "V",True).rstrip()
+                ch1_i = psuRead(psu_com, "1", "I",True).rstrip()
+                ch2_v = psuRead(psu_com, "2", "V",True).rstrip()
+                ch2_i = psuRead(psu_com, "2", "I",True).rstrip()
+                ch3_v = psuRead(psu_com, "3", "V",True).rstrip()
+                ch3_i = psuRead(psu_com, "3", "I",True).rstrip()
+                
+                # Log the readings
+                psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+                if (not(11.2 < float(ch1_v.strip("V")) < 13.2) or not(11.2 < float(ch2_v.strip("V")) < 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
+                    psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
+                    emergencyShutDown(psu_com,nopsurequired)          
 
-            if (float(ch1_i.strip("A")) >=150) or (float(ch2_i.strip("A")) >=90)or (float(ch3_i.strip("A")) >=150):
-                psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                emergencyShutDown(psu_com)  
+                if (float(ch1_i.strip("A")) >=150) or (float(ch2_i.strip("A")) >=90)or (float(ch3_i.strip("A")) >=150):
+                    psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
+                    emergencyShutDown(psu_com)  
 
-        except Exception as e:
-            psu_log.error(f"Error in PSU monitor thread: {e}")
-        waitTime = 1/(freq)
-        stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
+            except Exception as e:
+                psu_log.error(f"Error in PSU monitor thread: {e}")
+            waitTime = 1/(freq)
+            stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
-def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i,nopsurequired):
-    if nopsurequired : 
-            return  
-    # Set the voltage and current limits for each channel
-    psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-    psu_com.write(f"V1 12\r\n".encode('utf-8'))
-    psu_com.write(f"I1 {ch1_i}\r\n".encode('utf-8'))
-    psu_com.write(f"OVP1 {ch1_ovp} 1\r\n".encode('utf-8'))
+def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
+    while psu_com : 
+        # Set the voltage and current limits for each channel
+        psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
+        psu_com.write(f"V1 12\r\n".encode('utf-8'))
+        psu_com.write(f"I1 {ch1_i}\r\n".encode('utf-8'))
+        psu_com.write(f"OVP1 {ch1_ovp} 1\r\n".encode('utf-8'))
 
-    psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-    psu_com.write(f"V2 12\r\n".encode('utf-8'))
-    psu_com.write(f"I2 {ch2_i}\r\n".encode('utf-8'))
-    psu_com.write(f"OVP2 {ch2_ovp} 1\r\n".encode('utf-8'))
+        psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
+        psu_com.write(f"V2 12\r\n".encode('utf-8'))
+        psu_com.write(f"I2 {ch2_i}\r\n".encode('utf-8'))
+        psu_com.write(f"OVP2 {ch2_ovp} 1\r\n".encode('utf-8'))
 
-    psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-    psu_com.write(f"V3 5\r\n".encode('utf-8'))
-    psu_com.write(f"I3 {ch3_i}\r\n".encode('utf-8'))
-    psu_com.write(f"OVP3 {ch3_ovp} 1\r\n".encode('utf-8'))
+        psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+        psu_com.write(f"V3 5\r\n".encode('utf-8'))
+        psu_com.write(f"I3 {ch3_i}\r\n".encode('utf-8'))
+        psu_com.write(f"OVP3 {ch3_ovp} 1\r\n".encode('utf-8'))
 
-    psu_log.info("PSU Channels set successfully")
-    psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
-    psu_com.flushOutput()
-    psu_com.flushInput()
+        psu_log.info("PSU Channels set successfully")
+        psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
+        psu_com.flushOutput()
+        psu_com.flushInput()
 
-def switchPSU(psu_com,state, nopsurequired) :
+def switchPSU(psu_com,state) :
     # psu_status = int(psuRead(psu_com, "1", "OP",False))
     # psu_status = not psu_status
-    if nopsurequired : 
-            return  
-    psu_com.write(f"OPALL {int(state)}\r\n".encode('utf-8'))
+    while psu_com : 
+        psu_com.write(f"OPALL {int(state)}\r\n".encode('utf-8'))
 
-def emergencyShutDown(psu_com, nopsurequired) : 
-    if nopsurequired : 
-            return  
-    psu_com.write(f"OPALL 0\r\n".encode('utf-8'))
-    psu_log.error(f"Closing all channels")
-    psu_com.write(f"LOCAL\r\n".encode('utf-8'))
-    psu_log.error(f"Setting to Local control")
-    psu_com.flushOutput()
-    psu_com.flushInput()
-    psu_com.close()
+def emergencyShutDown(psu_com) : 
+    while psu_com : 
+        psu_com.write(f"OPALL 0\r\n".encode('utf-8'))
+        psu_log.error(f"Closing all channels")
+        psu_com.write(f"LOCAL\r\n".encode('utf-8'))
+        psu_log.error(f"Setting to Local control")
+        psu_com.flushOutput()
+        psu_com.flushInput()
+        psu_com.close()
         
 ## TODO: Create a log for this - 
 # #?Done
