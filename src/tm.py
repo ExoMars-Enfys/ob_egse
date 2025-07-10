@@ -95,22 +95,22 @@ class TM:
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             info_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
-            if self.ERRORS.UNUSED1:
-                info_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
-            if self.ERRORS.TMO:
-                info_log.error(f"OB ERROR TMO - Time Out")
+            if self.ERRORS.IPI:
+                info_log.error(f"OB ERROR IPI - Invalid Parameter Input")
             if self.ERRORS.IOS:
                 info_log.error(f"OB ERROR IOS - Invalid OB State")
-            if self.ERRORS.LIM:
-                info_log.error(f"OB ERROR LIM - Motor Rel Lim Exceeded")
-            if self.ERRORS.LMO:
-                info_log.error(f"OB ERROR LMO - Motor Monitor Lim Exceeded")
             if self.ERRORS.ICR:
                 info_log.error(f"OB ERROR ICR - Invalid CMD CRC")
+            if self.ERRORS.UNUSED1 : 
+                info_log.error(f"OB ERROR UNUSED1 - Should always be 0!!!")
+            if self.ERRORS.MOR:
+                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")  
+            if self.ERRORS.UNUSED2 : 
+                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")          
+            if self.ERRORS.TMO:
+                info_log.error(f"OB ERROR TMO - Time Out")
             if self.ERRORS.IPA:
                 info_log.error(f"OB ERROR IPA - Invalid Parity Error")
-            if self.ERRORS.ICI:
-                info_log.error(f"OB ERROR ICI - Invalid Command ID")
 
 class HK(TM):
     def __init__(self, response: Response):

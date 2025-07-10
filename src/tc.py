@@ -112,7 +112,7 @@ def clear_errors(port, verify_ack=True):
     verify_ack_hdr(parsed)
 
     if parsed.ERROR_BYTE != 0:
-        info_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.LAST_ERROR}.")
+        info_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.ERRORS}.")
     
     verify_blank_ack_params(parsed, start_index=1)
 

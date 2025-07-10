@@ -47,14 +47,14 @@ hk = [
 #TODO: Determine if MSB or LSB
 
 error_struct = [
-    ("UNUSED1", "u1"),
-    ("TMO", "u1"),
+    ("IPI", "u1"),
     ("IOS", "u1"),
-    ("LIM", "u1"),
-    ("LMO", "u1"),
     ("ICR", "u1"),
+    ("UNUSED1", "u1"),
+    ("MOR", "u1"),
+    ("UNUSED2", "u1"),
+    ("TMO", "u1"),
     ("IPA", "u1"),
-    ("ICI", "u1"),
 ]
 
 mtr_error_struct = [
