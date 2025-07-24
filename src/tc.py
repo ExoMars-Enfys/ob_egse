@@ -603,7 +603,7 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
     ## --- Check input parameters before sending CMD ---
     if (samp < 0) or (samp > 0x06):
         info_log.error(
-            f"Set HK samples command samp parameter out of limits. Rejected by EGSE {pwr_stat}"
+            f"Set HK samples command samp parameter out of limits. Rejected by EGSE {samp}"
         )
         return
     
