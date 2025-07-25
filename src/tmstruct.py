@@ -65,6 +65,16 @@ mtr_error_struct = [
     ("REL","u1"),
     ("DSE","u1"),
 ]
+mtr_err_msk_struct = [
+    ("IG_B","u1"),
+    ("IG_O","u1"),
+    ("UNUSED", "u1"),
+    ("M_CD","u1"),
+    ("M_AB","u1"),
+    ("M_ABS","u1"),
+    ("M_REL","u1"),
+    ("M_DSE","u1"),]
+
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),

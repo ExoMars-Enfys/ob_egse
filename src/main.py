@@ -16,6 +16,7 @@ import egse_logger
 import gui
 import psu
 import sequences as sq
+import error_checks as ec
 import tc
 
 
@@ -122,7 +123,6 @@ def main() -> None:
         # TODO! Add ability to give back local control of PSU
         psuport.write(f"LOCAL\r\n".encode('utf-8'))
         psu.close_psu_comms(psuport)
-        # psu.emergencyShutDown(psuport)
         
         comms.close_comms(port)
     else:
