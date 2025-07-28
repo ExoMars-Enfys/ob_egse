@@ -30,6 +30,10 @@ ACK_LOG_FH = None
 CMD_LOG_FH = None
 HK_LOG_FH = None
 SCI_LOG_FH = None
+ACK_LOG_FN = None
+CMD_LOG_FN = None
+HK_LOG_FN = None
+SCI_LOG_FN = None
 
 # HK queue
 hk_queue = deque(maxlen=100)
