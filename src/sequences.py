@@ -1315,29 +1315,37 @@ def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2)
 
     mwir_value = 0x0 # Seed value
 
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        mwir_delta = 0x1 << (i - 1)
-        event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
-        tc.sci_offset(port, swir_initial, mwir_value + mwir_delta)
+    target_value = (const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2
+
+    bit_value = 1<<11
+    while bit_value != 0:
+        test_value = mwir_value | bit_value
+
+        event_log.info(f"Setting the MWIR Value to: {test_value}")
+
+        tc.sci_offset(port, swir_initial, test_value)
         sci = check_sci(port, sci_adc_samp, sci_adc_skip)
-        if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
-            event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value + mwir_delta}")
+        if sci.MWIR_OFFSET != test_value:
+            event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
         
         event_log.info(f"Got the following MWIR High Reading: {sci.MWIR_HIGH}")
 
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.MWIR_HIGH >= const.MWIR_DAC_MIN_TH:
-            mwir_value = mwir_value + mwir_delta
+        # If the HIGH reading is >= target, keep the bit, otherwise discard.
+        if sci.MWIR_HIGH > target_value:
+            mwir_value = test_value
 
-        # Check if we are within the range (we are done) otherwise loop
-        if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
-            event_log.info(f"MWIR offset in threshold finished!")
-            event_log.info(f"Final MWIR value: {mwir_value}")
-            return mwir_value
-    
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
-    return sci.MWIR_OFFSET
+        # On to the next bit.
+        bit_value >>= 1
+
+    # Report whether we've managed to get in range.
+    if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
+        event_log.info("In-range MWIR offset found.")
+    else:
+        event_log.error("No in-range MWIR offset found.")
+
+    event_log.info(f"Final MWIR value: {mwir_value}")
+    event_log.info(f"Final MWIR high reading: {sci.MWIR_HIGH}")
+    return mwir_value
 
 def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
@@ -1355,30 +1363,37 @@ def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
         resp = tc.hk_request(port)
     
     swir_value = 0x0 # Seed Value
+    target_value = (const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2
 
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        swir_delta  = 0x1 << (i -1)
-        event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
-        tc.sci_offset(port, swir_value + swir_delta, mwir_value)
+    bit_value = 1<<11
+    while bit_value != 0:
+        test_value = swir_value | bit_value
+
+        event_log.info(f"Setting the SWIR value to: {test_value}")
+
+        tc.sci_offset(port, test_value, mwir_value)
         sci = check_sci(port, sci_adc_samp, sci_adc_skip)
-        if sci.SWIR_OFFSET != (swir_value + swir_delta):
-            event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {swir_value + swir_delta}")
+        if sci.SWIR_OFFSET != test_value:
+            event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
 
         event_log.info(f"Got the following SWIR High Reading: {sci.SWIR_HIGH}")
 
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.SWIR_HIGH > const.SWIR_DAC_MIN_TH:
+        # If the HIGH reading is >= target, keep the bit, otherwise discard.
+        if sci.SWIR_HIGH > target_value:
             swir_value = swir_value + swir_delta
 
-        # Check if we are within the range (we are done) otherwise loop
-        if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
-            event_log.info(f"SWIR offset in threshold finished!")
-            event_log.info(f"Final SWIR value: {swir_value}")
-            return swir_value
-            
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
-    return sci.SWIR_OFFSET
+        # On to the next bit.
+        bit_value >>= 1
+
+    # Report whether we've managed to get in range.
+    if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
+        event_log.info("In-range SWIR offset found.")
+    else:
+        event_log.error("No in-range SWIR offset found.")
+
+    event_log.info(f"Final SWIR value: {swir_value}")
+    event_log.info(f"Final SWIR high reading: {sci.SWIR_HIGH}")
+    return swir_value
 
 def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
