@@ -48,8 +48,8 @@ def psuRead(psu_com, channel, type,output=False,) :
     psu_com.flushInput()
     return response
 
-def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
-    while psu_com:
+def psu_monitor_thread(psu_com, stop_event,freq):
+    if psu_com:
         while not stop_event.is_set():
             try:
                 # Read the voltage and current for each channel
@@ -64,7 +64,7 @@ def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
                 psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
                 if (not(11.2 < float(ch1_v.strip("V")) < 13.2) or not(11.2 < float(ch2_v.strip("V")) < 13.2) or not(4.8 <float(ch3_v.strip("V")) <5.5)):
                     psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                    emergencyShutDown(psu_com,nopsurequired)          
+                    emergencyShutDown(psu_com)          
 
                 if (float(ch1_i.strip("A")) >=150) or (float(ch2_i.strip("A")) >=90)or (float(ch3_i.strip("A")) >=150):
                     psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
@@ -76,7 +76,7 @@ def psu_monitor_thread(psu_com, stop_event,freq,nopsurequired):
             stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
 def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
-    while psu_com : 
+    if psu_com : 
         # Set the voltage and current limits for each channel
         psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
         psu_com.write(f"V1 12\r\n".encode('utf-8'))
@@ -101,11 +101,11 @@ def setChannels(psu_com,ch1_ovp,ch1_i,ch2_ovp,ch2_i,ch3_ovp,ch3_i):
 def switchPSU(psu_com,state) :
     # psu_status = int(psuRead(psu_com, "1", "OP",False))
     # psu_status = not psu_status
-    while psu_com : 
+    if psu_com : 
         psu_com.write(f"OPALL {int(state)}\r\n".encode('utf-8'))
 
 def emergencyShutDown(psu_com) : 
-    while psu_com : 
+    if psu_com : 
         psu_com.write(f"OPALL 0\r\n".encode('utf-8'))
         psu_log.error(f"Closing all channels")
         psu_com.write(f"LOCAL\r\n".encode('utf-8'))
