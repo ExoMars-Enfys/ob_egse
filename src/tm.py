@@ -66,7 +66,9 @@ class TM:
             [i[0] for i in pkt_struct],
             self.raw_bytes,
         )
+        self.params = []
         for k, v in param.items():
+            self.params.append(k)
             setattr(self, k, v)
 
     def decode_error_byte(self):
@@ -112,6 +114,16 @@ class TM:
                 info_log.error(f"OB ERROR IPA - Invalid Parity Error")
             if self.ERRORS.ICI:
                 info_log.error(f"OB ERROR ICI - Invalid Command ID")
+
+    def csv_header(self, *param_list, separator=','):
+        if not param_list:
+            param_list = self.params
+        return separator.join(param_list)
+
+    def csv(self, *param_list, separator=","):
+        if not param_list:
+            param_list = self.params
+        return separator.join(str(getattr(self, p)) for p in param_list)
 
 class HK(TM):
     def __init__(self, response: Response, log_hex: bool = True):
