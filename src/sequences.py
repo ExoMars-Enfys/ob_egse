@@ -3,6 +3,7 @@ import time
 import constants as const
 import send_cmd
 import tc
+from egse_dump_decoder import EGSEDumpDecoder
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -1460,3 +1461,39 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
+
+def abu_convert_logs():
+    """
+    Convert science and HK logs from hex to CSV, which will be placed in the
+    same directory as the original hex log files. The log files are flushed
+    before reading.
+
+    If you add abu_convert_logs() as the last operation in the "script" area
+    of main.py, this should mean you'll automatically get decoded logs as
+    CSV files in the log directory.
+    """
+
+    if const.HK_LOG_FH is None:
+        print("No HK log is present - skipping conversion")
+    else:
+        const.HK_LOG_FH.flush()
+        with open(const.HK_LOG_FN.with_suffix(".csv"), "w") as csv_file:
+            rows = 0
+            for timestamp, entry in EGSEDumpDecoder(const.HK_LOG_FN):
+                rows += 1
+                print(timestamp, end=",", file=csv_file)
+                print(entry.csv(), file=csv_file)
+            print(f"Stored {rows} HK row(s) into {const.HK_LOG_FN.with_suffix(".csv")}")
+
+    if const.SCI_LOG_FH is None:
+        print("No Science log is present - skipping conversion")
+    else:
+        const.SCI_LOG_FH.flush()
+        with open(const.SCI_LOG_FN.with_suffix(".csv"), "w") as csv_file:
+            rows = 0
+            for timestamp, entry in EGSEDumpDecoder(const.HK_LOG_FN):
+                rows += 1
+                print(timestamp, end=",", file=csv_file)
+                print(entry.csv(), file=csv_file)
+            print(f"Stored {rows} science row(s) into {const.SCI_LOG_FN.with_suffix(".csv")}")
+
