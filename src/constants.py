@@ -5,17 +5,17 @@ from datetime import datetime
 from pathlib import Path
 
 CMD_SPEED_DICT = {
-    "Steady": 0.25,
+    "Steady": 0.15,
     "Fast": 0,
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
-EXP_MODEL_ID = 0x07
+EXP_MODEL_ID = 0x02
 
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
-DEFAULT_COM_PORT = 12
+DEFAULT_COM_PORT = 9
 DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
 
@@ -35,7 +35,7 @@ SCI_LOG_FH = None
 hk_queue = deque(maxlen=100)
 
 # DAC Offset
-SWIR_DAC_MIN_TH = 100
-SWIR_DAC_MAX_TH = 300
-MWIR_DAC_MIN_TH = 3300
-MWIR_DAC_MAX_TH = 3500
+SWIR_DAC_MIN_TH = 50
+SWIR_DAC_MAX_TH = 150
+MWIR_DAC_MIN_TH = 100
+MWIR_DAC_MAX_TH = 300
