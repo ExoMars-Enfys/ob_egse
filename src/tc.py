@@ -6,7 +6,6 @@ import tm
 from crc8_function import crc8Calculate
 
 info_log = logging.getLogger("info_log")
-
 """
 The verify used in the TC is only to verify the ACK response. Any HK checking or response checking
 beyond that should be done at a higher level, such as in the main script or send_cmd.py.
@@ -164,7 +163,16 @@ def set_errors(port,
     port.write(cmd_tc)
 
     #!No ACK
+    try :
+        response = tm.get_response(port, 9)
+        if len(response) != 0:
+            raise ValueError(f"Expected response length 0, got {len(response)}")
+        else:
+            info_log.info("Response length is 0 as expected.")
 
+    except ValueError as e:
+        info_log.error("Incorrect response to Set_Errors CMD")
+        return
 
 def power_control(port, pwr_stat, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
