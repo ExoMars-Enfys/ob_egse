@@ -132,8 +132,9 @@ if __name__ == "__main__":
             if not printed_header:
                 if args.gnuplot:
                     print("# ", end="", file=out_file)
-                print(f"Date{separator}Time", end=separator, file=out_file)
-                print(entry.csv_header(*args.fields, separator=separator))
+                print(f"Date", end=separator, file=out_file)
+                print(f"Time", end=separator, file=out_file)
+                print(entry.csv_header(args.fields, separator=separator))
                 printed_header = True
 
             # Print data line.
@@ -142,7 +143,7 @@ if __name__ == "__main__":
             (date, timeofday) = timestamp.split(" ")
             print(date, end=separator, file=out_file)
             print(timeofday, end=separator, file=out_file)
-            print(entry.csv(*args.fields, separator=separator), file=out_file)
+            print(entry.csv(args.fields, separator=separator), file=out_file)
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         exit(1)
