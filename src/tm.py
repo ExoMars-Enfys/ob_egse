@@ -115,13 +115,13 @@ class TM:
             if self.ERRORS.ICI:
                 info_log.error(f"OB ERROR ICI - Invalid Command ID")
 
-    def csv_header(self, *param_list, separator=','):
-        if not param_list:
+    def csv_header(self, param_list=None, separator=','):
+        if param_list is None:
             param_list = self.params
         return separator.join(param_list)
 
-    def csv(self, *param_list, separator=","):
-        if not param_list:
+    def csv(self, param_list=None, separator=","):
+        if param_list is None:
             param_list = self.params
         return separator.join(str(getattr(self, p)) for p in param_list)
 
