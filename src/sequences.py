@@ -1477,11 +1477,19 @@ def abu_convert_logs():
         print("No HK log is present - skipping conversion")
     else:
         const.HK_LOG_FH.flush()
+        printed_header = False
         with open(const.HK_LOG_FN.with_suffix(".csv"), "w") as csv_file:
             rows = 0
-            for timestamp, entry in EGSEDumpDecoder(const.HK_LOG_FN):
+            decoder = EGSEDumpDecoder(const.HK_LOG_FN)
+            for timestamp, entry in decoder:
                 rows += 1
-                print(timestamp, end=",", file=csv_file)
+                if not printed_header:
+                    print("Date,Time,", file=csv_file, end="")
+                    print(entry.csv_header(), file=csv_file)
+                    printed_header = True
+                date, timeofday = timestamp.split(" ")
+                print(date, end=",", file=csv_file)
+                print(timeofday, end=",", file=csv_file)
                 print(entry.csv(), file=csv_file)
             print(f"Stored {rows} HK row(s) into {const.HK_LOG_FN.with_suffix(".csv")}")
 
@@ -1489,11 +1497,19 @@ def abu_convert_logs():
         print("No Science log is present - skipping conversion")
     else:
         const.SCI_LOG_FH.flush()
+        printed_header = False
         with open(const.SCI_LOG_FN.with_suffix(".csv"), "w") as csv_file:
             rows = 0
-            for timestamp, entry in EGSEDumpDecoder(const.HK_LOG_FN):
+            decoder = EGSEDumpDecoder(const.SCI_LOG_FN)
+            for timestamp, entry in decoder:
                 rows += 1
-                print(timestamp, end=",", file=csv_file)
-                print(entry.csv(), file=csv_file)
+                if not printed_header:
+                    print("Date,Time,", file=csv_file, end="")
+                    print(entry.csv_header(decoder.default_fields_per_type[type(entry)]), file=csv_file)
+                    printed_header = True
+                date, timeofday = timestamp.split(" ")
+                print(date, end=",", file=csv_file)
+                print(timeofday, end=",", file=csv_file)
+                print(entry.csv(decoder.default_fields_per_type[type(entry)]), file=csv_file)
             print(f"Stored {rows} science row(s) into {const.SCI_LOG_FN.with_suffix(".csv")}")
 
