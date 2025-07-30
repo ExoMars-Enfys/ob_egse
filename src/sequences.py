@@ -1299,7 +1299,99 @@ def abu_set_offset(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=
     if sci.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
 
+def abu_piecewise_linear(table: list, target: int) -> int:
+    """ Piecewise linear interpolation
+    Parameters:
+       table:  A list of tuples (x, y), in increasing x order.
+       target: The x value for which you'd like to obtain a y value.
+    """
+
+    # Work through the table until we hit an entry whose
+    # x value is less than the target.
+    pos = 0
+    while pos < len(table):
+        if table[pos][0] >= target:
+            if pos == 0:
+                # Our target is lower than the first table x position.
+                # Return the first position's y value.
+                return table[0][1]
+            else:
+                # Piecewise linear interpolation between the bracketing
+                # table values. We're expecting to work in integer maths 
+                # on the real hardware, so do the same here.
+                return (table[pos-1][1] + ((target-table[pos-1][0])*(table[pos][1]-table[pos-1][1]))
+                                    // (table[pos][0]-table[pos-1][0]))
+        pos += 1
+
+    # We hit the end of the table, which means the target is above
+    # the range covered by the table. Return the last position's y
+    # value.
+    return table[pos-1][1]
+
+def abu_dac_targets(mech_trp_value: int) -> tuple[int, int]:
+    # For MWIR, the difference between high gain output at 500 and 2000 motor
+    # steps follows an exponential formula:
+    #
+    # difference = 2225.2*exp((0.26975*mech_trp-563.38)/19.111)-151.9
+    #
+    # Using a target of 200 + this difference, handling saturation, we should be
+    # able to use binary chop on this value at 500 motor steps to get a 
+    # DAC value that will give us an MWIR high gain of roughly 200 at 2000 
+    # steps.
+    #
+    # For the SWIR high gain, the difference between 500 and 2000 steps seems
+    # not to be temperature dependent. There's an offset of roughly 14 between
+    # them. We'll still use the table and piecewise interpolation to keep things
+    # flexible should we decide there's a temperature-dependent variation later.
+    #
+    # The tables relate mech_trp values to target high gain outputs at 500
+    # motor steps, hopefully resulting in an output of around 200 at 2000
+    # motor steps, in the dark.
+    mwir_table = [
+        [1897, 197],
+        [1916, 243],
+        [1934, 299],
+        [1953, 377],
+        [1972, 478],
+        [1991, 610],
+        [2010, 783],
+        [2028, 995],
+        [2047, 1287],
+        [2066, 1668],
+        [2085, 2166],
+        [2104, 2817],
+        [2123, 3669],
+        [2141, 4095],
+        [2160, 4095]
+    ]
+
+    swir_table = [
+        [1897, 200+14],
+        [2160, 200+14]
+    ]
+
+    return (
+        abu_piecewise_linear(mwir_table, mech_trp_value), 
+        abu_piecewise_linear(swir_table, mech_trp_value), 
+    )
+
+# Keep the original offset functions for now, calling the new ones with
+# suitable values.
 def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
+    return abu_dac_mwir_offset_target500(port, swir_initial=swir_initial,
+                    sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip, 
+                    target_value=(const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2,
+                    max_miss=(const.MWIR_DAC_MAX_TH-const.MWIR_DAC_MIN_TH)/2
+    )
+
+def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
+    return abu_dac_swir_offset_target500(port, swir_initial=swir_initial,
+                    sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip, 
+                    target_value=(const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2,
+                    max_miss=(const.MWIR_DAC_MAX_TH-const.MWIR_DAC_MIN_TH)/2
+    )
+
+def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     This automatically determines and reports the DAC offsets
     """
@@ -1315,8 +1407,6 @@ def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2)
         resp = tc.hk_request(port)
 
     mwir_value = 0x0 # Seed value
-
-    target_value = (const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2
 
     bit_value = 1<<11
     while bit_value != 0:
@@ -1339,7 +1429,7 @@ def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2)
         bit_value >>= 1
 
     # Report whether we've managed to get in range.
-    if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
+    if abs(sci.MWIR_HIGH - target_value) <= max_miss:
         event_log.info("In-range MWIR offset found.")
     else:
         event_log.error("No in-range MWIR offset found.")
@@ -1348,7 +1438,7 @@ def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2)
     event_log.info(f"Final MWIR high reading: {sci.MWIR_HIGH}")
     return mwir_value
 
-def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
+def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     This automatically determines and reports the DAC offsets
     """
@@ -1364,7 +1454,6 @@ def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
         resp = tc.hk_request(port)
     
     swir_value = 0x0 # Seed Value
-    target_value = (const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2
 
     bit_value = 1<<11
     while bit_value != 0:
@@ -1387,7 +1476,7 @@ def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
         bit_value >>= 1
 
     # Report whether we've managed to get in range.
-    if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
+    if abs(sci.SWIR_HIGH - target_value) <= max_miss:
         event_log.info("In-range SWIR offset found.")
     else:
         event_log.error("No in-range SWIR offset found.")
