@@ -43,3 +43,14 @@ SWIR_DAC_MIN_TH = 50
 SWIR_DAC_MAX_TH = 150
 MWIR_DAC_MIN_TH = 100
 MWIR_DAC_MAX_TH = 300
+
+MEASUREMENT_TABLES = [
+    # The full range of values
+    list(range(0, 8600)),
+
+    # Guess at edges of the window.
+    list(range(1300, 7600)),
+
+    # Uneven steps for testing
+    list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10))
+]

@@ -1510,7 +1510,98 @@ def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
                   f"\t MWIR_HIGH: {sci.MWIR_HIGH}")
     
     return
-    
+
+def abu_measurement_mode_1_2_scan(port, table_number, steps, start_position=None, end_position=None, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Goes to the Outer
+    Performs Dark Measurement Offsets
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    Once Base Stop is reached
+    Repeats the Dark Measurement Offsets at Base
+    """
+    if table_number >= len(const.MEASUREMENT_TABLES):
+        event_log.error(f"Measurement table number is wrong, should be 0 - {len(const.MEASUREMENT_TABLES)-1}")
+        exit(1)
+
+    if start_position is None and end_position is None:
+        # Standard scan - start to end of table.
+        mode = 1
+    elif start_position is not None and end_position is not None:
+        # Limited scan - start_position to end_position
+        mode = 2
+    else:
+        event_log.error(f"Start and end positions should both have values or both be None")
+        exit(1)
+
+    measurement_table = const.MEASUREMENT_TABLES[table_number]
+    if start_position is None:
+        start_position = 0
+    elif start_position < 0 or start_position > len(measurement_table):
+        event_log.error(f"Start position out of range for table 0 - {len(measurement_table)-1}")
+        exit(1)
+
+    if end_position is None:
+        end_position = len(measurement_table)-1
+    elif end_position < 0 or end_position > len(measurement_table):
+        event_log.error(f"End position out of range for table 0 - {len(measurement_table)-1}")
+        exit(1)
+
+    if start_position >= end_position:
+        event_log.error(f"End position must be greater than start position")
+        exit(1)
+
+    if steps < 2 or steps > end_position-start_position+1:
+        event_log.error(f"Step count {steps} is too low or too high (2..{end_position-start_position+1})")
+        exit(1)
+
+    event_log.info(f"Running ABU Mode {mode} scan - table={table_number}, start={start_position}, end={end_position}")
+
+    # When testing on my laptop, disable the actual actions.
+    # abu_hk = lambda *args: None
+    # abu_cal_motor = lambda *args: None
+    # abu_outer_home = lambda *args: None
+    # abu_dac_mwir_offset = lambda *args: None
+    # abu_dac_swir_offset = lambda *args: None
+    # abu_measure = lambda *args: None
+
+    abu_hk(port, False)
+
+    # Cal to Base
+    abu_cal_motor(port)
+
+    # Home to Outer
+    abu_outer_home(port)
+
+    # MWIR Offset determination
+    mwir_offset = abu_dac_mwir_offset(port, 2048, sci_adc_samp, sci_adc_skip)
+
+    # SWIR Offset determination
+    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
+
+    # Measurement sequence
+    # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
+    event_log.info("Starting Science Measurements")
+
+    # Carefully handling stepping so we don't need floating point arithmetic.
+    lastpos = 0
+    total_distance = end_position - start_position
+    for i in range(steps):
+        pos = start_position + total_distance*i // (steps-1)
+        step = measurement_table[pos] - measurement_table[lastpos]
+        lastpos = pos
+        abu_measure(port, step, sci_adc_samp, sci_adc_skip)
+        event_log.debug(f"Measured after stepping {step} positions to {measurement_table[pos]}")
+
+    # MWIR Offset determination at the end
+    mwir_offset = abu_dac_mwir_offset(port, swir_offset, sci_adc_samp, sci_adc_skip)
+
+    # SWIR Offset determination at the end
+    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
+
+    event_log.info("Science Measurements Completed!!")
+
 def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
     """
     Performs the basic Enfys science measurement
