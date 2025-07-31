@@ -10,7 +10,7 @@ import streamlit as st
 
 import tc
 import psu
-import sequences as sq
+import scripts.sequences as sq
 import time
 import send_cmd
 
