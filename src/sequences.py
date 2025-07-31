@@ -1588,6 +1588,7 @@ def abu_measurement_mode_1_2_scan(port, table_number, steps, start_position=None
     lastpos = 0
     total_distance = end_position - start_position
     for i in range(steps):
+        # N.B. needs a 32 bit unsigned for the intermediate total_distance*i
         pos = start_position + total_distance*i // (steps-1)
         step = measurement_table[pos] - measurement_table[lastpos]
         lastpos = pos
