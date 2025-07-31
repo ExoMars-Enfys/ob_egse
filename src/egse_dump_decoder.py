@@ -132,8 +132,8 @@ if __name__ == "__main__":
             if not printed_header:
                 if args.gnuplot:
                     print("# ", end="", file=out_file)
-                print(f"Date", end=separator, file=out_file)
-                print(f"Time", end=separator, file=out_file)
+                print("Date", end=separator, file=out_file)
+                print("Time", end=separator, file=out_file)
                 print(entry.csv_header(args.fields, separator=separator))
                 printed_header = True
 
