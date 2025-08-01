@@ -1384,8 +1384,8 @@ def abu_dac_mwir_offset(port, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2)
                     max_miss=(const.MWIR_DAC_MAX_TH-const.MWIR_DAC_MIN_TH)/2
     )
 
-def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
-    return abu_dac_swir_offset_target500(port, swir_initial=swir_initial,
+def abu_dac_swir_offset(port, mwir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
+    return abu_dac_swir_offset_target500(port, mwir_initial=mwir_initial,
                     sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip, 
                     target_value=(const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)//2,
                     max_miss=(const.MWIR_DAC_MAX_TH-const.MWIR_DAC_MIN_TH)/2
@@ -1438,7 +1438,7 @@ def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=204
     event_log.info(f"Final MWIR high reading: {sci.MWIR_HIGH}")
     return mwir_value
 
-def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
+def abu_dac_swir_offset_target500(port, target_value, max_miss, mwir_initial=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     This automatically determines and reports the DAC offsets
     """
@@ -1461,7 +1461,7 @@ def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=204
 
         event_log.info(f"Setting the SWIR value to: {test_value}")
 
-        tc.sci_offset(port, test_value, mwir_value)
+        tc.sci_offset(port, test_value, mwir_initial)
         sci = check_sci(port, sci_adc_samp, sci_adc_skip)
         if sci.SWIR_OFFSET != test_value:
             event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
@@ -1470,7 +1470,7 @@ def abu_dac_mwir_offset_target500(port, target_value, max_miss, swir_initial=204
 
         # If the HIGH reading is >= target, keep the bit, otherwise discard.
         if sci.SWIR_HIGH > target_value:
-            swir_value = swir_value + swir_delta
+            swir_value = test_value
 
         # On to the next bit.
         bit_value >>= 1
@@ -1532,7 +1532,7 @@ def abu_measurement_mode_1_2_scan(port, table_number, steps, start_position=None
         # Limited scan - start_position to end_position
         mode = 2
     else:
-        event_log.error(f"Start and end positions should both have values or both be None")
+        event_log.error("Start and end positions should both have values or both be None")
         exit(1)
 
     measurement_table = const.MEASUREMENT_TABLES[table_number]
@@ -1549,7 +1549,7 @@ def abu_measurement_mode_1_2_scan(port, table_number, steps, start_position=None
         exit(1)
 
     if start_position >= end_position:
-        event_log.error(f"End position must be greater than start position")
+        event_log.error("End position must be greater than start position")
         exit(1)
 
     if steps < 2 or steps > end_position-start_position+1:
@@ -1557,14 +1557,6 @@ def abu_measurement_mode_1_2_scan(port, table_number, steps, start_position=None
         exit(1)
 
     event_log.info(f"Running ABU Mode {mode} scan - table={table_number}, start={start_position}, end={end_position}")
-
-    # When testing on my laptop, disable the actual actions.
-    # abu_hk = lambda *args: None
-    # abu_cal_motor = lambda *args: None
-    # abu_outer_home = lambda *args: None
-    # abu_dac_mwir_offset = lambda *args: None
-    # abu_dac_swir_offset = lambda *args: None
-    # abu_measure = lambda *args: None
 
     abu_hk(port, False)
 
