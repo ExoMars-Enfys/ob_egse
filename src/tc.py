@@ -660,6 +660,42 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
 
     return
 
+def set_hk_samples(port, samp, verify_ack: bool = True):
+    ## --- Check input parameters before sending CMD ---
+    if (samp < 0) or (samp > 0x06):
+        info_log.error(
+            f"Set HK samples command samp parameter out of limits. Rejected by EGSE {samp}"
+        )
+        return
+    
+    ## --- Send CMD ---
+    cmd = "0D" + f"{samp:02X}" + "00" * 5
+    cmd_tc = crc8Calculate(cmd)
+    info_log.info(f"Send Set HK Samples:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
+
+    ## --- Get ACK and check type ---
+    ack_bytes = tm.get_response(port, 9)
+    ack = tm.Response(ack_bytes)
+
+    if ack.cmd_type != "Set_HK_Samples":
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+
+    if not verify_ack:
+        return
+    parsed = tm.parse_tm(ack)
+
+    ## --- Verification ---
+    verify_ack_hdr(parsed)
+
+    # First parameter is the power status, so we can check it directly
+    if parsed.PARAM1 != samp:
+        info_log.error(
+            f"Response does not match value. Got {parsed.PARAM1}, expected {samp}"
+        )
+
+    verify_blank_ack_params(parsed, start_index=2)
+
 #TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Check input parameters before sending CMD ---

@@ -267,7 +267,7 @@ def parse_tm(response):
                 ack = ACK(response)
             case "MTR_Homing":
                 ack = ACK(response)
-            case "HK_Samples":
+            case "Set_HK_Samples":
                 ack = ACK(response)
             case "SCI_Offset":
                 ack = ACK(response)
