@@ -10,12 +10,12 @@ CMD_SPEED_DICT = {
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
-EXP_MODEL_ID = 0x07
+EXP_MODEL_ID = 0x02
 
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
-DEFAULT_COM_PORT = 8
+DEFAULT_COM_PORT = 14
 DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
 LOG_PREFIX = DEFAULT_PREFIX
@@ -23,7 +23,7 @@ LOG_PATH = DEFAULT_PATH
 
 #PSU Config
 PSU_LOGGING_FREQ = 1 #in HZ
-PSU_COM_PORT = 6
+PSU_COM_PORT = 19
 CH1_OVP = 12.5
 CH1_I = 0.100
 
