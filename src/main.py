@@ -19,6 +19,7 @@ import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
 import scripts.heaters as h
+from send_cmd import cmd_repeat as repeat
 import tc
 
 
@@ -68,18 +69,18 @@ def setup_logs() -> tuple[logging.Logger]:
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
 
 
-# @atexit.register
-# def clean_exit(psuport):
+@atexit.register
+def clean_exit(psuport):
 #     # Adding parsing to be able to shut down psu 
 #     # !TODO: Make sure this is the correct way?
 
 
-#     const.ACK_LOG_FH.close()
-#     const.CMD_LOG_FH.close()
-#     const.HK_LOG_FH.close()
-#     const.SCI_LOG_FH.close()
-#     psu.emergencyShutDown(psuport)
-#     sys.exit(1001)
+    const.ACK_LOG_FH.close()
+    const.CMD_LOG_FH.close()
+    const.HK_LOG_FH.close()
+    const.SCI_LOG_FH.close()
+    psu.emergencyShutDown(psuport)
+    sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
 #     #! TODO ensure all logs are written
@@ -116,16 +117,15 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ----------------------------------------------------------------------------------------
-      
+        # repeat(lambda : tc.power_control(), port, param1 = 0x00, param2 = 0x00, param3 = 0x00, param4 = 0x00, param5 = 0x00, param6 = 0x00,repeat=True, exit_if_error=False)
+        sq.check_hk(port)
         # ------------------------------------------------------------------------------------------
+
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        # TODO! Add ability to give back local control of PSU
-        psuport.write(f"LOCAL\r\n".encode('utf-8'))
-        psu.close_psu_comms(psuport)
-        
+        psu.close_psu_comms(psuport)        
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
@@ -137,7 +137,11 @@ if __name__ == "__main__":
 
 # TODO
 # - Add a way to stop the script
+
 # - Implement some sort of thread queue with the GUI running seperately
 # - Move streamlit stuff to a different module
 # - See if there is a better way to launch streamlit
-# - See if the python run button can have arguments in vscode
+
+#? See if the python run button can have arguments in vscode
+# launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
+# Current version has args for -s -np prepassed

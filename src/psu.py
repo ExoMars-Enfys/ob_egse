@@ -33,7 +33,9 @@ def open_psu_comms(psu_com: serial.Serial,nopsurequired) -> None:
     return psu_com
 
 def close_psu_comms(psu_com: serial.Serial) -> None:
-    psu_com.close()
+    if psu_com:
+        psu_com.write(f"LOCAL\r\n".encode('utf-8'))
+        psu_com.close()
     return
 
 def psuRead(psu_com, channel, type,output=False,) :
@@ -113,7 +115,6 @@ def emergencyShutDown(psu_com) :
         psu_com.flushOutput()
         psu_com.flushInput()
         psu_com.close()
-        
 ## TODO: Create a log for this - 
 # #?Done
 ## TODO: Create a clear settings file, Voltages to be set, Current limits
