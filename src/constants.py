@@ -10,12 +10,12 @@ CMD_SPEED_DICT = {
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
-EXP_MODEL_ID = 0x07
+EXP_MODEL_ID = 0x02
 
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
-DEFAULT_COM_PORT = 20
+DEFAULT_COM_PORT = 4
 DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020 # seconds
 
