@@ -9,21 +9,20 @@ hk = [
     ("CMD_ID", "u4"),
     ("CMD_CNT", "u8"),
     ("ERROR_BYTE", "u8"),
-    ("ERROR_MTR", "u8"),
-    ("PWR_STAT", "u8"),
     ("UNUSED2", ">u32"),
+    ("ERROR_MTR", "u8"),
+    ("MTR_ERR_MSK", "u8"),
+    ("MTR_FLAGS_BYTE", "u8"),
     ("MTR_ABS_STEPS", ">u16"),
     ("MTR_REL_STEPS", ">s16"),
-    ("MTR_FLAGS_BYTE", "u8"),
-    ("MTR_GUARD", "u8"),
-    ("UNUSED3", ">u32"),
-    ("MTR_RECVAL", "u8"),
-    ("MECH_LIM_REL", ">u16"),
     ("MTR_CURRENT", "u8"),
-    ("UNUSED4", "u8"),
-    ("MTR_SPEED", "u8"),
-    ("MTR_ERR_MSK", "u8"),
-    ("UNUSED5", ">u32"),
+    ("MTR_GUARD", "u8"),
+    ("MTR_RECVAL", "u8"),
+    ("UNUSED3", "u4"),
+    ("MTR_SPEED", "u4"),
+    ("MECH_LIM_REL", ">u16"),
+    ("UNUSED4", ">u72"),
+    ("PWR_STAT", "u8"),
     ("THRM_STATUS", "u8"),
     ("THRM_MECH_OFF_SP", ">u16"),
     ("THRM_MECH_ON_SP", ">u16"),
@@ -40,7 +39,7 @@ hk = [
     ("HK_MECH_CUR", ">u16"),
     ("UNUSED_ADC", ">u16"),
     ("HK_SAMPLES", "u8"),
-    ("UNUSED6", ">u32"),
+    ("UNUSED5", ">u40"),
     ("CRC8", "u8"),
 ]
 
@@ -48,14 +47,14 @@ hk = [
 #TODO: Determine if MSB or LSB
 
 error_struct = [
-    ("UNUSED1", "u1"),
-    ("TMO", "u1"),
+    ("IPI", "u1"),
     ("IOS", "u1"),
-    ("LIM", "u1"),
-    ("LMO", "u1"),
     ("ICR", "u1"),
+    ("UNUSED1", "u1"),
+    ("MOR", "u1"),
+    ("UNUSED2", "u1"),
+    ("TMO", "u1"),
     ("IPA", "u1"),
-    ("ICI", "u1"),
 ]
 
 mtr_error_struct = [
@@ -66,6 +65,16 @@ mtr_error_struct = [
     ("REL","u1"),
     ("DSE","u1"),
 ]
+mtr_err_msk_struct = [
+    ("IG_B","u1"),
+    ("IG_O","u1"),
+    ("UNUSED", "u1"),
+    ("M_CD","u1"),
+    ("M_AB","u1"),
+    ("M_ABS","u1"),
+    ("M_REL","u1"),
+    ("M_DSE","u1"),]
+
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),

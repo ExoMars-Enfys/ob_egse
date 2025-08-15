@@ -98,22 +98,22 @@ class TM:
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             info_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
-            if self.ERRORS.UNUSED1:
-                info_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
-            if self.ERRORS.TMO:
-                info_log.error(f"OB ERROR TMO - Time Out")
+            if self.ERRORS.IPI:
+                info_log.error(f"OB ERROR IPI - Invalid Parameter Input")
             if self.ERRORS.IOS:
                 info_log.error(f"OB ERROR IOS - Invalid OB State")
-            if self.ERRORS.LIM:
-                info_log.error(f"OB ERROR LIM - Motor Rel Lim Exceeded")
-            if self.ERRORS.LMO:
-                info_log.error(f"OB ERROR LMO - Motor Monitor Lim Exceeded")
             if self.ERRORS.ICR:
                 info_log.error(f"OB ERROR ICR - Invalid CMD CRC")
+            if self.ERRORS.UNUSED1 : 
+                info_log.error(f"OB ERROR UNUSED1 - Should always be 0!!!")
+            if self.ERRORS.MOR:
+                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")  
+            if self.ERRORS.UNUSED2 : 
+                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")          
+            if self.ERRORS.TMO:
+                info_log.error(f"OB ERROR TMO - Time Out")
             if self.ERRORS.IPA:
                 info_log.error(f"OB ERROR IPA - Invalid Parity Error")
-            if self.ERRORS.ICI:
-                info_log.error(f"OB ERROR ICI - Invalid Command ID")
 
     def csv_header(self, param_list=None, separator=','):
         if param_list is None or len(param_list)==0:
@@ -129,7 +129,7 @@ class HK(TM):
     def __init__(self, response: Response, log_hex: bool = True):
         super().__init__(response, log_hex)
 
-        if self.log_hex:
+        if const.HK_LOG_FH is not None:
             const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
@@ -160,6 +160,11 @@ class HK(TM):
         self.approx_cal_1V5 = self.HK_V_1V5 * 4.05 / 4095
         self.approx_dig_trp = self.DIGITAL_TRP * 4.0 / 4095
 
+        # Add these to self.params so they'll be available in CSV data.
+        self.params.append("approx_cal_3V3")
+        self.params.append("approx_cal_1V5")
+        self.params.append("approx_dig_trp")
+
         #! TODO Ret of HK
         #! TODO add verify commands
 
@@ -177,7 +182,7 @@ class ACK(TM):
     def __init__(self, response: Response, log_hex: bool = True):
         super().__init__(response, log_hex)
 
-        if self.log_hex:
+        if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
@@ -208,6 +213,15 @@ class SCI(TM):
         self.decode_bytes(tmstruct.sci)
         self.decode_error_byte()
 
+        if const.SCI_LOG_FH is not None:
+            const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+
+        # Allocate variables based on tm struct
+        self.decode_bytes(tmstruct.sci)
+        self.decode_error_byte()
+
         self.check_len()
         self.check_errors()
 
@@ -219,7 +233,7 @@ class NACK(TM):
     def __init__(self, response: Response, log_hex: bool = True):
         super().__init__(response, log_hex)
 
-        if self.log_hex:
+        if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")

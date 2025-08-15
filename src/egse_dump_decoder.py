@@ -56,7 +56,7 @@ class EGSEDumpDecoder:
                # Do something with timestamp and entry
 
         """
-
+         
         line_number = 0
         for line in self.in_file:
             line_number += 1
@@ -78,7 +78,6 @@ class EGSEDumpDecoder:
         self.in_file.seek(0)
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Decode data from egse log")
     parser.add_argument("-gnuplot", action="store_true", help="Output tab separated data and precede the header line with #")
     parser.add_argument("-fields", type=str, metavar="FIELD[,FIELD[,...]]", help="List of fields you want from the log")

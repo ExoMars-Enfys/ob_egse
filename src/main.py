@@ -7,16 +7,19 @@ import atexit
 import argparse
 from pathlib import Path
 from datetime import datetime
-import psu
+import threading
 
 # Local modules
 import comms
 import constants as const
 import egse_logger
 import gui
-import sequences as sq
+import psu
+import scripts.sequences as sq
+import scripts.error_checks as ec
+import scripts.abu_sequences as abu
+import scripts.heaters as h
 import tc
-
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
 def init_arparse() -> argparse.ArgumentParser:
@@ -95,38 +98,76 @@ def main() -> None:
         # TODO: Ensure sequence runs are recorded in info log as well.
 
         # Initialise PSU
-        # psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
-        # psu.setChannels(psu_port, True, True, True)
+        #psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
+        #psu.setChannels(psu_port, True, True, True)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sq.abu_hk(port, False)
-
-        # # Cal to Base
-        # sq.abu_cal_motor(port)
+        # sq.abu_hk(port, False)
+        tc.clear_errors(port)
+        tc.power_control(port,0x03)
+        sq.check_hk(port)
+        #abu.abu_hk(port,False)
+        #sq.motor_fw_test(port)
+        # Cal to Base
+        #abu.abu_cal_motor(port)
 
         # # Home to Outer
-        # sq.abu_outer_home(port)
-        
+        #abu.abu_outer_home(port)
+        #abu.abu_pos_steps(port, 1900)
+
         # # Dark Offsets
-        # mwir_offset = sq.abu_dac_mwir_offset(port, 2048)
-        # swir_offset = sq.abu_dac_swir_offset(port, mwir_offset)
+        #
+        # # find swir_offset whilst mwir_offset set to 500
+        #swir_offset = abu.abu_dac_swir_offset(port, 500)
+        # # move to abs_steps=2000
+        #abu.abu_neg_steps(port,6960)
+        #mwir_offset = abu.abu_dac_mwir_offset(port, swir_offset)
+
+        # # Set offsets to (port,SWIR,MWIR)
+        #abu.abu_set_offset(port, 100, 100)
+
+        #abu.abu_cal_motor(port)
+        #abu.abu_outer_home(port)
+
+        #sq.abu_outer_home(port)
+        #sq.abu_measure(port, 0 )
+        #step=10
+        #for i in range(1, 4095, 100):
+        #    abu.abu_set_offset(port,i, 300,sci_adc_samp=1,sci_adc_skip=20)
+
+        #for i in range(1, 4095):
+        #    abu.abu_set_offset(port,300, i,sci_adc_samp=0,sci_adc_skip=20)
 
         # # Drive to Laser Peak
-        # sq.abu_pos_steps(port, 2800)
-    
-        # Take an averaging measurement there with detec heaters on 20 times.
-        loop_len = 90
-        event_log.info(f"Running rover heater test for-loop every 2 seconds: {loop_len} times")
-        for i in range(0, loop_len):
-            sq.abu_measure(port, 0)
-            hk = tc.hk_request(port)
-            event_log.info(f"Digital board temperature: {hk.DIGITAL_TRP}")
-            time.sleep(2)
-        
-        event_log.info(f"Rover Heater Test Finished")
+        # abu.abu_pos_steps(port, 2800)
 
+
+
+        #abu.abu_measurement_scan(port, step_spacing = 10)
+        #abu.abu_cal_motor(port)
+        #abu.abu_outer_home(port)
+        #abu.abu_pos_steps(port, 4000)
+        #abu.abu_set_offset(port, 1984, 3584)
+        #abu.abu_dac_swir_offset(port, 1984)
+        #sq.abu_dac_mwir_offset(port, 1984)
+        #event_log.info("Set both ADCs mid range")
+        #while(True):
+        #    sq.abu_hk(port, display_contents=True)
+        #    sq.check_sci(port, 4, 20)
+        #for i in range(1000,2100,1):
+            #    time.sleep(1)
+        #    abu.abu_set_offset(port,i, 300,sci_adc_samp=0,sci_adc_skip=20)
+
+        #abu.abu_outer_home(port)
+        #abu.abu_pos_steps(port, 1900)
+
+        #for i in range(1800,4000,1):
+            #    time.sleep(1)
+        #    abu.abu_set_offset(port,1782, i)
+
+        
     else:
         info_log.info("Running GUI")
         gui.streamlit_gui(com_port)
