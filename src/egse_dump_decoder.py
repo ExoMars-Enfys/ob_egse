@@ -70,7 +70,7 @@ class EGSEDumpDecoder:
                     raise Exception(f"Bad CRC at line {line_number}")
 
                 # Extract and return the data.
-                yield matched["time"], tm.parse_tm(tm.Response(bytedata), log_hex=False)
+                yield matched["time"], tm.parse_tm(tm.Response(bytedata))
             else:
                 raise Exception(f"Unmatched line at line {line_number}")
 

@@ -51,10 +51,9 @@ class Response:
 
 class TM:
     # TODO Be consistent with how the bytes are named when they unpacked to the flags
-    def __init__(self, response: Response, log_hex: bool = True):
+    def __init__(self, response: Response):
         self.raw_bytes = response.raw_bytes
         self.get_cmd_mod_id = response.get_cmd_mod_id
-        self.log_hex = log_hex
 
     @abstractmethod
     def check_len(self):
@@ -126,8 +125,8 @@ class TM:
         return separator.join(str(getattr(self, p)) for p in param_list)
 
 class HK(TM):
-    def __init__(self, response: Response, log_hex: bool = True):
-        super().__init__(response, log_hex)
+    def __init__(self, response: Response):
+        super().__init__(response)
 
         if const.HK_LOG_FH is not None:
             const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
@@ -189,8 +188,8 @@ class HK(TM):
 
 
 class ACK(TM):
-    def __init__(self, response: Response, log_hex: bool = True):
-        super().__init__(response, log_hex)
+    def __init__(self, response: Response):
+        super().__init__(response)
 
         if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
@@ -211,17 +210,8 @@ class ACK(TM):
             info_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
 class SCI(TM):
-    def __init__(self, response: Response, log_hex: bool = True):
-        super().__init__(response, log_hex)
-
-        if self.log_hex:
-            const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-            const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
-
-        # Allocate variables based on tm struct
-        self.decode_bytes(tmstruct.sci)
-        self.decode_error_byte()
+    def __init__(self, response: Response):
+        super().__init__(response)
 
         if const.SCI_LOG_FH is not None:
             const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
@@ -240,8 +230,8 @@ class SCI(TM):
             info_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
 class NACK(TM):
-    def __init__(self, response: Response, log_hex: bool = True):
-        super().__init__(response, log_hex)
+    def __init__(self, response: Response):
+        super().__init__(response)
 
         if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
@@ -263,45 +253,45 @@ def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
-def parse_tm(response: Response, log_hex: bool = True):
+def parse_tm(response):
 
     info_log.debug(f"Response type: {response.cmd_type}")
     
     if response.cmd_type == "HK_Request":
-        ack = HK(response, log_hex)
+        ack = HK(response)
         const.hk_queue.append(ack)
     elif response.cmd_type == "SCI_Request":
-        ack = SCI(response, log_hex)
+        ack = SCI(response)
     elif response.cmd_type == "NACK":
-        ack = NACK(response, log_hex)
+        ack = NACK(response)
     else:        
         match response.cmd_type:
             case "Clear_Errors":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Set_Errors":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Power_Control":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Heater_Control":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Set_Mech_SP":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Set_Detec_SP":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "Set_MTR_Param":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "MTR_Mov_Pos":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "MTR_Mov_Neg":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "MTR_Halt":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case "MTR_Homing":
-                ack = ACK(response, log_hex)
-            case "HK_Samples":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
+            case "Set_HK_Samples":
+                ack = ACK(response)
             case "SCI_Offset":
-                ack = ACK(response, log_hex)
+                ack = ACK(response)
             case _:
                 info_log.warning(
                     f"Response type not defined in parse_tm: {response.cmd_type}"

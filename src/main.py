@@ -20,6 +20,7 @@ import scripts.error_checks as ec
 import scripts.abu_sequences as abu
 import tc
 
+
 ## -- Setup session ----------------------------------------------------------------------------------------------------
 def init_arparse() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -50,7 +51,7 @@ def setup_logs() -> tuple[logging.Logger]:
 
     # Create CMD Byte Log
     cmd_log_name = const.DEFAULT_PREFIX + "_CMD.LOG"
-    const.CMD_LOG_FH = open(const.LOG_PATH  / ack_log_name, "a+", encoding="utf-8")
+    const.CMD_LOG_FH = open(const.LOG_PATH / cmd_log_name, "a+", encoding="utf-8")
 
     # Create HK Byte Log
     hk_log_name = const.DEFAULT_PREFIX + "_HK.LOG"
@@ -111,11 +112,6 @@ def main() -> None:
         # psu_thread.start()
 
         # TODO: Ensure sequence runs are recorded in info log as well.
-
-        # Initialise PSU
-        #psu_port = psu.initialise_psu_mx100qp_comms(const.PSU_COMM_PORT)
-        #psu.setChannels(psu_port, True, True, True)
-
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
