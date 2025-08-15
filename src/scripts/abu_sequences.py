@@ -10,6 +10,7 @@ from egse_dump_decoder import EGSEDumpDecoder
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 
+
 # ----
 def abu_hk(port, display_contents=True):
     event_log.info("Running ABU_HK")
@@ -97,13 +98,13 @@ def abu_cal_motor(port):
         resp = tc.hk_request(port)
 
     # Set motor parameters
-    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+    send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7,0x3200)
     resp = tc.hk_request(port)
     if (
-    resp.MTR_CURRENT != 0x40
+    resp.MTR_CURRENT != 0x17
     or resp.MTR_GUARD != 0x20
     or resp.MTR_RECVAL != 0x0F
-    or resp.MTR_SPEED != 0x9
+    or resp.MTR_SPEED != 0x7
     or resp.MECH_LIM_REL != 0x3200):
         event_log.error(f"OB Parameters not initialized correctly:"+
                         f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
@@ -201,6 +202,7 @@ def abu_outer_home(port):
     if (resp.MTR_REL_STEPS == 0):
         event_log.error(f"Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
