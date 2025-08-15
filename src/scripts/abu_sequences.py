@@ -537,9 +537,9 @@ def abu_convert_logs():
     else:
         const.HK_LOG_FH.flush()
         printed_header = False
-        with open(const.HK_LOG_FN.with_suffix(".csv"), "w") as csv_file:
+        with open(pathlib.Path(const.HK_LOG_FH.name).with_suffix(".csv"), "w") as csv_file:
             rows = 0
-            decoder = EGSEDumpDecoder(const.HK_LOG_FN)
+            decoder = EGSEDumpDecoder(const.HK_LOG_FH.name)
             for timestamp, entry in decoder:
                 rows += 1
                 if not printed_header:
@@ -550,16 +550,16 @@ def abu_convert_logs():
                 print(date, end=",", file=csv_file)
                 print(timeofday, end=",", file=csv_file)
                 print(entry.csv(), file=csv_file)
-            print(f"Stored {rows} HK row(s) into {const.HK_LOG_FN.with_suffix(".csv")}")
+            print(f"Stored {rows} HK row(s) into {csv_file.nam}")
 
     if const.SCI_LOG_FH is None:
         print("No Science log is present - skipping conversion")
     else:
         const.SCI_LOG_FH.flush()
         printed_header = False
-        with open(const.SCI_LOG_FN.with_suffix(".csv"), "w") as csv_file:
+        with open(pathlib.Path(const.SCI_LOG_FH.name).with_suffix(".csv"), "w") as csv_file:
             rows = 0
-            decoder = EGSEDumpDecoder(const.SCI_LOG_FN)
+            decoder = EGSEDumpDecoder(const.SCI_LOG_FH.name)
             for timestamp, entry in decoder:
                 rows += 1
                 if not printed_header:
@@ -570,4 +570,4 @@ def abu_convert_logs():
                 print(date, end=",", file=csv_file)
                 print(timeofday, end=",", file=csv_file)
                 print(entry.csv(decoder.default_fields_per_type[type(entry)]), file=csv_file)
-            print(f"Stored {rows} science row(s) into {const.SCI_LOG_FN.with_suffix(".csv")}")
+            print(f"Stored {rows} science row(s) into {csv_file.name}")
