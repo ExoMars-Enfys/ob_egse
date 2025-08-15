@@ -45,23 +45,19 @@ def setup_logs() -> tuple[logging.Logger]:
 
     # Create ACK Byte Log
     ack_log_name = const.DEFAULT_PREFIX + "_ACK.LOG"
-    const.ACK_LOG_FN = const.LOG_PATH / ack_log_name
-    const.ACK_LOG_FH = open(const.ACK_LOG_FN, "a+", encoding="utf-8")
+    const.ACK_LOG_FH = open(const.LOG_PATH / ack_log_name, "a+", encoding="utf-8")
 
     # Create CMD Byte Log
     cmd_log_name = const.DEFAULT_PREFIX + "_CMD.LOG"
-    const.CMD_LOG_FN = const.LOG_PATH / cmd_log_name
-    const.CMD_LOG_FH = open(const.CMD_LOG_FN, "a+", encoding="utf-8")
+    const.CMD_LOG_FH = open(const.LOG_PATH  / ack_log_name, "a+", encoding="utf-8")
 
     # Create HK Byte Log
     hk_log_name = const.DEFAULT_PREFIX + "_HK.LOG"
-    const.HK_LOG_FN = const.LOG_PATH / hk_log_name
-    const.HK_LOG_FH = open(const.HK_LOG_FN, "a+", encoding="utf-8")
+    const.HK_LOG_FH = open(const.LOG_PATH / hk_log_name, "a+", encoding="utf-8")
 
     # Create SCI Byte Log
     sci_log_name = const.DEFAULT_PREFIX + "_SCI.LOG"
-    const.SCI_LOG_FN = const.LOG_PATH / sci_log_name
-    const.SCI_LOG_FH = open(const.SCI_LOG_FN, "a+", encoding="utf-8")
+    const.SCI_LOG_FH = open(const.LOG_PATH / sci_log_name, "a+", encoding="utf-8")
 
     return (event_log, info_log, psu_log)
 
