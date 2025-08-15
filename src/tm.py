@@ -131,7 +131,7 @@ class HK(TM):
         if const.HK_LOG_FH is not None:
             const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+            info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.hk)
@@ -194,7 +194,7 @@ class ACK(TM):
         if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+            info_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.ack_struct)
         self.decode_error_byte()
@@ -216,7 +216,7 @@ class SCI(TM):
         if const.SCI_LOG_FH is not None:
             const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+            info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.sci)
@@ -236,7 +236,7 @@ class NACK(TM):
         if const.ACK_LOG_FH is not None:
             const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
             const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
+            info_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.nack)
         self.decode_error_byte()
