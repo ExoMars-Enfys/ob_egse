@@ -18,7 +18,6 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
-import scripts.heaters as h
 import tc
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -30,7 +29,9 @@ def init_arparse() -> argparse.ArgumentParser:
     )
     parser.add_argument("-prefix", type=ascii, default=const.DEFAULT_PREFIX)
     parser.add_argument("-com", type=int, default=const.DEFAULT_COM_PORT)
+    parser.add_argument("-psuport", type = int, default = const.PSU_COM_PORT)
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
+    parser.add_argument("-np","--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     return parser
 
@@ -66,11 +67,16 @@ def setup_logs() -> tuple[logging.Logger]:
 
 
 # @atexit.register
-# def clean_exit():
+# def clean_exit(psuport):
+#     # Adding parsing to be able to shut down psu 
+#     # !TODO: Make sure this is the correct way?
+
+
 #     const.ACK_LOG_FH.close()
 #     const.CMD_LOG_FH.close()
 #     const.HK_LOG_FH.close()
 #     const.SCI_LOG_FH.close()
+#     psu.emergencyShutDown(psuport)
 #     sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
@@ -86,11 +92,24 @@ def main() -> None:
     (event_log, info_log, psu_log) = setup_logs()
 
     com_port = "COM" + str(args.com)
+    psu_com = "COM" + str(args.psuport)
 
     if args.script:
         info_log.info("Running Script")
+        info_log.info("Initialising RS-485 Comms")
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
+
+        # info_log.info("Initialising PSU Comms")
+        # psuport = psu.init_psu_comms(psu_com)       
+        # psuport = psu.open_psu_comms(psuport,args.nopsu)
+        # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+        # psu.switchPSU(psuport, 1)  # Switch on PSU
+        # time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
+        # stop_event = threading.Event()
+        # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
+        # psu_thread.start()
+
         # TODO: Ensure sequence runs are recorded in info log as well.
 
         # Initialise PSU
@@ -164,9 +183,14 @@ def main() -> None:
         #    abu.abu_set_offset(port,1782, i)
 
         
+        # # TODO! Add ability to give back local control of PSU
+        # psuport.write(f"LOCAL\r\n".encode('utf-8'))
+        # psu.close_psu_comms(psuport)
+        
+        comms.close_comms(port)
     else:
         info_log.info("Running GUI")
-        gui.streamlit_gui(com_port)
+        gui.streamlit_gui(com_port,psu_com)
 
 
 if __name__ == "__main__":

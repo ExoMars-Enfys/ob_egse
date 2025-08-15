@@ -6,7 +6,6 @@ import tm
 from crc8_function import crc8Calculate
 
 info_log = logging.getLogger("info_log")
-
 """
 The verify used in the TC is only to verify the ACK response. Any HK checking or response checking
 beyond that should be done at a higher level, such as in the main script or send_cmd.py.
@@ -92,7 +91,7 @@ def clear_errors(port, verify_ack=True):
     ## --- Send CMD ---
     cmd = "02" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Clearing Errors")
+    info_log.info(f"Clearing Errors:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---
@@ -101,6 +100,7 @@ def clear_errors(port, verify_ack=True):
 
     if ack.cmd_type != "Clear_Errors":
         info_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
+        return
     
     if not verify_ack:
         return
@@ -111,13 +111,68 @@ def clear_errors(port, verify_ack=True):
     verify_ack_hdr(parsed)
 
     if parsed.ERROR_BYTE != 0:
-        info_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.LAST_ERROR}.")
+        info_log.error(f"ACK LAST_ERROR still has errors flagged. Got: {parsed.ERRORS}.")
     
     verify_blank_ack_params(parsed, start_index=1)
 
     return
 
-# TODO! def set_errors(port)
+def set_errors(port,
+    tmo : bool,
+    ipa : bool,
+    cd : bool,
+    ab : bool,
+    abs : bool,
+    rel : bool,
+    dse : bool,
+    ig_b : bool,
+    ig_o : bool,
+    m_cd : bool,
+    m_ab : bool,
+    m_abs : bool,
+    m_rel : bool,
+    m_dse : bool,
+    verify_ack = True):
+
+    param1 = (
+        (0*6 << 7) +
+        (tmo << 1) +
+        (ipa )
+    )
+    param2 = (
+        (0*3<<7)+
+        (cd << 4) +
+        (ab << 3) +
+        (abs << 2) +
+        (rel << 1) +
+        (dse)
+    )
+    param3 = (
+        (ig_b << 7) +
+        (ig_o << 6) +
+        (0 << 5) +
+        (m_cd << 4) +
+        (m_ab << 3) +
+        (m_abs << 2) +
+        (m_rel << 1) +
+        (m_dse)      
+    )
+    cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
+    cmd_tc = crc8Calculate(cmd)
+    info_log.info(f"Setting Errors - {bytes.hex(cmd_tc, ' ', 2)}")    
+    port.write(cmd_tc)
+
+    #!No ACK
+    try :
+        response = tm.get_response(port, 9)
+        if len(response) != 0:
+            raise ValueError(f"Expected response length 0, got {len(response)}")
+        else:
+            info_log.info("Response length is 0 as expected.")
+
+    except ValueError as e:
+        info_log.error("Incorrect response to Set_Errors CMD")
+        return
 
 def power_control(port, pwr_stat, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
@@ -407,7 +462,7 @@ def set_mtr_param(port, peak_current,guard,recval,speed,mech_lim_rel, verify_ack
 
 def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ## --- Check input parameters before sending CMD ---
-    if (pos_steps < 0) or (pos_steps > 0x3200):
+    if (pos_steps < 0) or (pos_steps > 0x3500):
         info_log.error(
             f"Move Pos Steps command pos_steps out of limits. Rejected by EGSE {pos_steps}"
         )
@@ -604,6 +659,42 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     verify_blank_ack_params(parsed, start_index=5)
 
     return
+
+def set_hk_samples(port, samp, verify_ack: bool = True):
+    ## --- Check input parameters before sending CMD ---
+    if (samp < 0) or (samp > 0x06):
+        info_log.error(
+            f"Set HK samples command samp parameter out of limits. Rejected by EGSE {samp}"
+        )
+        return
+    
+    ## --- Send CMD ---
+    cmd = "0D" + f"{samp:02X}" + "00" * 5
+    cmd_tc = crc8Calculate(cmd)
+    info_log.info(f"Send Set HK Samples:{bytes.hex(cmd_tc, ' ', 2)}")
+    send_tc(port, cmd_tc)
+
+    ## --- Get ACK and check type ---
+    ack_bytes = tm.get_response(port, 9)
+    ack = tm.Response(ack_bytes)
+
+    if ack.cmd_type != "Set_HK_Samples":
+        info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+
+    if not verify_ack:
+        return
+    parsed = tm.parse_tm(ack)
+
+    ## --- Verification ---
+    verify_ack_hdr(parsed)
+
+    # First parameter is the power status, so we can check it directly
+    if parsed.PARAM1 != samp:
+        info_log.error(
+            f"Response does not match value. Got {parsed.PARAM1}, expected {samp}"
+        )
+
+    verify_blank_ack_params(parsed, start_index=2)
 
 #TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):

@@ -149,6 +149,16 @@ class HK(TM):
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
 
+        # Motor ERROR Masks
+        self.MTR_ERROR_MASK = namedtuple("MTR_ERROR_MASK", "".join(i[1] for i in tmstruct.mtr_err_msk_struct))
+        mtr_err_msk_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_err_msk_struct),
+            [i[0] for i in tmstruct.mtr_err_msk_struct],
+            self.MTR_ERR_MSK.to_bytes(1),
+        )
+        for k, v in mtr_err_msk_param.items():
+            setattr(self.MTR_ERROR_MASK, k, v)
+
         info_log.info(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_len()
@@ -245,8 +255,8 @@ class NACK(TM):
 
     def check_len(self):
         # TODO: May want to adjust to calculate length based on structure like ACK
-        if len(self.raw_bytes) != 4:
-            info_log.error(f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}")
+        if len(self.raw_bytes) != 9:
+            info_log.error(f"NACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
 
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     raw_bytes = port.read(no_of_bytes)
@@ -267,6 +277,8 @@ def parse_tm(response: Response, log_hex: bool = True):
     else:        
         match response.cmd_type:
             case "Clear_Errors":
+                ack = ACK(response, log_hex)
+            case "Set_Errors":
                 ack = ACK(response, log_hex)
             case "Power_Control":
                 ack = ACK(response, log_hex)

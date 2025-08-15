@@ -201,7 +201,6 @@ def abu_outer_home(port):
     if (resp.MTR_REL_STEPS == 0):
         event_log.error(f"Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
-
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
