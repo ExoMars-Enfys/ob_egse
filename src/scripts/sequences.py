@@ -125,12 +125,12 @@ def check_sci(port, sci_adc_samp, sci_adc_skip):
         f"  MWIR_OFFSET: {resp.MWIR_OFFSET}" +
         f"  SCI_ADC_SAMPLES: {resp.SCI_ADC_SAMPLES}" +
         f"  SCI_ADC_SKIP: {resp.SCI_ADC_SKIP}" +
-        f"  SWIR_HIGH: {resp.SWIR_HIGH}" +
-        f"  SWIR_MED: {resp.SWIR_MED}" +
-        f"  SWIR_LOW: {resp.SWIR_LOW}" +
-        f"  MWIR_HIGH: {resp.MWIR_HIGH}" +
-        f"  MWIR_MED: {resp.MWIR_MED}" +
-        f"  MWIR_LOW: {resp.MWIR_LOW}" +
+        f"  SW:H: {resp.SWIR_HIGH}" +
+        f"  SW:M: {resp.SWIR_MED}" +
+        f"  SW:L: {resp.SWIR_LOW}" +
+        f"  MW:H: {resp.MWIR_HIGH}" +
+        f"  MW:M: {resp.MWIR_MED}" +
+        f"  MW:L: {resp.MWIR_LOW}" +
         f"  HT_SINK_TEMP: {resp.HT_SINK_TEMP}" +
         f"  SWIR_TEMP: {resp.SWIR_TEMP}"
     )
