@@ -52,7 +52,31 @@ def abu_hk(port, display_contents=True):
     f"\n HK_SAMPLES : {resp.HK_SAMPLES}" + 
     f"\n UNUSED5 :{resp.UNUSED5}" + 
     f"\n CRC8 : {resp.CRC8}")
-    
+    event_log.info(f"ERROR BYTE :"+
+                   f"\nIPI : {resp.ERRORS.IPI}" + 
+                   f"\nIOS : {resp.ERRORS.IOS}" + 
+                   f"\nICR : {resp.ERRORS.ICR}" + 
+                   f"\nMOR : {resp.ERRORS.MOR}" + 
+                   f"\nTMO : {resp.ERRORS.TMO}" + 
+                   f"\nIPA : {resp.ERRORS.IPA}"
+                   )
+    event_log.info(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+                            f"\n CAL : {resp.MTR_FLAGS.CAL}"+
+                            f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+                            f"\n BASE : {resp.MTR_FLAGS.BASE}" +
+                            f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            )
+    event_log.info(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+                            f"\n CD : {resp.MTR_ERRORS.CD}"+
+                            f"\n AB : {resp.MTR_ERRORS.AB}" + 
+                            f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
+                            f"\n REL : {resp.MTR_ERRORS.REL}" + 
+                            f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                            )
+ 
 def abu_cal_motor(port):
     event_log.info("Running abu_cal_motor")
     #TODO: Update all to "send_cmd"
@@ -66,13 +90,13 @@ def abu_cal_motor(port):
         resp = tc.hk_request(port)
     
     # Set motor parameters
-    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+    send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7,0x3200)
     resp = tc.hk_request(port)
     if (
-    resp.MTR_CURRENT != 0x40
+    resp.MTR_CURRENT != 0x17
     or resp.MTR_GUARD != 0x20
     or resp.MTR_RECVAL != 0x0F
-    or resp.MTR_SPEED != 0x9
+    or resp.MTR_SPEED != 0x7
     or resp.MECH_LIM_REL != 0x3200):
         event_log.error(f"OB Parameters not initialized correctly:"+
                         f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
@@ -138,16 +162,7 @@ def abu_outer_home(port):
         while resp.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
             resp = tc.hk_request(port)
-            event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
-                                        f"\n CAL : {resp.MTR_FLAGS.CAL}"+
-                                        f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
-                                        f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
-                                        f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
-                                        f"\n BASE : {resp.MTR_FLAGS.BASE}" +
-                                        f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
-                                        f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
-                                        )
-            event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
+            event_log.info(f"Motor MOVING: Absolute Steps : {resp.MTR_ABS_STEPS:04d}, Relative Steps: {resp.MTR_REL_STEPS:04d}")
         event_log.info("Motor movement finished")
     else : 
         event_log.error("Motor Did not Move :")
@@ -427,14 +442,19 @@ def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
 
     # Request a Science Mesaurement and log to the screen.
     sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
-    event_log.info(f"MTR_ABS_STEPS: {sci.MTR_ABS_STEPS}" +
-                  f"\t SWIR_LOW: {sci.SWIR_LOW}" +
-                  f"\t SWIR_MED: {sci.SWIR_MED}" +
-                  f"\t SWIR_HIGH: {sci.SWIR_HIGH}" +
-                  f"\t MWIR_LOW: {sci.MWIR_LOW}" +
-                  f"\t MWIR_MED: {sci.MWIR_MED}" +
-                  f"\t MWIR_HIGH: {sci.MWIR_HIGH}")
-    
+    hk_tm = tc.hk_request(port)
+    event_log.info(f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
+                  f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
+                  f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}" +
+                  f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}" +
+                  f"\t\t SW_L: {sci.SWIR_LOW:04d}" +
+                  f"   SW_M: {sci.SWIR_MED:04d}" +
+                  f"   SW_H: {sci.SWIR_HIGH:04d}" +
+                  f"\t MW_L: {sci.MWIR_LOW:04d}" +
+                  f"   MW_M: {sci.MWIR_MED:04d}" +
+                  f"   MW_HH: {sci.MWIR_HIGH:04d}" +
+                  f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}" +
+                  f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}")
     return
     
 def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
@@ -476,3 +496,13 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
+
+def abu_sweep_offset_mwir(port, step=16, sci_adc_samp=4, sci_adc_skip=20):
+    for offset in range(0, 4096, step):
+        abu_set_offset(port, 2048, offset, sci_adc_samp, sci_adc_skip)
+        abu_measure(port, 0, sci_adc_samp, sci_adc_skip)
+        
+def abu_sweep_offset_swir(port, step=16, sci_adc_samp=4, sci_adc_skip=20):
+    for offset in range(0, 4096, step):
+        abu_set_offset(port, offset, 2048, sci_adc_samp, sci_adc_skip)
+        abu_measure(port, 0, sci_adc_samp, sci_adc_skip)
