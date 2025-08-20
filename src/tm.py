@@ -95,22 +95,22 @@ class TM:
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             info_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
-            if self.ERRORS.UNUSED1:
-                info_log.error(f"OB ERROR UNUSED1 - should always be False!!!")
-            if self.ERRORS.TMO:
-                info_log.error(f"OB ERROR TMO - Time Out")
+            if self.ERRORS.IPI:
+                info_log.error(f"OB ERROR IPI - Invalid Parameter Input")
             if self.ERRORS.IOS:
                 info_log.error(f"OB ERROR IOS - Invalid OB State")
-            if self.ERRORS.LIM:
-                info_log.error(f"OB ERROR LIM - Motor Rel Lim Exceeded")
-            if self.ERRORS.LMO:
-                info_log.error(f"OB ERROR LMO - Motor Monitor Lim Exceeded")
             if self.ERRORS.ICR:
                 info_log.error(f"OB ERROR ICR - Invalid CMD CRC")
+            if self.ERRORS.UNUSED1 : 
+                info_log.error(f"OB ERROR UNUSED1 - Should always be 0!!!")
+            if self.ERRORS.MOR:
+                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")  
+            if self.ERRORS.UNUSED2 : 
+                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")          
+            if self.ERRORS.TMO:
+                info_log.error(f"OB ERROR TMO - Time Out")
             if self.ERRORS.IPA:
                 info_log.error(f"OB ERROR IPA - Invalid Parity Error")
-            if self.ERRORS.ICI:
-                info_log.error(f"OB ERROR ICI - Invalid Command ID")
 
 class HK(TM):
     def __init__(self, response: Response):
@@ -134,6 +134,16 @@ class HK(TM):
         )
         for k, v in mtr_flags_param.items():
             setattr(self.MTR_FLAGS, k, v)
+
+        # Motor ERROR Masks
+        self.MTR_ERROR_MASK = namedtuple("MTR_ERROR_MASK", "".join(i[1] for i in tmstruct.mtr_err_msk_struct))
+        mtr_err_msk_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.mtr_err_msk_struct),
+            [i[0] for i in tmstruct.mtr_err_msk_struct],
+            self.MTR_ERR_MSK.to_bytes(1),
+        )
+        for k, v in mtr_err_msk_param.items():
+            setattr(self.MTR_ERROR_MASK, k, v)
 
         info_log.info(f"CMD Count: {self.CMD_CNT=}")
 
@@ -214,8 +224,8 @@ class NACK(TM):
 
     def check_len(self):
         # TODO: May want to adjust to calculate length based on structure like ACK
-        if len(self.raw_bytes) != 4:
-            info_log.error(f"NACK Len not 4 bytes as expected. Got: {len(self.raw_bytes)}")
+        if len(self.raw_bytes) != 9:
+            info_log.error(f"NACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
 
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     raw_bytes = port.read(no_of_bytes)

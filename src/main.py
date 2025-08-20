@@ -15,7 +15,9 @@ import constants as const
 import egse_logger
 import gui
 import psu
-import sequences as sq
+import scripts.sequences as sq
+import scripts.error_checks as ec
+import scripts.abu_sequences as abu
 import tc
 
 
@@ -99,33 +101,58 @@ def main() -> None:
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
 
-        info_log.info("Initialising PSU Comms")
-        psuport = psu.init_psu_comms(psu_com)       
-        psuport = psu.open_psu_comms(psuport,args.nopsu)
-        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I,args.nopsu)
-        psu.switchPSU(psuport, 1, args.nopsu)  # Switch on PSU
-        time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
-        stop_event = threading.Event()
-        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ,args.nopsu), daemon=True)
-        psu_thread.start()
+        # info_log.info("Initialising PSU Comms")
+        # psuport = psu.init_psu_comms(psu_com)       
+        # psuport = psu.open_psu_comms(psuport,args.nopsu)
+        # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+        # psu.switchPSU(psuport, 1)  # Switch on PSU
+        # time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
+        # stop_event = threading.Event()
+        # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
+        # psu_thread.start()
+
+        # First HK
+        abu.read_hk(port)
 
         # TODO: Ensure sequence runs are recorded in info log as well.
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
+        # First power on
+        #abu.first_power_on(port)
+
+        # sweep through SWIR DAC offset
+        #abu.sweep_offset_swir(port, 5)
+        
+        # sweep through MWIR DAC offset
+        #abu.sweep_offset_mwir(port, 1)
+
+        # move to 7600 absolute (dark zone)
+        #abu.mv_pos_steps(port, 7600-284)
+        #abu.mv_neg_steps(port, 1358)
 
 
+        # swir binary chop
+        #abu.swir_binary_chop(port, 100, 0, 100)
 
+        # mwir binary chop
+        #abu.mwir_binary_chop(port, 1792, 0, 100) 
 
-
+        # Measurement scan with found values
+        abu.abu_measurement_scan(port, 30, 0, 100)
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
-        # ------------------------------------------------------------------------------------------
-        stop_event.set()
-        psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        psuport.write(f"LOCAL\r\n".encode('utf-8'))
-        psu.close_psu_comms(psuport)        
+        # # ------------------------------------------------------------------------------------------
+        # Get final HK
+        abu.read_hk(port)
+        
+        # stop_event.set()
+        # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+        # # TODO! Add ability to give back local control of PSU
+        # psuport.write(f"LOCAL\r\n".encode('utf-8'))
+        # psu.close_psu_comms(psuport)
+        
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
