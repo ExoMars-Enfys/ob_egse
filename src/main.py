@@ -70,16 +70,16 @@ def setup_logs() -> tuple[logging.Logger]:
 
 
 @atexit.register
-def clean_exit(psuport):
-#     # Adding parsing to be able to shut down psu 
-#     # !TODO: Make sure this is the correct way?
+def clean_exit():
+# #     # Adding parsing to be able to shut down psu 
+# #     # !TODO: Make sure this is the correct way?
 
 
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-    psu.emergencyShutDown(psuport)
+#     psu.emergencyShutDown(psuport)
     sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
@@ -117,8 +117,7 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ----------------------------------------------------------------------------------------
-        # repeat(lambda : tc.power_control(), port, param1 = 0x00, param2 = 0x00, param3 = 0x00, param4 = 0x00, param5 = 0x00, param6 = 0x00,repeat=True, exit_if_error=False)
-        sq.check_hk(port)
+        result = repeat(port, tc.mtr_mov_pos, 0x20)
         # ------------------------------------------------------------------------------------------
 
         # Clean up and exit
@@ -126,6 +125,7 @@ def main() -> None:
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         psu.close_psu_comms(psuport)        
+        # psu.emergencyShutDown(psuport)
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
