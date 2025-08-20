@@ -111,14 +111,42 @@ def main() -> None:
         # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
         # psu_thread.start()
 
+        # First HK
+        abu.read_hk(port)
+
         # TODO: Ensure sequence runs are recorded in info log as well.
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sq.power_up(port)
+        # First power on
+        #abu.first_power_on(port)
+
+        # sweep through SWIR DAC offset
+        #abu.sweep_offset_swir(port, 5)
+        
+        # sweep through MWIR DAC offset
+        #abu.sweep_offset_mwir(port, 1)
+
+        # move to 7600 absolute (dark zone)
+        #abu.mv_pos_steps(port, 7600-284)
+        #abu.mv_neg_steps(port, 1358)
+
+
+        # swir binary chop
+        #abu.swir_binary_chop(port, 100, 0, 100)
+
+        # mwir binary chop
+        #abu.mwir_binary_chop(port, 1792, 0, 100) 
+
+        # Measurement scan with found values
+        abu.abu_measurement_scan(port, 30, 0, 100)
+
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
+        # Get final HK
+        abu.read_hk(port)
+        
         # stop_event.set()
         # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # # TODO! Add ability to give back local control of PSU
