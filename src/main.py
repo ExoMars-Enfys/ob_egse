@@ -37,7 +37,7 @@ def init_arparse() -> argparse.ArgumentParser:
     return parser
 
 
-def setup_logs() -> tuple[logging.Logger]:
+def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
 

@@ -95,8 +95,10 @@ def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim
     if repeat:
         info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        info_log.warning("Repeating Set Motor Paramscommand")
-        resp = cmd_mtr_mov_pos(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, verify_ack=True)
+        info_log.warning("Repeating Set Motor Params command")
+        resp = cmd_mtr_param(
+            port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, repeat=False, exit_if_error=True
+        )
 
     return resp
 
@@ -140,7 +142,7 @@ def cmd_mtr_mov_neg(port, neg_steps, repeat=True, exit_if_error=False):
 
 
 def cmd_mtr_halt(port, repeat=True, exit_if_error=True):
-    resp = tc.mtr_halt(port, verify_ack=True)
+    resp = tc.mtr_halt(port, verify=True)
 
     if resp != "ERROR":
         return resp
@@ -172,6 +174,6 @@ def cmd_mtr_homing(port, cal: bool, outer: bool, repeat=True, exit_if_error=True
         info_log.warning("Clearing errors")
         tc.clear_errors(port)
         info_log.warning("Repeating MTR Homing command")
-        resp = cmd_mtr_homing(port, repeat=False, exit_if_error=True)
+        resp = cmd_mtr_homing(port, cal, outer, repeat=False, exit_if_error=True)
 
     return resp

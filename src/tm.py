@@ -96,21 +96,21 @@ class TM:
         if self.ERROR_BYTE != 0x00:
             info_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
             if self.ERRORS.IPI:
-                info_log.error(f"OB ERROR IPI - Invalid Parameter Input")
+                info_log.error("OB ERROR IPI - Invalid Parameter Input")
             if self.ERRORS.IOS:
-                info_log.error(f"OB ERROR IOS - Invalid OB State")
+                info_log.error("OB ERROR IOS - Invalid OB State")
             if self.ERRORS.ICR:
-                info_log.error(f"OB ERROR ICR - Invalid CMD CRC")
+                info_log.error("OB ERROR ICR - Invalid CMD CRC")
             if self.ERRORS.UNUSED1:
-                info_log.error(f"OB ERROR UNUSED1 - Should always be 0!!!")
+                info_log.error("OB ERROR UNUSED1 - Should always be 0!!!")
             if self.ERRORS.MOR:
-                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")
+                info_log.error("OB ERROR MOR - Error in Motor Error Byte")
             if self.ERRORS.UNUSED2:
-                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")
+                info_log.error("OB ERROR UNUSED2 - Should always be 0!!!")
             if self.ERRORS.TMO:
-                info_log.error(f"OB ERROR TMO - Time Out")
+                info_log.error("OB ERROR TMO - Time Out")
             if self.ERRORS.IPA:
-                info_log.error(f"OB ERROR IPA - Invalid Parity Error")
+                info_log.error("OB ERROR IPA - Invalid Parity Error")
 
 
 class HK(TM):

@@ -668,7 +668,7 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Send CMD ---
     cmd = "0F" + f"0{sci_adc_samp:01X}" + f"{sci_adc_skip:02X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Requesting Science Reading")
+    info_log.info("Requesting Science Reading")
     send_tc(port, cmd_tc)
 
     ## --- Get Response and check type ---

@@ -5,7 +5,11 @@ from pathlib import Path
 # TODO! : Define the purpose and contents of each log file.
 
 
-def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> tuple[logging.Logger]:
+def get_loggers(
+    basedir: Path,
+    prefix: str,
+    debug_level: int = logging.INFO,
+) -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     # ----Handlers---------------------------------------------------------------------------------------
     cl_formatter = logging.Formatter("{levelname} - {message}", style="{")  # Logging format for console loggers
     fh_formatter = logging.Formatter("%(asctime)s - %(message)s")  # Setting the logging format for file loggers
