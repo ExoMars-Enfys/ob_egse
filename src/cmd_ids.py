@@ -3,7 +3,7 @@
 
 cmd_ids = {
     0x0: "HK_Request",
-    0x1 : "NACK",
+    0x1: "NACK",
     0x2: "Clear_Errors",
     0x3: "Set_Errors",
     0x4: "Power_Control",
@@ -17,5 +17,5 @@ cmd_ids = {
     0xC: "MTR_Homing",
     0xD: "Set_HK_Samples",
     0xE: "SCI_Offset",
-    0xF: "SCI_Request"
+    0xF: "SCI_Request",
 }

@@ -6,6 +6,7 @@ import serial.rs485
 
 # Local modules
 import constants as const
+
 info_log = logging.getLogger("info_log")
 
 
@@ -32,7 +33,7 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
 
 
 def open_comms(port: serial.rs485.RS485) -> None:
-    try:    
+    try:
         port.open()
     except serial.SerialException:
         info_log.error(f"No device found on COM Port {port}, try another")

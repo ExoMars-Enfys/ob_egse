@@ -4,9 +4,10 @@ from pathlib import Path
 # TODO! : Need to have better control of logging levels and what is displayed. Perhaps in constants file.
 # TODO! : Define the purpose and contents of each log file.
 
+
 def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> tuple[logging.Logger]:
     # ----Handlers---------------------------------------------------------------------------------------
-    cl_formatter = logging.Formatter("{levelname} - {message}", style="{")  # Setting the logging format for console loggers
+    cl_formatter = logging.Formatter("{levelname} - {message}", style="{")  # Logging format for console loggers
     fh_formatter = logging.Formatter("%(asctime)s - %(message)s")  # Setting the logging format for file loggers
     # -- Console Stream Handler --
     cl_hdlr = logging.StreamHandler()
@@ -17,21 +18,21 @@ def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> 
     ecl_hdlr = logging.StreamHandler()
     ecl_hdlr.setFormatter(cl_formatter)
     ecl_hdlr.setLevel(logging.INFO)
-    
+
     # -- File Stream Handlers --
     # -- Info Handler - Streams every single command being sent to the OB with its Response --
     info_fh = logging.FileHandler(basedir / (prefix + "_INFO.log"))
     info_fh.setFormatter(fh_formatter)
-    
+
     # -- Error Handler - Streams every Error --
     error_fh = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
     error_fh.setFormatter(fh_formatter)
-    
+
     # -- PSU Handler - Streams only PSU logs --
     psu_fh = logging.FileHandler(basedir / (prefix + "_PSU.log"))
     psu_fh.setFormatter(fh_formatter)
 
-    # ----Loggers---------------------------------------------------------------------------------------    
+    # ----Loggers---------------------------------------------------------------------------------------
     # -- Initiate event_log streamer --
     event_log = logging.getLogger("event_log")
     event_log.setLevel(debug_level)
@@ -41,7 +42,7 @@ def get_loggers(basedir: Path, prefix: str, debug_level: str = logging.INFO) -> 
     error_fh_event.setFormatter(fh_formatter)
     error_fh_event.setLevel(logging.ERROR)
     event_log.addHandler(error_fh_event)
-    
+
     # -- Initiate info writer --
     info_log = logging.getLogger("info_log")
     info_log.setLevel(logging.INFO)

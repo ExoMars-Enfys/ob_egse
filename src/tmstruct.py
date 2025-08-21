@@ -44,7 +44,7 @@ hk = [
 ]
 
 
-#TODO: Determine if MSB or LSB
+# TODO: Determine if MSB or LSB
 
 error_struct = [
     ("IPI", "u1"),
@@ -59,21 +59,22 @@ error_struct = [
 
 mtr_error_struct = [
     ("UNUSED", "u3"),
-    ("CD","u1"),
-    ("AB","u1"),
-    ("ABS","u1"),
-    ("REL","u1"),
-    ("DSE","u1"),
+    ("CD", "u1"),
+    ("AB", "u1"),
+    ("ABS", "u1"),
+    ("REL", "u1"),
+    ("DSE", "u1"),
 ]
 mtr_err_msk_struct = [
-    ("IG_B","u1"),
-    ("IG_O","u1"),
+    ("IG_B", "u1"),
+    ("IG_O", "u1"),
     ("UNUSED", "u1"),
-    ("M_CD","u1"),
-    ("M_AB","u1"),
-    ("M_ABS","u1"),
-    ("M_REL","u1"),
-    ("M_DSE","u1"),]
+    ("M_CD", "u1"),
+    ("M_AB", "u1"),
+    ("M_ABS", "u1"),
+    ("M_REL", "u1"),
+    ("M_DSE", "u1"),
+]
 
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
@@ -126,5 +127,5 @@ sci = [
     ("MWIR_LOW", ">u16"),
     ("HT_SINK_TEMP", ">u16"),
     ("SWIR_TEMP", ">u16"),
-    ("CRC","u8")
+    ("CRC", "u8"),
 ]

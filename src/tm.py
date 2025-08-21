@@ -58,7 +58,7 @@ class TM:
     @abstractmethod
     def check_len(self):
         pass
-    
+
     def decode_bytes(self, pkt_struct):
         param = bitstruct.unpack_dict(
             "".join(i[1] for i in pkt_struct),
@@ -101,16 +101,17 @@ class TM:
                 info_log.error(f"OB ERROR IOS - Invalid OB State")
             if self.ERRORS.ICR:
                 info_log.error(f"OB ERROR ICR - Invalid CMD CRC")
-            if self.ERRORS.UNUSED1 : 
+            if self.ERRORS.UNUSED1:
                 info_log.error(f"OB ERROR UNUSED1 - Should always be 0!!!")
             if self.ERRORS.MOR:
-                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")  
-            if self.ERRORS.UNUSED2 : 
-                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")          
+                info_log.error(f"OB ERROR MOR - Error in Motor Error Byte")
+            if self.ERRORS.UNUSED2:
+                info_log.error(f"OB ERROR UNUSED2 - Should always be 0!!!")
             if self.ERRORS.TMO:
                 info_log.error(f"OB ERROR TMO - Time Out")
             if self.ERRORS.IPA:
                 info_log.error(f"OB ERROR IPA - Invalid Parity Error")
+
 
 class HK(TM):
     def __init__(self, response: Response):
@@ -190,6 +191,7 @@ class ACK(TM):
         if len(self.raw_bytes) != expect_len:
             info_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 class SCI(TM):
     def __init__(self, response: Response):
         super().__init__(response)
@@ -209,6 +211,7 @@ class SCI(TM):
         if len(self.raw_bytes) != 29:
             info_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 class NACK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
@@ -227,15 +230,16 @@ class NACK(TM):
         if len(self.raw_bytes) != 9:
             info_log.error(f"NACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     raw_bytes = port.read(no_of_bytes)
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
-def parse_tm(response):
 
+def parse_tm(response):
     info_log.debug(f"Response type: {response.cmd_type}")
-    
+
     if response.cmd_type == "HK_Request":
         ack = HK(response)
         const.hk_queue.append(ack)
@@ -243,7 +247,7 @@ def parse_tm(response):
         ack = SCI(response)
     elif response.cmd_type == "NACK":
         ack = NACK(response)
-    else:        
+    else:
         match response.cmd_type:
             case "Clear_Errors":
                 ack = ACK(response)
@@ -272,8 +276,6 @@ def parse_tm(response):
             case "SCI_Offset":
                 ack = ACK(response)
             case _:
-                info_log.warning(
-                    f"Response type not defined in parse_tm: {response.cmd_type}"
-                )
+                info_log.warning(f"Response type not defined in parse_tm: {response.cmd_type}")
                 ack = "EMPTY"
     return ack

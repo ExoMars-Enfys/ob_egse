@@ -6,7 +6,7 @@ from pathlib import Path
 
 CMD_SPEED_DICT = {
     "Steady": 0.25,
-    "Fast": 0,
+    "Fast": 0.05,
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
@@ -16,13 +16,13 @@ DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
 DEFAULT_COM_PORT = 8
-DEFAULT_CMD_SPEED = "Steady"  # "Steady" or "Fast"
-SCI_RESP_MARGIN = 0.020 # seconds
+DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
+SCI_RESP_MARGIN = 0.020  # seconds
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 
-#PSU Config
-PSU_LOGGING_FREQ = 1 #in HZ
+# PSU Config
+PSU_LOGGING_FREQ = 1  # in HZ
 PSU_COM_PORT = 6
 CH1_OVP = 12.5
 CH1_I = 0.100
@@ -47,5 +47,14 @@ SWIR_DAC_MAX_TH = 300
 MWIR_DAC_MIN_TH = 3300
 MWIR_DAC_MAX_TH = 3500
 
-#SCI queue
+MEASUREMENT_TABLES = [
+    # The full range of values
+    list(range(0, 8600)),
+    # Guess at edges of the window.
+    list(range(1300, 7600)),
+    # Uneven steps for testing
+    list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10)),
+]
+
+# SCI queue
 sci_queue = deque(maxlen=100)
