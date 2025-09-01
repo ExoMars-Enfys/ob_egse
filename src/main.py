@@ -110,72 +110,40 @@ def main() -> None:
         # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
         # psu_thread.start()
 
+        # First HK
+        abu.read_hk(port)
+
         # TODO: Ensure sequence runs are recorded in info log as well.
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # sq.abu_hk(port, False)
-        tc.clear_errors(port)
-        tc.power_control(port,0x03)
-        sq.check_hk(port)
-        #abu.abu_hk(port,False)
-        #sq.motor_fw_test(port)
-        # Cal to Base
-        #abu.abu_cal_motor(port)
+        # First power on
+        # abu.first_power_on(port)
 
-        # # Home to Outer
-        #abu.abu_outer_home(port)
-        #abu.abu_pos_steps(port, 1900)
+        # sweep through SWIR DAC offset
+        # abu.sweep_offset_swir(port, 5)
 
-        # # Dark Offsets
-        #
-        # # find swir_offset whilst mwir_offset set to 500
-        #swir_offset = abu.abu_dac_swir_offset(port, 500)
-        # # move to abs_steps=2000
-        #abu.abu_neg_steps(port,6960)
-        #mwir_offset = abu.abu_dac_mwir_offset(port, swir_offset)
+        # sweep through MWIR DAC offset
+        # abu.sweep_offset_mwir(port, 1)
 
-        # # Set offsets to (port,SWIR,MWIR)
-        #abu.abu_set_offset(port, 100, 100)
+        # move to 7600 absolute (dark zone)
+        # abu.mv_pos_steps(port, 7600-284)
+        # abu.mv_neg_steps(port, 1358)
 
-        #abu.abu_cal_motor(port)
-        #abu.abu_outer_home(port)
+        # swir binary chop
+        # abu.swir_binary_chop(port, 100, 0, 100)
 
-        #sq.abu_outer_home(port)
-        #sq.abu_measure(port, 0 )
-        #step=10
-        #for i in range(1, 4095, 100):
-        #    abu.abu_set_offset(port,i, 300,sci_adc_samp=1,sci_adc_skip=20)
+        # mwir binary chop
+        # abu.mwir_binary_chop(port, 1792, 0, 100)
 
-        #for i in range(1, 4095):
-        #    abu.abu_set_offset(port,300, i,sci_adc_samp=0,sci_adc_skip=20)
+        # Measurement scan with found values
+        abu.abu_measurement_scan(port, 30, 0, 100)
 
-        # # Drive to Laser Peak
-        # abu.abu_pos_steps(port, 2800)
-
-
-
-        #abu.abu_measurement_scan(port, step_spacing = 10)
-        #abu.abu_cal_motor(port)
-        #abu.abu_outer_home(port)
-        #abu.abu_pos_steps(port, 4000)
-        #abu.abu_set_offset(port, 1984, 3584)
-        #abu.abu_dac_swir_offset(port, 1984)
-        #sq.abu_dac_mwir_offset(port, 1984)
-        #event_log.info("Set both ADCs mid range")
-        #while(True):
-        #    sq.abu_hk(port, display_contents=True)
-        #    sq.check_sci(port, 4, 20)
-        #for i in range(1000,2100,1):
-            #    time.sleep(1)
-        #    abu.abu_set_offset(port,i, 300,sci_adc_samp=0,sci_adc_skip=20)
-
-        #abu.abu_outer_home(port)
-        #abu.abu_pos_steps(port, 1900)
-
-        #for i in range(1800,4000,1):
-            #    time.sleep(1)
-        #    abu.abu_set_offset(port,1782, i)
+        # ------------------------------------------------------------------------------------------
+        # Clean up and exit
+        # # ------------------------------------------------------------------------------------------
+        # Get final HK
+        abu.read_hk(port)
 
         # stop_event.set()
         # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
