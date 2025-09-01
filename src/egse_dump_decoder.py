@@ -7,6 +7,7 @@ import argparse
 import crc8
 import tm
 
+
 class EGSEDumpDecoder:
     """
     This class implements an iterator which can be used to decode an EGSE log
@@ -22,10 +23,24 @@ class EGSEDumpDecoder:
     # and here seems as good as anywhere.
     default_fields_per_type = {
         tm.SCI: [
-            "MOD_ID", "CMD_CNT", "ERROR_BYTE", "MTR_ABS_STEPS", "THRM_STATUS",
-            "SWIR_OFFSET", "MWIR_OFFSET", "SCI_ADC_SAMPLES", "SCI_ADC_SKIP",
-            "SWIR_HIGH", "SWIR_MED", "SWIR_LOW", "MWIR_HIGH", "MWIR_MED",
-            "MWIR_LOW", "HT_SINK_TEMP", "SWIR_TEMP", "CRC"
+            "MOD_ID",
+            "CMD_CNT",
+            "ERROR_BYTE",
+            "MTR_ABS_STEPS",
+            "THRM_STATUS",
+            "SWIR_OFFSET",
+            "MWIR_OFFSET",
+            "SCI_ADC_SAMPLES",
+            "SCI_ADC_SKIP",
+            "SWIR_HIGH",
+            "SWIR_MED",
+            "SWIR_LOW",
+            "MWIR_HIGH",
+            "MWIR_MED",
+            "MWIR_LOW",
+            "HT_SINK_TEMP",
+            "SWIR_TEMP",
+            "CRC",
         ]
     }
 
@@ -56,7 +71,7 @@ class EGSEDumpDecoder:
                # Do something with timestamp and entry
 
         """
-         
+
         line_number = 0
         for line in self.in_file:
             line_number += 1
@@ -77,9 +92,12 @@ class EGSEDumpDecoder:
         # Seek back to the start of the file so the iterator can be re-run if needed.
         self.in_file.seek(0)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode data from egse log")
-    parser.add_argument("-gnuplot", action="store_true", help="Output tab separated data and precede the header line with #")
+    parser.add_argument(
+        "-gnuplot", action="store_true", help="Output tab separated data and precede the header line with #"
+    )
     parser.add_argument("-fields", type=str, metavar="FIELD[,FIELD[,...]]", help="List of fields you want from the log")
     parser.add_argument("logfile", type=str, metavar="something.LOG", help="Data log from egse")
     parser.add_argument("outfile", type=str, nargs="?", metavar="output.csv", help="File to write to")
