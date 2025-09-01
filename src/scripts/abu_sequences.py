@@ -485,6 +485,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
     :param max_miss: If the final value is more than this distance from the target output, report a problem.
     :param sci_adc_samp: ADC oversampling factor.
     :param sci_adc_skip: How many samples to skip.
+    :return: The DAC offset that gives an output closest to the target value.
     """
     event_log.info(f"Running abu targeted_binary_chop for {sensor_name} with target value {target_output}")
 
@@ -541,6 +542,41 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
     event_log.info(f"Final {sensor_name} DAC offset value: {dac_value}")
     event_log.info(f"Final {sensor_name} high reading: {reading}")
     return dac_value
+
+def piecewise_linear(table: list, target: int) -> int:
+    """
+    Piecewise linear interpolation. This will be used for estimating a
+    dark offset target in the "bathtub" range. The EB doesn't use floating
+    point, so while we have an exponential formula relating bathtub output
+    offsets to temperature, we can't use the formula. Instead, we have a
+    table of points and we'll use interpolation to get a close value.
+
+    :param table:  A list of tuples (x, y), in increasing x order.
+    :param target: The x value for which you'd like to obtain a y value.
+    :return: The interpolated y value.
+    """
+
+    # Work through the table until we hit an entry whose
+    # x value is less than the target.
+    pos = 0
+    while pos < len(table):
+        if table[pos][0] >= target:
+            if pos == 0:
+                # Our target is lower than the first table x position.
+                # Return the first position's y value.
+                return table[0][1]
+            else:
+                # Piecewise linear interpolation between the bracketing
+                # table values. We're expecting to work in integer maths
+                # on the real hardware, so do the same here.
+                return (table[pos-1][1] + ((target-table[pos-1][0])*(table[pos][1]-table[pos-1][1]))
+                                    // (table[pos][0]-table[pos-1][0]))
+        pos += 1
+
+    # We hit the end of the table, which means the target is above
+    # the range covered by the table. Return the last position's y
+    # value.
+    return table[pos-1][1]
 
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
