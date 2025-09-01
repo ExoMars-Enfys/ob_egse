@@ -643,7 +643,7 @@ def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     A science reading is the acquired at each DAC offset.
     """
     event_log.info("Running ABU MWIR Sweep")
-    for offset in range(0, 4096, step):
+    for offset in range(1440, 1785, step):
         set_offset_and_check_sci(port, 100, offset, sci_adc_samp, sci_adc_skip)
 
 

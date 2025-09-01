@@ -13,9 +13,9 @@ info_log = logging.getLogger("info_log")
 def power_up(port):
     try : 
         send_cmd.cmd_power_control(port,0x01)
-        send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+        send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7,0x3200)
         resp = tc.hk_request(port)
-        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 64 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 9 or resp.MECH_LIM_REL != 12800:            
+        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 23 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 7 or resp.MECH_LIM_REL != 12800:            
             raise ValueError(f"OB Parameters not initialized correctly:"+
                             f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1" +
                             f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
@@ -125,14 +125,14 @@ def check_sci(port, sci_adc_samp, sci_adc_skip):
         f"  MWIR_OFFSET: {resp.MWIR_OFFSET}" +
         f"  SCI_ADC_SAMPLES: {resp.SCI_ADC_SAMPLES}" +
         f"  SCI_ADC_SKIP: {resp.SCI_ADC_SKIP}" +
-        f"  SW:H: {resp.SWIR_HIGH:04x}" +
-        f"  SW:M: {resp.SWIR_MED:04x}" +
-        f"  SW:L: {resp.SWIR_LOW:04x}" +
-        f"  MW:H: {resp.MWIR_HIGH:04x}" +
-        f"  MW:M: {resp.MWIR_MED:04x}" +
-        f"  MW:L: {resp.MWIR_LOW:04x}" +
-        f"  HT_SINK_TEMP: {resp.HT_SINK_TEMP:04x}" +
-        f"  SWIR_TEMP: {resp.SWIR_TEMP:04x}"
+        f"  SW:H: {resp.SWIR_HIGH}" +
+        f"  SW:M: {resp.SWIR_MED}" +
+        f"  SW:L: {resp.SWIR_LOW}" +
+        f"  MW:H: {resp.MWIR_HIGH}" +
+        f"  MW:M: {resp.MWIR_MED}" +
+        f"  MW:L: {resp.MWIR_LOW}" +
+        f"  HT_SINK_TEMP: {resp.HT_SINK_TEMP}" +
+        f"  SWIR_TEMP: {resp.SWIR_TEMP}"
     )
     return resp
 

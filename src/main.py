@@ -121,23 +121,23 @@ def main() -> None:
         # abu.first_power_on(port)
 
         # sweep through SWIR DAC offset
-        # abu.sweep_offset_swir(port, 5)
+        abu.sweep_offset_swir(port, 5)
 
         # sweep through MWIR DAC offset
         # abu.sweep_offset_mwir(port, 1)
 
         # move to 7600 absolute (dark zone)
-        # abu.mv_pos_steps(port, 7600-284)
+        # abu.mv_pos_steps(port, 7600-283)
         # abu.mv_neg_steps(port, 1358)
 
         # swir binary chop
         # abu.swir_binary_chop(port, 100, 0, 100)
 
         # mwir binary chop
-        # abu.mwir_binary_chop(port, 1792, 0, 100)
+        # abu.mwir_binary_chop(port, 2240, 0, 100)
 
         # Measurement scan with found values
-        abu.abu_measurement_scan(port, 30, 0, 100)
+        # abu.abu_measurement_scan(port, 30, 0, 100)
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
