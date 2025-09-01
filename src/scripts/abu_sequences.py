@@ -4,6 +4,8 @@ import constants as const
 import send_cmd
 import tc
 import scripts.sequences as sq
+import serial
+import pathlib
 from egse_dump_decoder import EGSEDumpDecoder
 
 # ----Logging Setup---------------------------------------------------------------------------------
@@ -57,7 +59,7 @@ def read_hk(port, display_contents=True):
             f"\n HK_SAMPLES : {resp.HK_SAMPLES}" +
             f"\n UNUSED5 :{resp.UNUSED5}" +
             f"\n CRC8 : {resp.CRC8}")
-        event_log.info(f"ERROR BYTE : " +
+        event_log.info("ERROR BYTE : " +
                        ("IPI " if resp.ERRORS.IPI else "") +
                        ("IOS " if resp.ERRORS.IOS else "") +
                        ("ICR " if resp.ERRORS.ICR else "") +
@@ -66,7 +68,7 @@ def read_hk(port, display_contents=True):
                        ("IPA " if resp.ERRORS.IPA else "") +
                        ("None" if resp.ERROR_BYTE == 0 else "")
         )
-        event_log.info(f"MTR Flags : " +
+        event_log.info("MTR Flags : " +
                                 ("Unused " if resp.MTR_FLAGS.UNUSED1 else "") +
                                 ("CAL " if resp.MTR_FLAGS.CAL else "") +
                                 ("HOLD " if resp.MTR_FLAGS.HOLD else "") +
@@ -77,7 +79,7 @@ def read_hk(port, display_contents=True):
                                 ("HOMED " if resp.MTR_FLAGS.HOMED else "") +
                                 ("None" if resp.MTR_FLAGS_BYTE == 0 else "")
         )
-        event_log.info(f"MTR Errors : " +
+        event_log.info("MTR Errors : " +
                                 ("Unused " if resp.MTR_ERRORS.UNUSED else "") +
                                 ("CD " if resp.MTR_ERRORS.CD else "") +
                                 ("AB " if resp.MTR_ERRORS.AB else "") +
@@ -114,7 +116,7 @@ def cal_motor_to_base(port):
     or resp.MTR_RECVAL != 0x0F
     or resp.MTR_SPEED != 0x7
     or resp.MECH_LIM_REL != 0x3200):
-        event_log.error(f"OB Parameters not initialized correctly:"+
+        event_log.error("OB Parameters not initialized correctly:"+
                         f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
                         f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
                         f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
@@ -207,7 +209,7 @@ def home_to_outer(port):
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
 
     if (resp.MTR_REL_STEPS == 0):
-        event_log.error(f"Motor Steps Do not match expected : " +
+        event_log.error("Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
@@ -269,7 +271,7 @@ def home_to_base(port):
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
 
     if (resp.MTR_REL_STEPS == 0):
-        event_log.error(f"Motor Steps Do not match expected : " +
+        event_log.error("Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
@@ -298,7 +300,7 @@ def mv_pos_steps(port, pos_steps):
         hk = tc.hk_request(port)
 
     if hk.ERROR_MTR != 0:
-        event_log.error(f"***MOTOR ERROR*** got the following: " +
+        event_log.error("***MOTOR ERROR*** got the following: " +
                         f"\n CD : {hk.MTR_ERRORS.CD}"+
                         f"\n AB : {hk.MTR_ERRORS.AB}" +
                         f"\n ABS : {hk.MTR_ERRORS.ABS}" +
@@ -340,7 +342,7 @@ def mv_neg_steps(port, pos_steps):
         hk = tc.hk_request(port)
 
     if hk.ERROR_MTR != 0:
-        event_log.error(f"***MOTOR ERROR*** got the following: " +
+        event_log.error("***MOTOR ERROR*** got the following: " +
                         f"\n CD : {hk.MTR_ERRORS.CD}"+
                         f"\n AB : {hk.MTR_ERRORS.AB}" +
                         f"\n ABS : {hk.MTR_ERRORS.ABS}" +
@@ -418,8 +420,8 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
 
         # Check if we are within the range (we are done) otherwise loop
         if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
-            event_log.info(f"MWIR offset in threshold finished!")
-            event_log.info(f"Final MWIR value: {mwir_value}")
+            event_log.info("MWIR offset in threshold finished!")
+            event_log.info("Final MWIR value: {mwir_value}")
             return mwir_value
 
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
@@ -462,14 +464,14 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
 
         # Check if we are within the range (we are done) otherwise loop
         if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
-            event_log.info(f"SWIR offset in threshold finished!")
-            event_log.info(f"Final SWIR value: {swir_value}")
+            event_log.info("SWIR offset in threshold finished!")
+            event_log.info("Final SWIR value: {swir_value}")
             return swir_value
 
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
     return sci.SWIR_OFFSET
 
-def find_dac_offset(port, sensor_name, target_output, fixed_offset, max_miss=100, sci_adc_samp=4, sci_adc_skip=2):
+def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 2):
     """
     This function tries to find a DAC offset which results in a high gain output close
     to the value or target_output. The sensor that's *not* being configured has its gain
@@ -504,10 +506,10 @@ def find_dac_offset(port, sensor_name, target_output, fixed_offset, max_miss=100
         # Do the part that depends on which sensor we're working on.
         if sensor_name == "MWIR":
             # Set the test offset value.
-            tc.sci_offset(port, fixed, test_value)
+            tc.sci_offset(port, fixed_offset, test_value)
 
             # Check it was successfully set
-            sci = check_sci(port, sci_adc_samp, sci_adc_skip)
+            sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
             if sci.MWIR_OFFSET != test_value:
                 event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
 
@@ -515,8 +517,8 @@ def find_dac_offset(port, sensor_name, target_output, fixed_offset, max_miss=100
             reading = sci.MWIR_HIGH
         else:
             # Ditto for SWIR.
-            tc.sci_offset(port, test_value, fixed)
-            sci = check_sci(port, sci_adc_samp, sci_adc_skip)
+            tc.sci_offset(port, test_value, fixed_offset)
+            sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
             if sci.SWIR_OFFSET != test_value:
                 event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
             reading = sci.SWIR_HIGH
@@ -554,7 +556,7 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     if pos_steps > 0:
         mv_pos_steps(port, pos_steps)
     else:
-        event_log.info(f"No need to move any steps, proceeding to measurement")
+        event_log.info("No need to move any steps, proceeding to measurement")
 
     # Request a Science Mesaurement and log to the screen.
     sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
