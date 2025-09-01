@@ -30,20 +30,18 @@ def init_arparse() -> argparse.ArgumentParser:
     )
     parser.add_argument("-prefix", type=ascii, default=const.DEFAULT_PREFIX)
     parser.add_argument("-com", type=int, default=const.DEFAULT_COM_PORT)
-    parser.add_argument("-psuport", type = int, default = const.PSU_COM_PORT)
+    parser.add_argument("-psuport", type=int, default=const.PSU_COM_PORT)
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
-    parser.add_argument("-np","--nopsu", action="store_true")
+    parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     return parser
 
 
-def setup_logs() -> tuple[logging.Logger]:
+def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
 
-    event_log, info_log, psu_log = egse_logger.get_loggers(
-        const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL
-    )
+    event_log, info_log, psu_log = egse_logger.get_loggers(const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL)
 
     # Create ACK Byte Log
     ack_log_name = const.DEFAULT_PREFIX + "_ACK.LOG"
@@ -69,7 +67,7 @@ def setup_logs() -> tuple[logging.Logger]:
 
 # @atexit.register
 # def clean_exit(psuport):
-#     # Adding parsing to be able to shut down psu 
+#     # Adding parsing to be able to shut down psu
 #     # !TODO: Make sure this is the correct way?
 
 
@@ -82,6 +80,7 @@ def setup_logs() -> tuple[logging.Logger]:
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
 #     #! TODO ensure all logs are written
+
 
 def main() -> None:
     parser = init_arparse()
@@ -102,7 +101,7 @@ def main() -> None:
         port = comms.open_comms(port)
 
         # info_log.info("Initialising PSU Comms")
-        # psuport = psu.init_psu_comms(psu_com)       
+        # psuport = psu.init_psu_comms(psu_com)
         # psuport = psu.open_psu_comms(psuport,args.nopsu)
         # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
         # psu.switchPSU(psuport, 1)  # Switch on PSU
@@ -178,15 +177,16 @@ def main() -> None:
             #    time.sleep(1)
         #    abu.abu_set_offset(port,1782, i)
 
-        
+        # stop_event.set()
+        # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # # TODO! Add ability to give back local control of PSU
         # psuport.write(f"LOCAL\r\n".encode('utf-8'))
         # psu.close_psu_comms(psuport)
-        
+
         comms.close_comms(port)
     else:
         info_log.info("Running GUI")
-        gui.streamlit_gui(com_port,psu_com)
+        gui.streamlit_gui(com_port, psu_com)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import serial.rs485
 import comms
 from pathlib import Path
 import math
+
 # Added packages
 import constants as const
 import streamlit as st
@@ -16,9 +17,10 @@ import send_cmd
 
 event_log = logging.getLogger("event_log")
 
-st.set_page_config(layout='wide')
+st.set_page_config(layout="wide")
 state_pwr_dict = {"OFF": 0x00, "Mech Only": 0x01, "Detec Only": 0x02, "Both": 0x03}
-st.logo(Path("./rsrc/ExoMars_Logo_PNG.png",size = "large"))
+st.logo(Path("./rsrc/ExoMars_Logo_PNG.png", size="large"))
+
 
 def st_state_initialise() -> None:
     if "ob_active" not in st.session_state:
@@ -43,7 +45,7 @@ def st_state_initialise() -> None:
         st.session_state.state_htr_mech_auto = False
 
     if "state_psu" not in st.session_state:
-        st.session_state.state_psu= False
+        st.session_state.state_psu = False
 
     if "state_rs485" not in st.session_state:
         st.session_state.state_rs485 = None
@@ -51,41 +53,41 @@ def st_state_initialise() -> None:
 
 def toggle_cmd_interface():
     st.session_state.ob_active = not st.session_state.ob_active
-    
 
 
 @st.fragment()
-def st_comms_config(port: serial.rs485.RS485, psuport : serial.Serial) -> None:
+def st_comms_config(port: serial.rs485.RS485, psuport: serial.Serial) -> None:
     if st.session_state.ob_active:
-        title,gap,rs485 = st.columns([1,3,1],vertical_alignment = "bottom")
+        title, gap, rs485 = st.columns([1, 3, 1], vertical_alignment="bottom")
         title.title("OB EGSE V3.0")
         rs485.button(
             label="Close RS485",
             disabled=not st.session_state.ob_active,
             on_click=toggle_cmd_interface(),
-        )       
+        )
 
         comms.open_comms(port)
         hk_fragment(port)
-        st_cmd_interface(port,psuport)
+        st_cmd_interface(port, psuport)
     else:
-        title,gap,rs485 = st.columns([1,3,1],vertical_alignment = "bottom")
+        title, gap, rs485 = st.columns([1, 3, 1], vertical_alignment="bottom")
         title.title("OB EGSE V3.0")
         rs485.button(
             label="Initialise RS485",
             disabled=st.session_state.ob_active,
             on_click=toggle_cmd_interface(),
-        )        
-        
+        )
+
         comms.close_comms(port)
         st.session_state.state_rs485 = False
         st.session_state.state_psu = False
-        psu.switchPSU(psuport,"0")
-        
+        psu.switchPSU(psuport, "0")
+
 
 def st_cmd_pwr(port):
     state_pwr_int = state_pwr_dict.get(st.session_state.state_pwr)
     tc.power_control(port, state_pwr_int)
+
 
 def st_cmd_htr(port):
     tc.heater_control(
@@ -97,78 +99,148 @@ def st_cmd_htr(port):
         st.session_state.state_htr_mech_auto,
     )
 
-def st_psu_toggle(psuport :serial.Serial) :
+
+def st_psu_toggle(psuport: serial.Serial):
     psu.open_psu_comms(psuport)
     psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
-    psu.switchPSU(psuport,st.session_state.state_psu)
-    if st.session_state.state_psu : 
+    psu.switchPSU(psuport, st.session_state.state_psu)
+    if st.session_state.state_psu:
         psu_display(psuport)
     else:
-        st.session_state.state_psu= False
-        psu.switchPSU(psuport,st.session_state.state_psu)
+        st.session_state.state_psu = False
+        psu.switchPSU(psuport, st.session_state.state_psu)
         psu.close_psu_comms(psuport)
-def psu_display(psuport) : 
-    col1,col2,col3,empty = st.columns([1,1,1,5])
+
+
+def psu_display(psuport):
+    col1, col2, col3, empty = st.columns([1, 1, 1, 5])
     col1.subheader("+12V")
-    col1.metric("Voltage", value = psu.psuRead(psuport, "1", "V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
-    col1.metric("Current", value = psu.psuRead(psuport, "1", "I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+    col1.metric(
+        "Voltage",
+        value=psu.psuRead(psuport, "1", "V", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=True,
+    )
+    col1.metric(
+        "Current",
+        value=psu.psuRead(psuport, "1", "I", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=False,
+    )
     col2.subheader("-12V")
-    col2.metric("Voltage", value = psu.psuRead(psuport, "2", "V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
-    col2.metric("Current", value = psu.psuRead(psuport, "2", "I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+    col2.metric(
+        "Voltage",
+        value=psu.psuRead(psuport, "2", "V", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=True,
+    )
+    col2.metric(
+        "Current",
+        value=psu.psuRead(psuport, "2", "I", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=False,
+    )
     col3.subheader("+5V")
-    col3.metric("Voltage", value = psu.psuRead(psuport,"3","V",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=True)
-    col3.metric("Current", value = psu.psuRead(psuport,"3","I",True), delta= None , delta_color="normal", help=None, label_visibility="visible", border=False)
+    col3.metric(
+        "Voltage",
+        value=psu.psuRead(psuport, "3", "V", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=True,
+    )
+    col3.metric(
+        "Current",
+        value=psu.psuRead(psuport, "3", "I", True),
+        delta=None,
+        delta_color="normal",
+        help=None,
+        label_visibility="visible",
+        border=False,
+    )
+
 
 def st_mtr_param(port):
     current = st.session_state.state_current
     speed = st.session_state.state_speed
-    tc.set_mtr_param(
-        port,
-        current,
-        0x20,
-        0x0F,
-        speed,
-        0x3200
-    )
+    tc.set_mtr_param(port, current, 0x20, 0x0F, speed, 0x3200)
+
 
 def get_hk():
     try:
         last_hk = const.hk_queue.pop()
         st.write(f"HK Data: {bytes.hex(last_hk.raw_bytes, ' ', 2)}")
-        col1, col2,col3,empty,errors = st.columns([1,1,1,3,2])
-        col1.metric('Power Status', last_hk.PWR_STAT, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
-        col2.metric('Thermal Status', last_hk.THRM_STATUS, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
-        col3.metric('Last Error', last_hk.ERROR_BYTE, delta=None, delta_color="normal", help=None, label_visibility="visible", border=False)
-        
+        col1, col2, col3, empty, errors = st.columns([1, 1, 1, 3, 2])
+        col1.metric(
+            "Power Status",
+            last_hk.PWR_STAT,
+            delta=None,
+            delta_color="normal",
+            help=None,
+            label_visibility="visible",
+            border=False,
+        )
+        col2.metric(
+            "Thermal Status",
+            last_hk.THRM_STATUS,
+            delta=None,
+            delta_color="normal",
+            help=None,
+            label_visibility="visible",
+            border=False,
+        )
+        col3.metric(
+            "Last Error",
+            last_hk.ERROR_BYTE,
+            delta=None,
+            delta_color="normal",
+            help=None,
+            label_visibility="visible",
+            border=False,
+        )
+
         errors.subheader("OB ERRORS")
         col1, col2, col3, col4, col5, col6, col7 = errors.columns(7)
-        if last_hk.ERRORS.TMO == 1 :
+        if last_hk.ERRORS.TMO == 1:
             TMOvalue = "‼️"
-        else :
+        else:
             TMOvalue = "✅"
-        if last_hk.ERRORS.IOS == 1 :
+        if last_hk.ERRORS.IOS == 1:
             IOSvalue = "‼️"
-        else :
+        else:
             IOSvalue = "✅"
-        if last_hk.ERRORS.LIM == 1 :
+        if last_hk.ERRORS.LIM == 1:
             LIMvalue = "‼️"
-        else :
+        else:
             LIMvalue = "✅"
-        if last_hk.ERRORS.ICI == 1 :
+        if last_hk.ERRORS.ICI == 1:
             LMOvalue = "‼️"
-        else :
+        else:
             LMOvalue = "✅"
-        if last_hk.ERRORS.ICR == 1 :
+        if last_hk.ERRORS.ICR == 1:
             ICRvalue = "‼️"
-        else :
+        else:
             ICRvalue = "✅"
-        if last_hk.ERRORS.IPA == 1 :
+        if last_hk.ERRORS.IPA == 1:
             IPAvalue = "‼️"
-        else :
+        else:
             IPAvalue = "✅"
-        if last_hk.ERRORS.ICI == 1 :
+        if last_hk.ERRORS.ICI == 1:
             ICIvalue = "‼️"
-        else :
+        else:
             ICIvalue = "✅"
         col1.write("TMO")
         col1.write(TMOvalue)
@@ -188,26 +260,29 @@ def get_hk():
     except IndexError:
         st.write("No HK data available")
 
-def get_mtr_hk(port) : 
-    try:        
+
+def get_mtr_hk(port):
+    try:
         last_hk = const.hk_queue.pop()
         st.subheader("Motor Settings")
-        col1, col2, col3, col4, col5= st.columns(5)
-        current,empty1,empty2,speed,sendmtrparam = st.columns(5,vertical_alignment= "bottom")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        current, empty1, empty2, speed, sendmtrparam = st.columns(5, vertical_alignment="bottom")
         col1.metric(
             "Current",
-            value = last_hk.MTR_CURRENT,
-            delta = None,
+            value=last_hk.MTR_CURRENT,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
             border=False,
         )
-        current.number_input("mA (RMS)", min_value=15, max_value = 90, value = 80,step =  1,key="state_current", label_visibility="hidden")
+        current.number_input(
+            "mA (RMS)", min_value=15, max_value=90, value=80, step=1, key="state_current", label_visibility="hidden"
+        )
         col2.metric(
             "Motor Guard",
-            value = last_hk.MTR_GUARD,
-            delta = None,
+            value=last_hk.MTR_GUARD,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -215,8 +290,8 @@ def get_mtr_hk(port) :
         )
         col3.metric(
             "Motor Recval",
-            value = last_hk.MTR_RECVAL,
-            delta = None,
+            value=last_hk.MTR_RECVAL,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -224,18 +299,20 @@ def get_mtr_hk(port) :
         )
         col4.metric(
             "Motor Speed",
-            value = last_hk.MTR_SPEED,
-            delta = None,
+            value=last_hk.MTR_SPEED,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
             border=False,
         )
-        speed.number_input(label = "Speed",min_value=0, max_value = 10, value = 8,step =  1, key="state_speed", label_visibility="hidden")
+        speed.number_input(
+            label="Speed", min_value=0, max_value=10, value=8, step=1, key="state_speed", label_visibility="hidden"
+        )
         col5.metric(
             "Rel Steps Limit",
-            value = last_hk.MECH_LIM_REL,
-            delta = None,
+            value=last_hk.MECH_LIM_REL,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -243,15 +320,15 @@ def get_mtr_hk(port) :
         )
         if sendmtrparam.button("Set Motor Parameters"):
             st_mtr_param(port)
-            tc.hk_request(port) 
+            tc.hk_request(port)
         st.divider()
         st.subheader("Motor Status")
-        col1, col2, col3, col4, col5, col6, col7,empty,empty2,empty3,mechtrp,motortrp,abs,rel = st.columns(14)
+        col1, col2, col3, col4, col5, col6, col7, empty, empty2, empty3, mechtrp, motortrp, abs, rel = st.columns(14)
         with st.container():
             col1.metric(
                 "CAL",
-                value = last_hk.MTR_FLAGS.CAL,
-                delta = None,
+                value=last_hk.MTR_FLAGS.CAL,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -259,8 +336,8 @@ def get_mtr_hk(port) :
             )
             col2.metric(
                 "HOLD",
-                value = last_hk.MTR_FLAGS.HOLD,
-                delta = None,
+                value=last_hk.MTR_FLAGS.HOLD,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -268,8 +345,8 @@ def get_mtr_hk(port) :
             )
             col3.metric(
                 "DIR",
-                value = last_hk.MTR_FLAGS.DIR,
-                delta = None,
+                value=last_hk.MTR_FLAGS.DIR,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -277,8 +354,8 @@ def get_mtr_hk(port) :
             )
             col4.metric(
                 "OUTER",
-                value = last_hk.MTR_FLAGS.OUTER,
-                delta = None,
+                value=last_hk.MTR_FLAGS.OUTER,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -286,8 +363,8 @@ def get_mtr_hk(port) :
             )
             col5.metric(
                 "BASE",
-                value = last_hk.MTR_FLAGS.BASE,
-                delta = None,
+                value=last_hk.MTR_FLAGS.BASE,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -295,8 +372,8 @@ def get_mtr_hk(port) :
             )
             col6.metric(
                 "MOVING",
-                value = last_hk.MTR_FLAGS.MOVING,
-                delta = None,
+                value=last_hk.MTR_FLAGS.MOVING,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -304,8 +381,8 @@ def get_mtr_hk(port) :
             )
             col7.metric(
                 "HOMED",
-                value = last_hk.MTR_FLAGS.HOMED,
-                delta = None,
+                value=last_hk.MTR_FLAGS.HOMED,
+                delta=None,
                 delta_color="normal",
                 help=None,
                 label_visibility="visible",
@@ -313,8 +390,8 @@ def get_mtr_hk(port) :
             )
         mechtrp.metric(
             "Mech TRP",
-            value = last_hk.MECH_TRP,
-            delta = None,
+            value=last_hk.MECH_TRP,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -322,8 +399,8 @@ def get_mtr_hk(port) :
         )
         motortrp.metric(
             "Motor TRP",
-            value = last_hk.MOTOR_TRP,
-            delta = None,
+            value=last_hk.MOTOR_TRP,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -331,8 +408,8 @@ def get_mtr_hk(port) :
         )
         abs.metric(
             "Abs Steps",
-            value = last_hk.MTR_ABS_STEPS,
-            delta = None,
+            value=last_hk.MTR_ABS_STEPS,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
@@ -340,158 +417,170 @@ def get_mtr_hk(port) :
         )
         rel.metric(
             "Rel Steps",
-            value = last_hk.MTR_REL_STEPS,
-            delta = None,
+            value=last_hk.MTR_REL_STEPS,
+            delta=None,
             delta_color="normal",
             help=None,
             label_visibility="visible",
             border=True,
         )
-        mtr_cmds(port,last_hk)
-        
+        mtr_cmds(port, last_hk)
+
     except IndexError:
         st.write("No HK data available")
 
-def mtr_cmds(port,last_hk):
-    col1,col2,col3,col4,col5 = st.columns(5,vertical_alignment="bottom")
-    if col1.button(label = "Power Up") :
-        tc.power_control(port,0x03)
-        send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+
+def mtr_cmds(port, last_hk):
+    col1, col2, col3, col4, col5 = st.columns(5, vertical_alignment="bottom")
+    if col1.button(label="Power Up"):
+        tc.power_control(port, 0x03)
+        send_cmd.cmd_mtr_param(port, 0x40, 0x20, 0x0F, 0x9, 0x3200)
         resp = last_hk
         if (
-        resp.MTR_CURRENT != 40
-        or resp.MTR_GUARD != 32
-        or resp.MTR_RECVAL != 15
-        or resp.MTR_SPEED != 9
-        or resp.MECH_LIM_REL != 12800):
-            event_log.error(f"OB Parameters not initialized correctly:"+
-                            f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
-                            f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
-                            f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                            f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                            f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
-            # exit
-            send_cmd.cmd_mtr_param(port,0x28,0x20,0x0F,0x9,0x3200)
-            last_hk = tc.hk_request(port)
-            resp = last_hk
-            if (
             resp.MTR_CURRENT != 40
             or resp.MTR_GUARD != 32
             or resp.MTR_RECVAL != 15
             or resp.MTR_SPEED != 9
-            or resp.MECH_LIM_REL != 12800):
-                event_log.error(f"OB Parameters not initialized correctly:"+
-                                f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40" +
-                                f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
-                                f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                                f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                                f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+            or resp.MECH_LIM_REL != 12800
+        ):
+            event_log.error(
+                f"OB Parameters not initialized correctly:"
+                + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40"
+                + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
+                + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
+                + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
+                + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
+            )
+            # exit
+            send_cmd.cmd_mtr_param(port, 0x28, 0x20, 0x0F, 0x9, 0x3200)
+            last_hk = tc.hk_request(port)
+            resp = last_hk
+            if (
+                resp.MTR_CURRENT != 40
+                or resp.MTR_GUARD != 32
+                or resp.MTR_RECVAL != 15
+                or resp.MTR_SPEED != 9
+                or resp.MECH_LIM_REL != 12800
+            ):
+                event_log.error(
+                    f"OB Parameters not initialized correctly:"
+                    + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 40"
+                    + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
+                    + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
+                    + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
+                    + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
+                )
 
-    if col2.button(label = "Homing Test"):
+    if col2.button(label="Homing Test"):
         event_log.info("HOME to BASE")
-        last_hk =  tc.hk_request(port)
+        last_hk = tc.hk_request(port)
         resp = last_hk
-        send_cmd.cmd_mtr_homing(port,False, False)    
-        last_hk =  tc.hk_request(port)
+        send_cmd.cmd_mtr_homing(port, False, False)
+        last_hk = tc.hk_request(port)
         resp = last_hk
-        if resp.MTR_FLAGS.MOVING == 1 : 
+        if resp.MTR_FLAGS.MOVING == 1:
             while resp.MTR_FLAGS.MOVING == 1:
                 time.sleep(1)
-                last_hk =  tc.hk_request(port)
+                last_hk = tc.hk_request(port)
                 resp = last_hk
                 event_log.info("Motor still moving ***********")
             event_log.info("Motor movement finished")
-        else : 
+        else:
             event_log.error("Motor Did not Move :")
-            event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
-                                f"\n CAL : {resp.MTR_FLAGS.CAL}"+
-                                f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
-                                f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
-                                f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
-                                f"\n BASE : {resp.MTR_FLAGS.BASE}" +
-                                f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
-                                f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
-                                )
+            event_log.error(
+                f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}"
+                + f"\n CAL : {resp.MTR_FLAGS.CAL}"
+                + f"\n HOLD : {resp.MTR_FLAGS.HOLD}"
+                + f"\n DIR : {resp.MTR_FLAGS.DIR}"
+                + f"\n OUTER : {resp.MTR_FLAGS.OUTER}"
+                + f"\n BASE : {resp.MTR_FLAGS.BASE}"
+                + f"\n MOVING : {resp.MTR_FLAGS.MOVING}"
+                + f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+            )
             event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
             if resp.ERROR_MTR != 0:
-                event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
-                                f"\n CD : {resp.MTR_ERRORS.CD}"+
-                                f"\n AB : {resp.MTR_ERRORS.AB}" + 
-                                f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
-                                f"\n REL : {resp.MTR_ERRORS.REL}" + 
-                                f"\n DSE : {resp.MTR_ERRORS.DSE}"
-                                )
-        
-        if resp.MTR_FLAGS.BASE !=1 : 
+                event_log.error(
+                    f"Unused : {resp.MTR_ERRORS.UNUSED}"
+                    + f"\n CD : {resp.MTR_ERRORS.CD}"
+                    + f"\n AB : {resp.MTR_ERRORS.AB}"
+                    + f"\n ABS : {resp.MTR_ERRORS.ABS}"
+                    + f"\n REL : {resp.MTR_ERRORS.REL}"
+                    + f"\n DSE : {resp.MTR_ERRORS.DSE}"
+                )
+
+        if resp.MTR_FLAGS.BASE != 1:
             event_log.error(f"BASE Switch Flag not raised : {resp.MTR_FLAGS.BASE}")
         else:
-            if resp.MTR_FLAGS.CAL != 0 : 
+            if resp.MTR_FLAGS.CAL != 0:
                 event_log.error(f" Calibration Flag Falsely Asserted : {resp.MTR_FLAGS.CAL}")
-            if resp.MTR_FLAGS.DIR != 1 : 
+            if resp.MTR_FLAGS.DIR != 1:
                 event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
-            if (resp.MTR_ABS_STEPS != 8960):
-                event_log.error(f"Motor Steps Do not match expected : " + 
-                                f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
-            if (resp.MTR_REL_STEPS != 0):
-                event_log.error(f"Motor Steps Do not match expected : " + 
-                                f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
-        
+            if resp.MTR_ABS_STEPS != 8960:
+                event_log.error(
+                    f"Motor Steps Do not match expected : " + f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 8960"
+                )
+            if resp.MTR_REL_STEPS != 0:
+                event_log.error(
+                    f"Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0"
+                )
+
         # time.sleep(5)
         # event_log.info("HOME to OUTER")
         # last_hk =  tc.hk_request(port)
         # resp = last_hk
-        # send_cmd.cmd_mtr_homing(port,False, True)    
+        # send_cmd.cmd_mtr_homing(port,False, True)
         # last_hk =  tc.hk_request(port)
         # resp = last_hk
-        # if resp.MTR_FLAGS.MOVING == 1 : 
+        # if resp.MTR_FLAGS.MOVING == 1 :
         #     while resp.MTR_FLAGS.MOVING == 1:
         #         time.sleep(1)
         #         last_hk =  tc.hk_request(port)
         #         resp = last_hk
         #         event_log.info("Motor still moving ***********")
         #     event_log.info("Motor movement finished")
-        # else : 
+        # else :
         #     event_log.error("Motor Did not Move :")
-        #     event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" + 
+        #     event_log.error(f"MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}" +
         #                         f"\n CAL : {resp.MTR_FLAGS.CAL}"+
-        #                         f"\n HOLD : {resp.MTR_FLAGS.HOLD}" + 
-        #                         f"\n DIR : {resp.MTR_FLAGS.DIR}" + 
-        #                         f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
+        #                         f"\n HOLD : {resp.MTR_FLAGS.HOLD}" +
+        #                         f"\n DIR : {resp.MTR_FLAGS.DIR}" +
+        #                         f"\n OUTER : {resp.MTR_FLAGS.OUTER}" +
         #                         f"\n BASE : {resp.MTR_FLAGS.BASE}" +
-        #                         f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
+        #                         f"\n MOVING : {resp.MTR_FLAGS.MOVING}" +
         #                         f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
         #                         )
         #     event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
         #     if resp.ERROR_MTR != 0:
-        #         event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
+        #         event_log.error(f"Unused : {resp.MTR_ERRORS.UNUSED}" +
         #                         f"\n CD : {resp.MTR_ERRORS.CD}"+
-        #                         f"\n AB : {resp.MTR_ERRORS.AB}" + 
-        #                         f"\n ABS : {resp.MTR_ERRORS.ABS}" + 
-        #                         f"\n REL : {resp.MTR_ERRORS.REL}" + 
+        #                         f"\n AB : {resp.MTR_ERRORS.AB}" +
+        #                         f"\n ABS : {resp.MTR_ERRORS.ABS}" +
+        #                         f"\n REL : {resp.MTR_ERRORS.REL}" +
         #                         f"\n DSE : {resp.MTR_ERRORS.DSE}"
         #                         )
-        
-        # if resp.MTR_FLAGS.OUTER !=1 : 
+
+        # if resp.MTR_FLAGS.OUTER !=1 :
         #     event_log.error(f"OUTER Switch Flag not raised : {resp.MTR_FLAGS.OUTER}")
         # else:
-        #     if resp.MTR_FLAGS.CAL != 0 : 
+        #     if resp.MTR_FLAGS.CAL != 0 :
         #         event_log.error(f" Calibration Flag Falsely Asserted : {resp.MTR_FLAGS.CAL}")
-        #     if resp.MTR_FLAGS.DIR != 1 : 
+        #     if resp.MTR_FLAGS.DIR != 1 :
         #         event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
         #     if (resp.MTR_ABS_STEPS != 100):
-        #         event_log.error(f"Motor Steps Do not match expected : " + 
+        #         event_log.error(f"Motor Steps Do not match expected : " +
         #                         f"\n ABS : {resp.MTR_ABS_STEPS} , Expected : 100")
         #     if (resp.MTR_REL_STEPS != 0):
-        #         event_log.error(f"Motor Steps Do not match expected : " + 
+        #         event_log.error(f"Motor Steps Do not match expected : " +
         #                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
         # return
 
-    if col3.button(label = "Calibration Test"):
+    if col3.button(label="Calibration Test"):
         sq.cal_test(port)
-    if col4.button(label = "Positive Test"):
+    if col4.button(label="Positive Test"):
         sq.positive_test(port)
-    if col5.button(label = "Negative Test"):
+    if col5.button(label="Negative Test"):
         sq.negative_test(port)
+
 
 def get_sci():
     try:
@@ -504,40 +593,39 @@ def get_sci():
     except IndexError:
         st.write("No SCI data available")
 
+
 @st.fragment()
 def hk_fragment(port):
     st.subheader("Housekeeping")
     if st.button("Request HK"):
         tc.hk_request(port)
     get_hk()
+
+
 @st.fragment()
-def st_cmd_interface(port,psuport):
+def st_cmd_interface(port, psuport):
     st.divider()
     st.subheader("PSU CONTROL")
-    col1,col2,col3 = st.columns([1,2,2])
-    col1.toggle(
-            label="PSU Switch",
-            key="state_psu",
-            on_change=st_psu_toggle(psuport)
-        )
-    tab1,tab2,tab3 = st.tabs(["Main Menu","Detector Board","Mechanism Board"])
-    
+    col1, col2, col3 = st.columns([1, 2, 2])
+    col1.toggle(label="PSU Switch", key="state_psu", on_change=st_psu_toggle(psuport))
+    tab1, tab2, tab3 = st.tabs(["Main Menu", "Detector Board", "Mechanism Board"])
+
     with tab1:
         st.selectbox(
-        label="Power Control",
-        options=state_pwr_dict.keys(),
-        key="state_pwr",
-        on_change=st_cmd_pwr,
-        args=(port,),
-    )
+            label="Power Control",
+            options=state_pwr_dict.keys(),
+            key="state_pwr",
+            on_change=st_cmd_pwr,
+            args=(port,),
+        )
 
         st.divider()
         st.subheader("Heater Control")
-        col1,col2,col3 = st.columns([2,2,1])
+        col1, col2, col3 = st.columns([2, 2, 1])
         col1.write("Mechanism Heater Control")
         col2.write("Detector Heater Control")
         col3.write("Science Control")
-        col1,col2,col3,col4,col5 = st.columns(5)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.toggle(
             label="Mech Auto",
             key="state_htr_mech_auto",
@@ -571,11 +659,11 @@ def st_cmd_interface(port,psuport):
             key="state_htr_sci",
             on_change=st_cmd_htr,
             args=(port,),
-    )
+        )
     with tab2:
         st.title("Detector Board")
         if st.button("Request SCI"):
-            tc.sci_request(port,3,1)
+            tc.sci_request(port, 3, 1)
         st.subheader("Science Data")
         get_sci()
         # st.button(
@@ -593,14 +681,16 @@ def st_cmd_interface(port,psuport):
         #     on_click=tc.hk_samples_request,
         #     args=(port,),
         # )
-        
+
     with tab3:
         st.subheader("Mechanism Subsystem")
         if st.button("RequestHK"):
             tc.hk_request(port)
         get_mtr_hk(port)
-def streamlit_gui(com_port: str, psu_com : str) -> None:
+
+
+def streamlit_gui(com_port: str, psu_com: str) -> None:
     st_state_initialise()
     port = comms.initialise_comms(com_port)
     psuport = psu.init_psu_comms(psu_com)
-    st_comms_config(port,psuport)
+    st_comms_config(port, psuport)

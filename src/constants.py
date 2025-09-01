@@ -21,8 +21,8 @@ SCI_RESP_MARGIN = 0.020 # seconds
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 
-#PSU Config
-PSU_LOGGING_FREQ = 1 #in HZ
+# PSU Config
+PSU_LOGGING_FREQ = 1  # in HZ
 PSU_COM_PORT = 6
 CH1_OVP = 12.5
 CH1_I = 0.100
@@ -50,13 +50,11 @@ MWIR_DAC_MAX_TH = 3500
 MEASUREMENT_TABLES = [
     # The full range of values
     list(range(0, 8600)),
-
     # Guess at edges of the window.
     list(range(1300, 7600)),
-
     # Uneven steps for testing
-    list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10))
+    list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10)),
 ]
 
-#SCI queue
+# SCI queue
 sci_queue = deque(maxlen=100)
