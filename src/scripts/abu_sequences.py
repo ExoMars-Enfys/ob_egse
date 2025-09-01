@@ -469,6 +469,77 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
     return sci.SWIR_OFFSET
 
+def find_dac_offset(port, sensor_name, target_output, fixed_offset, max_miss=100, sci_adc_samp=4, sci_adc_skip=2):
+    """
+    This function tries to find a DAC offset which results in a high gain output close
+    to the value or target_output. The sensor that's *not* being configured has its gain
+    value set to fixed_offset, while binary chop is used to find a suitable offset for
+    the sensor that *is* being configured.
+
+    :param port: The serial port for comms with the instrument
+    :param sensor_name: "MWIR" or "SWIR" - which sensor we're calibrating
+    :param target_output: The output value we're aiming for
+    :param fixed_offset: The fixed value that the other sensor will take during the chop.
+    :param max_miss: If the final value is more than this distance from the target output, report a problem.
+    :param sci_adc_samp: ADC oversampling factor.
+    :param sci_adc_skip: How many samples to skip.
+    """
+    event_log.info(f"Running abu targeted_binary_chop for {sensor_name} with target value {target_output}")
+
+    if sensor_name not in ("MWIR", "SWIR"):
+        event_log.error(f"For DAC offsets, sensor name must be either MWIR or SWIR, not {sensor_name}")
+
+    dac_value = 0x0
+    bit_value = 1<<11
+
+    # Binary chop - work down through the bits, homing in on
+    # the DAC offset value which gets closest to the target output.
+    while bit_value != 0:
+        # Make a test value with the current bit set.
+        test_value = dac_value | bit_value
+
+        # Log it.
+        event_log.info(f"Setting the {sensor_name} DAC offset value to: {test_value}")
+
+        # Do the part that depends on which sensor we're working on.
+        if sensor_name == "MWIR":
+            # Set the test offset value.
+            tc.sci_offset(port, fixed, test_value)
+
+            # Check it was successfully set
+            sci = check_sci(port, sci_adc_samp, sci_adc_skip)
+            if sci.MWIR_OFFSET != test_value:
+                event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
+
+            # Copy the reading so the rest of the loop doesn't depend on sensor.
+            reading = sci.MWIR_HIGH
+        else:
+            # Ditto for SWIR.
+            tc.sci_offset(port, test_value, fixed)
+            sci = check_sci(port, sci_adc_samp, sci_adc_skip)
+            if sci.SWIR_OFFSET != test_value:
+                event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
+            reading = sci.SWIR_HIGH
+
+        event_log.info(f"Got the following {sensor_name} high reading: {reading}")
+
+        # If the HIGH reading is >= target_output, keep the bit, otherwise discard.
+        if reading > target_output:
+            dac_value = test_value
+
+        # On to the next bit.
+        bit_value >>= 1
+
+    # Report whether we've managed to get in range.
+    if abs(reading - target_output) <= max_miss:
+        event_log.info(f"Suitable {sensor_name} offset found for target {target_output}.")
+    else:
+        event_log.error(f"No in-range {sensor_name} offset found for target {target_output}.")
+
+    event_log.info(f"Final {sensor_name} DAC offset value: {dac_value}")
+    event_log.info(f"Final {sensor_name} high reading: {reading}")
+    return dac_value
+
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
