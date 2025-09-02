@@ -592,6 +592,23 @@ def piecewise_linear(table: list, target: int) -> int:
     # value.
     return table[pos-1][1]
 
+def dac_offset_target(sci_data):
+    """
+    This is just a quick test function to see if we can make it work. The
+    interpolation table below (from the jupyter notebook) gives the target
+    MWIR high gain value at 510 motor steps to try to get a dark DAC level
+    of 200 at 7500 motor steps. It uses HT_SINK_TEMP for the estimation.
+
+    Call it with
+    """
+    interpolation_table = [
+            (298, 84), (306, 107), (314, 140), (323, 193),
+            (331, 263), (339, 362), (347, 503), (355, 703),
+            (363, 988), (371, 1393), (379, 1971), (388, 2917),
+            (396, 4139), (404, 5877), (412, 8352), (420, 11874)
+    ]
+    return piecewise_linear(interpolation_table, sci.HT_SINK_TEMP)
+
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
