@@ -120,8 +120,15 @@ def main() -> None:
         # First power on
         # abu.first_power_on(port)
 
+        # Move to position 510 and try to set DAC offsets
+        # abu.dac_auto_offset(port)
+
+        # Move to absolute position
+        abu.mv_abs_pos(port, 7600)
+        abu.move_and_measure(port, 0)
+
         # sweep through SWIR DAC offset
-        abu.sweep_offset_swir(port, 5)
+        # abu.sweep_offset_swir(port, 5)
 
         # sweep through MWIR DAC offset
         # abu.sweep_offset_mwir(port, 1)
@@ -144,6 +151,9 @@ def main() -> None:
         # # ------------------------------------------------------------------------------------------
         # Get final HK
         abu.read_hk(port)
+
+        # Auto-generate CSV files from HK and SCI logs
+        abu.convert_logs()
 
         # stop_event.set()
         # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish

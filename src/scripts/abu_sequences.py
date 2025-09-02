@@ -622,7 +622,7 @@ def dac_auto_offset(port, sci_adc_samp=4, sci_adc_skip=2):
     # have thought zero was safer, since this would guarentee no underflow
     # of the "fixed" output while we worked on the other. Is this sensible?
 
-    swir_dac_offset = find_dac_offset(port, "SWIR", mwir_target_output, 2048, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
+    swir_dac_offset = find_dac_offset(port, "SWIR", swir_target_output, 2048, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
     mwir_dac_offset = find_dac_offset(port, "MWIR", mwir_target_output, swir_dac_offset, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
 
     event_log.info(f"DAC offsets were set to {mwir_dac_offset} (MWIR) and {swir_dac_offset} (SWIR)")
@@ -732,17 +732,32 @@ def convert_logs():
     of main.py, this should mean you'll automatically get decoded logs as
     CSV files in the log directory.
     """
+    event_log.info("Running abu convert_logs")
 
     if const.HK_LOG_FH is None:
-        print("No HK log is present - skipping conversion")
+        event_log.info("No HK log is present - skipping conversion")
     else:
         const.HK_LOG_FH.flush()
         printed_header = False
-        with open(pathlib.Path(const.HK_LOG_FH.name).with_suffix(".csv"), "w") as csv_file:
+
+        # This is a bit fiddly - the TM classes log if *_FH is not None,
+        # and we don't want that, otherwise they'll log infinite data as
+        # we read them back in. So we take a copy and temporarily set
+        # *_FH to None.
+        temp_hk_log_fh = const.HK_LOG_FH
+        const.HK_LOG_FH = None
+
+        # Get a name for the CSV file.
+        csvname = pathlib.Path(temp_hk_log_fh.name).with_suffix(".csv")
+        event_log.info(f"Writing HK data to {csvname}")
+
+        with open(csvname, "w") as csv_file:
+            # Iterate over the log.
+            decoder = EGSEDumpDecoder(temp_hk_log_fh.name)
             rows = 0
-            decoder = EGSEDumpDecoder(const.HK_LOG_FH.name)
             for timestamp, entry in decoder:
                 rows += 1
+                # Print CSV header if not already printed.
                 if not printed_header:
                     print("Date,Time,", file=csv_file, end="")
                     print(entry.csv_header(), file=csv_file)
@@ -751,16 +766,27 @@ def convert_logs():
                 print(date, end=",", file=csv_file)
                 print(timeofday, end=",", file=csv_file)
                 print(entry.csv(), file=csv_file)
-            print(f"Stored {rows} HK row(s) into {csv_file.nam}")
+
+            event_log.info(f"Stored {rows} HK row(s) into {csv_file.name}")
+
+            # Restore HK_LOG_FH from the copy.
+            const.HK_LOG_FH = temp_hk_log_fh
 
     if const.SCI_LOG_FH is None:
-        print("No Science log is present - skipping conversion")
+        event_log.info("No Science log is present - skipping conversion")
     else:
         const.SCI_LOG_FH.flush()
         printed_header = False
-        with open(pathlib.Path(const.SCI_LOG_FH.name).with_suffix(".csv"), "w") as csv_file:
+
+        # As above, do a little dance with file handles.
+        temp_sci_log_fh = const.SCI_LOG_FH
+        const.SCI_LOG_FH = None
+
+        csvname = pathlib.Path(temp_sci_log_fh.name).with_suffix(".csv")
+        event_log.info(f"Writing science data to {csvname}")
+        with open(csvname, "w") as csv_file:
             rows = 0
-            decoder = EGSEDumpDecoder(const.SCI_LOG_FH.name)
+            decoder = EGSEDumpDecoder(temp_sci_log_fh.name)
             for timestamp, entry in decoder:
                 rows += 1
                 if not printed_header:
@@ -771,4 +797,5 @@ def convert_logs():
                 print(date, end=",", file=csv_file)
                 print(timeofday, end=",", file=csv_file)
                 print(entry.csv(decoder.default_fields_per_type[type(entry)]), file=csv_file)
-            print(f"Stored {rows} science row(s) into {csv_file.name}")
+            event_log.info(f"Stored {rows} science row(s) into {csv_file.name}")
+            const.SCI_LOG_FH = temp_sci_log_fh
