@@ -350,6 +350,28 @@ def mv_neg_steps(port, pos_steps):
                         f"\n DSE : {hk.MTR_ERRORS.DSE}"
                         )
 
+def mv_abs_pos(port, position):
+    """
+    Get the current motor position, then send a relative command to
+    take it to the specified position.
+    """
+    event_log.info(f"Running ABU mv_abs_pos({position})")
+
+    # Get the current position.
+    hk = tc.hk_request(port)
+
+    # Work out delta needed to reach measurement_position
+    delta = position - hk.MTR_ABS_STEPS
+
+    event_log.info(f"Current position is {hk.MTR_ABS_STEPS}, need to move {delta} steps")
+
+    if delta > 0:
+        mv_pos_steps(port, delta)
+    elif delta < 0:
+        mv_neg_steps(port, -delta)
+    else:
+        event_log.info("No movement needed")
+
 def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     """
     Function that will power the detector board if it isn't already.
@@ -430,6 +452,8 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
     value set to fixed_offset, while binary chop is used to find a suitable offset for
     the sensor that *is* being configured.
 
+    The offset is returned, and the instrument is left configured with that offset.
+
     :param port: The serial port for comms with the instrument
     :param sensor_name: "MWIR" or "SWIR" - which sensor we're calibrating
     :param target_output: The output value we're aiming for
@@ -444,7 +468,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
     # If our target high gain output is above medium_gain_switch_threshold
     # then we'll scale by medium_to_high_gain_scale and use the medium gain
     # value instead. This gives a measure of protection against saturation.
-    medium_gain_switch_threshold = 3900
+    medium_gain_switch_threshold = 3700
     medium_to_high_gain_scale = 30
 
     if sensor_name not in ("MWIR", "SWIR"):
@@ -553,22 +577,57 @@ def piecewise_linear(table: list, target: int) -> int:
     # value.
     return table[pos-1][1]
 
-def dac_offset_target(sci_data):
-    """
-    This is just a quick test function to see if we can make it work. The
-    interpolation table below (from the jupyter notebook) gives the target
-    MWIR high gain value at 510 motor steps to try to get a dark DAC level
-    of 200 at 7500 motor steps. It uses HT_SINK_TEMP for the estimation.
 
-    Call it with
+def dac_auto_offset(port, sci_adc_samp=4, sci_adc_skip=2):
     """
-    interpolation_table = [
+    This function tries to determine sensible SWIR and MWIR DAC
+    offsets using a model of the difference between outputs at
+    a position behind the mask and a "minimum" position in the
+    field of view when dark.
+    """
+    event_log.info("Running abu dac_auto_offset")
+
+    # The interpolation tables below (from the jupyter notebook) give the
+    # target high gain values at 510 motor steps to try to get a dark DAC
+    # level of 200 at 7500 motor steps. It uses HT_SINK_TEMP for the
+    # estimation.
+    measurement_position = 510
+    mwir_interpolation_table = [
             (298, 84), (306, 107), (314, 140), (323, 193),
             (331, 263), (339, 362), (347, 503), (355, 703),
             (363, 988), (371, 1393), (379, 1971), (388, 2917),
             (396, 4139), (404, 5877), (412, 8352), (420, 11874)
     ]
-    return piecewise_linear(interpolation_table, sci.HT_SINK_TEMP)
+    swir_interpolation_table = [
+            (298, 193), (420, 193)
+    ]
+
+    # Move to the measurement position.
+    mv_abs_pos(port, measurement_position)
+
+    # Get a science packet so we can read HT_SINK_TEMP
+    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+
+    # Using the interpolation tables, get target high gain outputs
+    # at this position that we hope will give a good minimum
+    # in "real" dark.
+    mwir_target_output = piecewise_linear(mwir_interpolation_table, sci.HT_SINK_TEMP)
+    swir_target_output = piecewise_linear(swir_interpolation_table, sci.HT_SINK_TEMP)
+
+    event_log.info(f"Estimated target outputs are {mwir_target_output} (MWIR) and {swir_target_output} (SWIR)")
+
+    # Get our estimated offsets.
+    #
+    # FIXME - the original binary chop used 2048 as the "fixed" values. I'd
+    # have thought zero was safer, since this would guarentee no underflow
+    # of the "fixed" output while we worked on the other. Is this sensible?
+
+    swir_dac_offset = find_dac_offset(port, "SWIR", mwir_target_output, 2048, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
+    mwir_dac_offset = find_dac_offset(port, "MWIR", mwir_target_output, swir_dac_offset, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
+
+    event_log.info(f"DAC offsets were set to {mwir_dac_offset} (MWIR) and {swir_dac_offset} (SWIR)")
+
+    return mwir_dac_offset, swir_dac_offset
 
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
