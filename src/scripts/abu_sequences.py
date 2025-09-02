@@ -445,7 +445,7 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         sci_adc_skip = sci_adc_skip
     )
 
-def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 2):
+def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 20):
     """
     This function tries to find a DAC offset which results in a high gain output close
     to the value or target_output. The sensor that's *not* being configured has its gain
@@ -578,7 +578,7 @@ def piecewise_linear(table: list, target: int) -> int:
     return table[pos-1][1]
 
 
-def dac_auto_offset(port, sci_adc_samp=4, sci_adc_skip=2):
+def dac_auto_offset(port, sci_adc_samp=4, sci_adc_skip=20):
     """
     This function tries to determine sensible SWIR and MWIR DAC
     offsets using a model of the difference between outputs at
@@ -617,15 +617,15 @@ def dac_auto_offset(port, sci_adc_samp=4, sci_adc_skip=2):
     event_log.info(f"Estimated target outputs are {mwir_target_output} (MWIR) and {swir_target_output} (SWIR)")
 
     # Get our estimated offsets.
-    #
-    # FIXME - the original binary chop used 2048 as the "fixed" values. I'd
-    # have thought zero was safer, since this would guarentee no underflow
-    # of the "fixed" output while we worked on the other. Is this sensible?
-
-    swir_dac_offset = find_dac_offset(port, "SWIR", swir_target_output, 2048, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
+    swir_dac_offset = find_dac_offset(port, "SWIR", swir_target_output, 0, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
     mwir_dac_offset = find_dac_offset(port, "MWIR", mwir_target_output, swir_dac_offset, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
 
+    # Take a final reading just so we can output the results below.
+    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+
     event_log.info(f"DAC offsets were set to {mwir_dac_offset} (MWIR) and {swir_dac_offset} (SWIR)")
+    event_log.info(f"Targets were {mwir_target_output} (MWIR) and {swir_target_output} (SWIR)")
+    event_log.info(f"Readings were {sci.MWIR_HIGH} (MWIR) and {sci.SWIR_HIGH} (SWIR)")
 
     return mwir_dac_offset, swir_dac_offset
 
