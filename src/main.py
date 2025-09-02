@@ -123,7 +123,7 @@ def main() -> None:
         # Move to position 510 and try to set DAC offsets
         # abu.dac_auto_offset(port)
 
-        # Move to absolute position
+        # Move to absolute position and take a reading
         abu.mv_abs_pos(port, 7600)
         abu.move_and_measure(port, 0)
 
