@@ -392,84 +392,36 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     event_log.info("Running abu mwir_binary_chop")
 
-    # Check detector powered, if not enable.
-    hk = tc.hk_request(port)
-    if not (hk.PWR_STAT & 0x02):
-        # Perform bitwise OR in case Mechanism is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x02)
-
-        # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
-
-    mwir_value = 0x0 # Seed value
-
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        mwir_delta = 0x1 << (i - 1)
-        event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
-        tc.sci_offset(port, swir_fixed, mwir_value + mwir_delta)
-        sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
-        if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
-            event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value + mwir_delta}")
-
-        event_log.info(f"Got the following MWIR High Reading: {sci.MWIR_HIGH}")
-
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.MWIR_HIGH >= const.MWIR_DAC_MIN_TH:
-            mwir_value = mwir_value + mwir_delta
-
-        # Check if we are within the range (we are done) otherwise loop
-        if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
-            event_log.info("MWIR offset in threshold finished!")
-            event_log.info("Final MWIR value: {mwir_value}")
-            return mwir_value
-
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
-    return sci.MWIR_OFFSET
+    # Call the new find_dac_offset function with parameters that give
+    # equivalent behaviour to the old code.
+    return find_dac_offset(port,
+        sensor_name = "MWIR",
+        target_output = (const.MWIR_DAC_MIN_TH + const.MWIR_DAC_MAX_TH)/2,
+        fixed_offset = swir_fixed,
+        max_miss = (const.MWIR_DAC_MAX_TH - const.MWIR_DAC_MIN_TH)/2,
+        sci_adc_samp = sci_adc_samp,
+        sci_adc_skip = sci_adc_skip
+    )
 
 def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
-    This sets the MWIR DAC offset as per the functional call.
-    It then itterates throgh the SWIR DAC offsets doing a binary search.
+    This fixes the MWIR DAC offset as per the functional call.
+    It then iterates throgh the SWIR DAC offsets doing a binary search.
     The function aims for the science readings for the SWIR to be between the values set within the
     constants file.
     """
     event_log.info("Running abu swir_binary_chop")
 
-    # Check detector powered, if not enable.
-    hk = tc.hk_request(port)
-    if not (hk.PWR_STAT & 0x02):
-        # Perform bitwise OR in case Mechanism is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x02)
-
-        # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
-
-    swir_value = 0x0 # Seed Value
-
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        swir_delta  = 0x1 << (i -1)
-        event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
-        tc.sci_offset(port, swir_value + swir_delta, mwir_fixed)
-        sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
-        if sci.SWIR_OFFSET != (swir_value + swir_delta):
-            event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {swir_value + swir_delta}")
-
-        event_log.info(f"Got the following SWIR High Reading: {sci.SWIR_HIGH}")
-
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.SWIR_HIGH > const.SWIR_DAC_MIN_TH:
-            swir_value = swir_value + swir_delta
-
-        # Check if we are within the range (we are done) otherwise loop
-        if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
-            event_log.info("SWIR offset in threshold finished!")
-            event_log.info("Final SWIR value: {swir_value}")
-            return swir_value
-
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
-    return sci.SWIR_OFFSET
+    # Call the new find_dac_offset function with parameters that give
+    # equivalent behaviour to the old code.
+    return find_dac_offset(port,
+        sensor_name = "SWIR",
+        target_output = (const.SWIR_DAC_MIN_TH + const.SWIR_DAC_MAX_TH)/2,
+        fixed_offset = mwir_fixed,
+        max_miss = (const.SWIR_DAC_MAX_TH - const.SWIR_DAC_MIN_TH)/2,
+        sci_adc_samp = sci_adc_samp,
+        sci_adc_skip = sci_adc_skip
+    )
 
 def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 2):
     """
@@ -497,6 +449,15 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
 
     if sensor_name not in ("MWIR", "SWIR"):
         event_log.error(f"For DAC offsets, sensor name must be either MWIR or SWIR, not {sensor_name}")
+
+    # Check detector powered, if not enable.
+    hk = tc.hk_request(port)
+    if not (hk.PWR_STAT & 0x02):
+        # Perform bitwise OR in case Mechanism is on and we want to leave it powered
+        tc.power_control(port, hk.PWR_STAT | 0x02)
+
+        # TODO can probably remove this check and replace above with send_cmd and verify
+        resp = tc.hk_request(port)
 
     dac_value = 0x0
     bit_value = 1<<11
