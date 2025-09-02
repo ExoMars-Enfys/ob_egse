@@ -685,13 +685,13 @@ def first_power_on(port):
     cal_motor_to_base(port)
     home_to_outer(port)
 
-def abu_convert_logs():
+def convert_logs():
     """
     Convert science and HK logs from hex to CSV, which will be placed in the
     same directory as the original hex log files. The log files are flushed
     before reading.
 
-    If you add abu_convert_logs() as the last operation in the "script" area
+    If you add abu.convert_logs() as the last operation in the "script" area
     of main.py, this should mean you'll automatically get decoded logs as
     CSV files in the log directory.
     """
