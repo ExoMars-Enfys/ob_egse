@@ -847,3 +847,26 @@ def convert_logs():
                 print(entry.csv(decoder.default_fields_per_type[type(entry)]), file=csv_file)
             event_log.info(f"Stored {rows} science row(s) into {csv_file.name}")
             const.SCI_LOG_FH = temp_sci_log_fh
+
+def move_off_endstops(port):
+    """
+    Make sure that the motor is at neither end stop.
+    """
+
+    event_log.info("Running ABU move_off_endstops")
+    hk = tc.hk_request(port)
+
+    while hk.MTR_FLAGS.OUTER or hk.MTR_FLAGS.BASE:
+        if hk.MTR_FLAGS.OUTER and hk.MTR_FLAGS.BASE:
+            event_log.error("Both OUTER and BASE flags are raised")
+            break
+        if hk.MTR_FLAGS.OUTER:
+            event_log.info("Motor is at outer end stop. Moving +200.")
+            mv_pos_steps(200)
+
+        elif hk.MTR_FLAGS.BASE:
+            event_log.info("Motor is at base end stop. Moving -200.")
+            mv_neg_steps(200)
+
+    if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
+        event_log.info("Motor is away from end stops")
