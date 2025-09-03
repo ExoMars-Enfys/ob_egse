@@ -741,8 +741,22 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
     # Move to the measurement position.
     mv_abs_pos(port, measurement_position)
 
+    # Aha, we can't have confidence in HT_SINK_TEMP unless we've
+    # already set the DAC offsets to safe values - if the current
+    # values are causing ADC underflow, this will affect the reading
+    # of HT_SINK_TEMP. So set both DAC offsets low first, which
+    # will likely cause overflow, but this is safe.
+    #
+    # I'm told that using zero for the offset isn't a good idea,
+    # but 1 is safe.
+    tc.sci_offset(port, 1, 1)
+
     # Get a science packet so we can read HT_SINK_TEMP
     sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+
+    # Double check the offsets were set properly.
+    if sci.MWIR_OFFSET != 1 or sci.SWIR_OFFSET != 1:
+        event_log.error("Setting initial offsets failed - requested 1, 1 got {sci.MWIR_OFFSET}, {sci.SWIR_OFFSET}")
 
     # Using the interpolation tables, get target high gain outputs
     # at this position that we hope will give a good minimum
@@ -753,7 +767,7 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
     event_log.info(f"Estimated target outputs are {mwir_target_output} (MWIR) and {swir_target_output} (SWIR)")
 
     # Get our estimated offsets.
-    swir_dac_offset = find_dac_offset(port, "SWIR", swir_target_output, 0, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
+    swir_dac_offset = find_dac_offset(port, "SWIR", swir_target_output, 1, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
     mwir_dac_offset = find_dac_offset(port, "MWIR", mwir_target_output, swir_dac_offset, sci_adc_samp=sci_adc_samp, sci_adc_skip=sci_adc_skip)
 
     # Take a final reading just so we can output the results below.
@@ -902,7 +916,7 @@ def fix_double_stop_error(port: serial.rs485.RS485, at_outer: bool) -> None:
     """
     This is code Barry suggested to try to clear the case where both
     endstops are flagging true. It didn't work when trying to fix things
-    the other day, but this function has been added to document the 
+    the other day, but this function has been added to document the
     procedure as something to try out.
 
     :param port: The serial port for comms with the instrument.
