@@ -862,11 +862,12 @@ def move_off_endstops(port):
             break
         if hk.MTR_FLAGS.OUTER:
             event_log.info("Motor is at outer end stop. Moving +200.")
-            mv_pos_steps(200)
+            mv_pos_steps(port, 200)
 
         elif hk.MTR_FLAGS.BASE:
             event_log.info("Motor is at base end stop. Moving -200.")
-            mv_neg_steps(200)
+            mv_neg_steps(port, 200)
+        hk = tc.hk_request(port)
 
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")

@@ -121,11 +121,11 @@ def main() -> None:
         # abu.first_power_on(port)
 
         # Move to position 510 and try to set DAC offsets
-        # abu.dac_auto_offset(port)
+        #abu.dac_auto_offset(port)
 
         # Move to absolute position and take a reading
-        abu.mv_abs_pos(port, 7600)
-        abu.move_and_measure(port, 0)
+        #abu.mv_abs_pos(port, 7600)
+        #abu.move_and_measure(port, 0)
 
         # sweep through SWIR DAC offset
         # abu.sweep_offset_swir(port, 5)
@@ -149,6 +149,10 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
+
+        # Ensure we're off either endstop when finishing up.
+        abu.move_off_endstops(port)
+
         # Get final HK
         abu.read_hk(port)
 
