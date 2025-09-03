@@ -44,8 +44,8 @@ hk_queue = deque(maxlen=100)
 # DAC Offset
 SWIR_DAC_MIN_TH = 100
 SWIR_DAC_MAX_TH = 300
-MWIR_DAC_MIN_TH = 3300
-MWIR_DAC_MAX_TH = 3500
+MWIR_DAC_MIN_TH = 100
+MWIR_DAC_MAX_TH = 300
 
 MEASUREMENT_TABLES = [
     # The full range of values
