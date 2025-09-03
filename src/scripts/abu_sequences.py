@@ -656,7 +656,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
         event_log.info(f"Got the following {sensor_name} high reading: {reading}")
 
         # If the HIGH reading is >= target_output, keep the bit, otherwise discard.
-        if reading > target_output:
+        if reading >= target_output:
             dac_value = test_value
 
         # On to the next bit.
