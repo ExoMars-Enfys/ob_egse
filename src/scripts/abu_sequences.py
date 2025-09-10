@@ -38,7 +38,6 @@ def read_hk(port, display_contents=True):
             f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
             f"\n UNUSED3 : {resp.UNUSED3}" +
             f"\n MTR_SPEED :{resp.MTR_SPEED}" +
-            f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" +
             f"\n UNUSED4 : {resp.PWR_STAT}" +
             f"\n PWR_STAT : {resp.PWR_STAT}" +
             f"\n THRM_STATUS :{resp.THRM_STATUS}" +
@@ -109,20 +108,18 @@ def cal_motor_to_base(port):
         resp = tc.hk_request(port)
 
     # Set motor parameters
-    send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7,0x3200)
+    send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7)
     resp = tc.hk_request(port)
     if (
     resp.MTR_CURRENT != 0x17
     or resp.MTR_GUARD != 0x20
     or resp.MTR_RECVAL != 0x0F
-    or resp.MTR_SPEED != 0x7
-    or resp.MECH_LIM_REL != 0x3200):
+    or resp.MTR_SPEED != 0x7):
         event_log.error("OB Parameters not initialized correctly:"+
                         f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
                         f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
                         f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                        f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                        f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+                        f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9")
 
     # Cal to BASE
     send_cmd.cmd_mtr_homing(port, True, False)    
@@ -928,7 +925,7 @@ def fix_double_stop_error(port: serial.rs485.RS485, at_outer: bool) -> None:
     tc.set_errors(port, 0,0,0,0,0,0,0,True,True,0,0,0,0,True)
 
     # Set Motor Params
-    tc.set_mtr_param(port, 0x17,0x20,0x0f,0x7,0x3200)
+    tc.set_mtr_param(port, 0x17,0x20,0x0f,0x7)
 
     # Move the appropriate direction.
     if at_outer:

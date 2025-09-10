@@ -393,10 +393,6 @@ def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = T
     if parsed.PARAM4 != speed:
         info_log.error(f"ACK peak speed not as commanded. Set: x{speed:01X}, Got: x{parsed.PARAM4:01X}")
 
-    value = (parsed.PARAM5 << 8) + (parsed.PARAM6)
-    if value != mech_lim_rel:
-        info_log.error(f"ACK peak mech_lim_rel not as commanded. Set: x{mech_lim_rel:04X}, Got: x{value:04X}")
-
     return
 
 

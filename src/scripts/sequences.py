@@ -13,16 +13,15 @@ info_log = logging.getLogger("info_log")
 def power_up(port):
     try : 
         send_cmd.cmd_power_control(port,0x01)
-        send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7,0x3200)
+        send_cmd.cmd_mtr_param(port,0x17,0x20,0x0F,0x7)
         resp = tc.hk_request(port)
-        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 23 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 7 or resp.MECH_LIM_REL != 12800:            
+        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 23 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 7:
             raise ValueError(f"OB Parameters not initialized correctly:"+
                             f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1" +
                             f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
                             f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
                             f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                            f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                            f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+                            f"\n Speed : {resp.MTR_SPEED} ~ Expected : 9")
         else : 
             event_log.info("Power Up and set params : Passed")
             return resp
@@ -69,7 +68,6 @@ def check_hk(port) :
     f"\n MTR_RECVAL : {resp.MTR_RECVAL}" +
     f"\n UNUSED3 : {resp.UNUSED3}" +
     f"\n MTR_SPEED :{resp.MTR_SPEED}" +
-    f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}" + 
     f"\n UNUSED4 : {resp.PWR_STAT}" +  
     f"\n PWR_STAT : {resp.PWR_STAT}" +
     f"\n THRM_STATUS :{resp.THRM_STATUS}" + 

@@ -176,7 +176,7 @@ def psu_display(psuport):
 def st_mtr_param(port):
     current = st.session_state.state_current
     speed = st.session_state.state_speed
-    tc.set_mtr_param(port, current, 0x20, 0x0F, speed, 0x3200)
+    tc.set_mtr_param(port, current, 0x20, 0x0F, speed)
 
 
 def get_hk():
@@ -311,7 +311,7 @@ def get_mtr_hk(port):
         )
         col5.metric(
             "Rel Steps Limit",
-            value=last_hk.MECH_LIM_REL,
+            value=0, # last_hk.MECH_LIM_REL,
             delta=None,
             delta_color="normal",
             help=None,
@@ -434,14 +434,13 @@ def mtr_cmds(port, last_hk):
     col1, col2, col3, col4, col5 = st.columns(5, vertical_alignment="bottom")
     if col1.button(label="Power Up"):
         tc.power_control(port, 0x03)
-        send_cmd.cmd_mtr_param(port, 0x40, 0x20, 0x0F, 0x9, 0x3200)
+        send_cmd.cmd_mtr_param(port, 0x40, 0x20, 0x0F, 0x9)
         resp = last_hk
         if (
             resp.MTR_CURRENT != 40
             or resp.MTR_GUARD != 32
             or resp.MTR_RECVAL != 15
             or resp.MTR_SPEED != 9
-            or resp.MECH_LIM_REL != 12800
         ):
             event_log.error(
                 f"OB Parameters not initialized correctly:"
@@ -449,10 +448,9 @@ def mtr_cmds(port, last_hk):
                 + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
                 + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
                 + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
-                + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
             )
             # exit
-            send_cmd.cmd_mtr_param(port, 0x28, 0x20, 0x0F, 0x9, 0x3200)
+            send_cmd.cmd_mtr_param(port, 0x28, 0x20, 0x0F, 0x9)
             last_hk = tc.hk_request(port)
             resp = last_hk
             if (
@@ -460,7 +458,6 @@ def mtr_cmds(port, last_hk):
                 or resp.MTR_GUARD != 32
                 or resp.MTR_RECVAL != 15
                 or resp.MTR_SPEED != 9
-                or resp.MECH_LIM_REL != 12800
             ):
                 event_log.error(
                     f"OB Parameters not initialized correctly:"
@@ -468,7 +465,6 @@ def mtr_cmds(port, last_hk):
                     + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
                     + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
                     + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
-                    + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
                 )
 
     if col2.button(label="Homing Test"):

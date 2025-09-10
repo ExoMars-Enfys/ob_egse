@@ -82,8 +82,8 @@ def cmd_heater_control(
     return resp
 
 
-def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, repeat=True, exit_if_error=False):
-    resp = tc.set_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, verify_ack=True)
+def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, repeat=True, exit_if_error=False):
+    resp = tc.set_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, verify_ack=True)
 
     if resp != "ERROR":
         return resp
@@ -97,7 +97,7 @@ def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim
         tc.clear_errors(port)
         info_log.warning("Repeating Set Motor Params command")
         resp = cmd_mtr_param(
-            port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, repeat=False, exit_if_error=True
+            port, peak_current, mtr_guard, mtr_recval, mtr_speed, repeat=False, exit_if_error=True
         )
 
     return resp
