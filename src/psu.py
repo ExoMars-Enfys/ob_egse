@@ -37,7 +37,9 @@ def open_psu_comms(psu_com: serial.Serial, nopsurequired) -> None:
 
 
 def close_psu_comms(psu_com: serial.Serial) -> None:
-    psu_com.close()
+    if psu_com:
+        psu_com.write(f"LOCAL\r\n".encode("utf-8"))
+        psu_com.close()
     return
 
 

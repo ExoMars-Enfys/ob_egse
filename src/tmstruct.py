@@ -20,8 +20,7 @@ hk = [
     ("MTR_RECVAL", "u8"),
     ("UNUSED3", "u4"),
     ("MTR_SPEED", "u4"),
-    ("MECH_LIM_REL", ">u16"),
-    ("UNUSED4", ">u72"),
+    ("UNUSED4", ">u88"),
     ("PWR_STAT", "u8"),
     ("THRM_STATUS", "u8"),
     ("THRM_MECH_OFF_SP", ">u16"),
@@ -58,21 +57,19 @@ error_struct = [
 ]
 
 mtr_error_struct = [
-    ("UNUSED", "u3"),
+    ("UNUSED", "u4"),
     ("CD", "u1"),
     ("AB", "u1"),
     ("ABS", "u1"),
-    ("REL", "u1"),
     ("DSE", "u1"),
 ]
 mtr_err_msk_struct = [
     ("IG_B", "u1"),
     ("IG_O", "u1"),
-    ("UNUSED", "u1"),
+    ("UNUSED", "u2"),
     ("M_CD", "u1"),
     ("M_AB", "u1"),
     ("M_ABS", "u1"),
-    ("M_REL", "u1"),
     ("M_DSE", "u1"),
 ]
 

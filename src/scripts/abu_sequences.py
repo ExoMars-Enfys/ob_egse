@@ -125,7 +125,7 @@ def cal_motor_to_base(port):
                         f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
 
     # Cal to BASE
-    send_cmd.cmd_mtr_homing(port, True, False)
+    send_cmd.cmd_mtr_homing(port, True, False)    
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Base
@@ -162,7 +162,6 @@ def cal_motor_to_base(port):
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
-
 def home_to_outer(port):
     """
     This function powers the Mechanism board (if it isn't already).
@@ -170,7 +169,7 @@ def home_to_outer(port):
     As it moves it will report the relative and absolute steps.
     """
     event_log.info("Running abu home_to_outer")
-    #TODO: Update all to "send_cmd"
+    #TODO: Update all to "send_cmd" 
     # Check mechanism powered, if not enable.
     hk = tc.hk_request(port)
     if not (hk.PWR_STAT & 0x01):
@@ -181,18 +180,18 @@ def home_to_outer(port):
         resp = tc.hk_request(port)
 
     # Home to Outer with no Cal
-    send_cmd.cmd_mtr_homing(port, False, True)
+    send_cmd.cmd_mtr_homing(port, False, True)    
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Outer
     if not hk_tm.MTR_FLAGS.OUTER:
         event_log.info("Moving to outer, waiting for switch to be pressed.")
         while hk_tm.MTR_FLAGS.MOVING:
-            time.sleep(1)
+            time.sleep(1) 
             hk_tm = tc.hk_request(port)
             event_log.info(f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}")
         event_log.info("Motor movement finished")
-    else :
+    else : 
         event_log.info("Motor Did not Move, Outer Flag Asserted")
 
     #Check motor status now its stopped.
@@ -213,10 +212,8 @@ def home_to_outer(port):
     if (resp.MTR_REL_STEPS == 0):
         event_log.error("Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
-
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
-
 
 def home_to_base(port):
     """
@@ -224,7 +221,7 @@ def home_to_base(port):
     As it moves it will report the relative and absolute steps.
     """
     event_log.info("Running abu home_to_base")
-    #TODO: Update all to "send_cmd"
+    #TODO: Update all to "send_cmd" 
 
     # Check mechanism powered, if not enable.
     hk = tc.hk_request(port)
@@ -236,7 +233,7 @@ def home_to_base(port):
         resp = tc.hk_request(port)
 
     # Home to base
-    send_cmd.cmd_mtr_homing(port,False, False)
+    send_cmd.cmd_mtr_homing(port,False, False)    
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Base
@@ -245,17 +242,17 @@ def home_to_base(port):
         while hk_tm.MTR_FLAGS.MOVING:
             time.sleep(1)
             hk_tm = tc.hk_request(port)
-            event_log.error(f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}" +
+            event_log.error(f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}" + 
                             f"\n CAL : {hk_tm.MTR_FLAGS.CAL}"+
-                            f"\n HOLD : {hk_tm.MTR_FLAGS.HOLD}" +
-                            f"\n DIR : {hk_tm.MTR_FLAGS.DIR}" +
-                            f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}" +
+                            f"\n HOLD : {hk_tm.MTR_FLAGS.HOLD}" + 
+                            f"\n DIR : {hk_tm.MTR_FLAGS.DIR}" + 
+                            f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}" + 
                             f"\n BASE : {hk_tm.MTR_FLAGS.BASE}" +
-                            f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}" +
+                            f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}" + 
                             f"\n HOMED : {hk_tm.MTR_FLAGS.HOMED}"
                             )
         event_log.info("Motor movement finished")
-    else :
+    else : 
         event_log.error("Motor Did not Move, Base Flag Asserted")
 
     #Check motor status now its stopped.
@@ -279,8 +276,7 @@ def home_to_base(port):
 
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
-
-
+   
 def mv_pos_steps(port, pos_steps):
     """
     Script that moves the mechanism a certain number of steps positive (towards the base).
@@ -323,7 +319,6 @@ def mv_pos_steps(port, pos_steps):
 
     return
 
-
 def mv_neg_steps(port, pos_steps):
     """
     Script that moves the mechanism a certain number of steps negative (towards the outer).
@@ -354,7 +349,6 @@ def mv_neg_steps(port, pos_steps):
                         f"\n REL : {hk.MTR_ERRORS.REL}" +
                         f"\n DSE : {hk.MTR_ERRORS.DSE}"
                         )
-
 
 def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -388,7 +382,6 @@ def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci
         event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}")
     if sci.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
-
 
 def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
@@ -434,7 +427,6 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
     return sci.MWIR_OFFSET
 
-
 def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     This sets the MWIR DAC offset as per the functional call.
@@ -478,7 +470,6 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
 
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
     return sci.SWIR_OFFSET
-
 
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -549,7 +540,6 @@ def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     for offset in range(1440, 1785, step):
         set_offset_and_check_sci(port, 100, offset, sci_adc_samp, sci_adc_skip)
 
-
 def sweep_offset_swir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
     This function sweeps through the swir DAC from 0 to 4095 using the increment specified.
@@ -561,8 +551,8 @@ def sweep_offset_swir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
 
 
 def first_power_on(port):
-    """
-    Very simple sequence that powers on both sub-systems.
+    """ 
+    Very simple sequence that powers on both sub-systems. 
     Then Calibrates the mech to BASE
     Then Moves the mech to OUTER
     """
@@ -573,7 +563,6 @@ def first_power_on(port):
 
     cal_motor_to_base(port)
     home_to_outer(port)
-
 
 def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 20):
     """
