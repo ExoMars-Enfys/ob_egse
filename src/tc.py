@@ -198,11 +198,11 @@ def power_control(port, pwr_stat, verify_ack=True):
 
 def heater_control(
     port,
-    htr_sci_tog: bool,
-    htr_detec_man: bool,
-    htr_detec_auto: bool,
-    htr_mech_man: bool,
-    htr_mech_auto: bool,
+    htr_sci_tog: bool = False,
+    htr_detec_man: bool = False,
+    htr_detec_auto: bool = False,
+    htr_mech_man: bool = False,
+    htr_mech_auto: bool = False,
     verify_ack: bool = True,
 ):
     ## --- Check input parameters before sending CMD ---
