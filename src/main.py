@@ -18,6 +18,7 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
+import send_cmd
 import tc
 
 
@@ -100,15 +101,17 @@ def main() -> None:
         port = comms.initialise_comms(com_port)
         port = comms.open_comms(port)
 
-        # info_log.info("Initialising PSU Comms")
-        # psuport = psu.init_psu_comms(psu_com)
-        # psuport = psu.open_psu_comms(psuport,args.nopsu)
-        # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
-        # psu.switchPSU(psuport, 1)  # Switch on PSU
-        # time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
-        # stop_event = threading.Event()
-        # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
-        # psu_thread.start()
+        info_log.info("Initialising PSU Comms")
+        psuport = psu.init_psu_comms(psu_com)
+        psuport = psu.open_psu_comms(psuport, args.nopsu)
+        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+        psu.switchPSU(psuport, 1)  # Switch on PSU
+        time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
+        stop_event = threading.Event()
+        psu_thread = threading.Thread(
+            target=psu.psu_monitor_thread, args=(psuport, stop_event, const.PSU_LOGGING_FREQ), daemon=True
+        )
+        psu_thread.start()
 
         # First HK
         abu.read_hk(port)
@@ -145,11 +148,9 @@ def main() -> None:
         # Get final HK
         abu.read_hk(port)
 
-        # stop_event.set()
-        # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        # # TODO! Add ability to give back local control of PSU
-        # psuport.write(f"LOCAL\r\n".encode('utf-8'))
-        # psu.close_psu_comms(psuport)
+        stop_event.set()
+        psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+        psu.close_psu_comms(psuport)
 
         comms.close_comms(port)
     else:
