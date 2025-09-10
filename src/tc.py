@@ -129,20 +129,18 @@ def set_errors(
     cd: bool = False,
     ab: bool = False,
     abs: bool = False,
-    rel: bool = False,
     dse: bool = False,
     ig_b: bool = False,
     ig_o: bool = False,
     m_cd: bool = False,
     m_ab: bool = False,
     m_abs: bool = False,
-    m_rel: bool = False,
     m_dse: bool = False,
     verify_ack: bool = True,
 ):
     param1 = (0 * 6 << 7) + (tmo << 1) + (ipa)
-    param2 = (0 * 3 << 7) + (cd << 4) + (ab << 3) + (abs << 2) + (rel << 1) + (dse)
-    param3 = (ig_b << 7) + (ig_o << 6) + (0 << 5) + (m_cd << 4) + (m_ab << 3) + (m_abs << 2) + (m_rel << 1) + (m_dse)
+    param2 = (0 * 4 << 7) + (cd << 3) + (ab << 2) + (abs << 1) + (dse)
+    param3 = (ig_b << 7) + (ig_o << 6) + (0 << 5) + (0 << 4) + (m_cd << 3) + (m_ab << 2) + (m_abs << 1) + (m_dse)
     cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
     cmd_tc = crc8Calculate(cmd)
     info_log.info(f"Setting Errors - {bytes.hex(cmd_tc, ' ', 2)}")
@@ -340,10 +338,10 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     return
 
 
-def set_mtr_param(port, peak_current, guard, recval, speed, mech_lim_rel, verify_ack: bool = True):
+def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = True):
     ## --- Check input parameters before sending CMD ---
     # TODO check strings are correct format using constants instead
-    if (peak_current < 0) or (peak_current > 0xFF):
+    if (peak_current < 0) or (peak_current > 0x7F):
         # TODO limit the max current to ensure safe operations
         info_log.error(f"Set_MTR_Param command current out of limits. Rejected by EGSE {peak_current}")
         return
@@ -363,12 +361,8 @@ def set_mtr_param(port, peak_current, guard, recval, speed, mech_lim_rel, verify
         info_log.error(f"Set_MTR_Param command speed out of limits. Rejected by EGSE {speed}")
         return
 
-    if (mech_lim_rel < 0) or (mech_lim_rel > 0xFFFF):
-        info_log.error(f"Set_MTR_Param command pwm_duty out of limits. Rejected by EGSE {mech_lim_rel}")
-        return
-
     ## --- Send CMD ---
-    cmd = "08" + f"{peak_current:02X}{guard:02X}{recval:02X}{speed:02X}{mech_lim_rel:04X}"
+    cmd = "08" + f"{peak_current:02X}{guard:02X}{recval:02X}{speed:02X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
     info_log.info(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc)
