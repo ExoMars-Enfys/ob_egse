@@ -2,11 +2,9 @@
 # Std library
 import logging
 import time
-import sys
 import atexit
 import argparse
 from pathlib import Path
-from datetime import datetime
 import threading
 
 # Local modules
@@ -63,24 +61,15 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     return (event_log, info_log, psu_log)
 
 
-# ----FPGA Boot and Connect-------------------------------------------------------------------------
+def clean_exit(psuport):
+    const.ACK_LOG_FH.close()
+    const.CMD_LOG_FH.close()
+    const.HK_LOG_FH.close()
+    const.SCI_LOG_FH.close()
+    psu.close_psu_comms(psuport)
 
-
-# @atexit.register
-# def clean_exit(psuport):
-#     # Adding parsing to be able to shut down psu
-#     # !TODO: Make sure this is the correct way?
-
-
-#     const.ACK_LOG_FH.close()
-#     const.CMD_LOG_FH.close()
-#     const.HK_LOG_FH.close()
-#     const.SCI_LOG_FH.close()
-#     psu.emergencyShutDown(psuport)
-#     sys.exit(1001)
-#     #! TODO Add code here, possibly try and power insturment off
-#     #! TODO power off power supply
-#     #! TODO ensure all logs are written
+    #! TODO add emergency shutdown to that powers off the OB
+    #! TODO power off power supply
 
 
 def main() -> None:
@@ -92,70 +81,60 @@ def main() -> None:
     const.LOG_PATH = args.basedir
     (event_log, info_log, psu_log) = setup_logs()
 
-    com_port = "COM" + str(args.com)
+    rs485_com = "COM" + str(args.com)
     psu_com = "COM" + str(args.psuport)
 
     if args.script:
         info_log.info("Running Script")
         info_log.info("Initialising RS-485 Comms")
-        port = comms.initialise_comms(com_port)
-        port = comms.open_comms(port)
+        ob_port = comms.initialise_comms(rs485_com)
+        ob_port = comms.open_comms(ob_port)
 
         info_log.info("Initialising PSU Comms")
         psuport = psu.init_psu_comms(psu_com)
         psuport = psu.open_psu_comms(psuport, args.nopsu)
         psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
         psu.switchPSU(psuport, 1)  # Switch on PSU
-        time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
+        atexit.register(clean_exit, psuport)
         stop_event = threading.Event()
+
+        time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
         psu_thread = threading.Thread(
             target=psu.psu_monitor_thread, args=(psuport, stop_event, const.PSU_LOGGING_FREQ), daemon=True
         )
         psu_thread.start()
 
         # First HK
-        abu.read_hk(port)
+        # abu.read_hk(ob_port)
 
-        # TODO: Ensure sequence runs are recorded in info log as well.
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # First power on
-        # abu.first_power_on(port)
 
-        # sweep through SWIR DAC offset
-        # abu.sweep_offset_swir(port, 5)
-
-        # sweep through MWIR DAC offset
-        # abu.sweep_offset_mwir(port, 1)
-
-        # move to 7600 absolute (dark zone)
-        # abu.mv_pos_steps(port, 7600-284)
-        # abu.mv_neg_steps(port, 1358)
-
-        # swir binary chop
-        # abu.swir_binary_chop(port, 100, 0, 100)
-
-        # mwir binary chop
-        # abu.mwir_binary_chop(port, 1792, 0, 100)
-
-        # Measurement scan with found values
-        abu.abu_measurement_scan(port, 30, 0, 100)
+        # tc.power_control(ob_port, 0)
+        # tc.set_mtr_param(ob_port, peak_current=0x40, guard=0x20, recval=0x0F, speed=9)
+        # tc.clear_errors(ob_port)
+        # tc.mtr_mov_pos(ob_port, 8960)
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
         # Get final HK
-        abu.read_hk(port)
+        abu.read_hk(ob_port)
 
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        psu.close_psu_comms(psuport)
 
-        comms.close_comms(port)
+        comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
-        gui.streamlit_gui(com_port, psu_com)
+        rs485port = comms.initialise_comms(ob_port)
+        rs485port = comms.open_comms(rs485port)
+        stop_event = threading.Event()
+        hk_thread = threading.Thread(target=send_cmd.poll_hk, args=(rs485port, stop_event), daemon=True)
+        hk_thread.start()
+        time.sleep(3)
+        gui.init(ob_port, psu_com)
 
 
 if __name__ == "__main__":
@@ -163,7 +142,4 @@ if __name__ == "__main__":
 
 # TODO
 # - Add a way to stop the script
-# - Implement some sort of thread queue with the GUI running seperately
-# - Move streamlit stuff to a different module
-# - See if there is a better way to launch streamlit
-# - See if the python run button can have arguments in vscode
+# - Implement some sort of thread queue with the GUI running separately
