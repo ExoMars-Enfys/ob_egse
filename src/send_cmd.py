@@ -12,168 +12,41 @@ import tc
 info_log = logging.getLogger("info_log")
 
 
-def cmd_hk(port, repeat=True, exit_if_error=False):
-    resp = tc.hk_request(port, verify=True)
+def send_cmd(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs):
+    """A generic command sender, will automatically check the response of the command for an error
+    and if one is found and repeat is set, it will clear the errors and try again.
+
+    The function returns "ERROR" if the command failed, which can be used as part of the test logic
+    to halt the script and allow for manual intervention.
+
+    Example usage:  resp = send_cmd(port, tc.mtr_mov_pos, 0x20)
+    """
+    resp = cmd_func(port, *args, verify_ack=True)
 
     if resp != "ERROR":
         return resp
 
     if exit_if_error:
-        info_log.error("HK Exit on Error i set")
+        info_log.error(f"{cmd_func.__name__} exit on error asserted")
         return "ERROR"
 
     if repeat:
         info_log.warning("Clearing errors")
         tc.clear_errors(port)
-        info_log.warning("Repeating HK command")
-        cmd_hk(port, repeat=True, exit_if_error=False)
+        info_log.warning(f"Repeating {cmd_func.__name__} command")
+        resp = send_cmd(port, cmd_func, *args, repeat=False, exit_if_error=True, **kwargs)
 
     return resp
 
 
-def cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False):
-    resp = tc.power_control(port, pwr_stat, verify_ack=True)
+def poll_hk(port, stop_event):
+    if not port:
+        return
 
-    if resp != "ERROR":
-        return resp
+    while not stop_event.is_set():
+        try:
+            tc.hk_request(port)
+        except Exception as e:
+            info_log.error(f"Error in HK poll thread {e}")
 
-    if exit_if_error:
-        info_log.error("Power Control Exit on Error i set")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating Power Control command")
-        cmd_power_control(port, pwr_stat, repeat=True, exit_if_error=False)
-
-    return resp
-
-
-def cmd_heater_control(
-    port, htr_sci_tog, htr_detec_man, htr_detec_auto, htr_mech_man, htr_mech_auto, repeat=True, exit_if_error=False
-):
-    resp = tc.heater_control(
-        port, htr_sci_tog, htr_detec_man, htr_detec_auto, htr_mech_man, htr_mech_auto, verify_ack=True
-    )
-
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("Heater Control Exit on Error i set")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating Power Control command")
-        cmd_heater_control(
-            port,
-            htr_sci_tog,
-            htr_detec_man,
-            htr_detec_auto,
-            htr_mech_man,
-            htr_mech_auto,
-            repeat=False,
-            exit_if_error=False,
-        )
-
-    return resp
-
-
-def cmd_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, repeat=True, exit_if_error=False):
-    resp = tc.set_mtr_param(port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, verify_ack=True)
-
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("Set Motor Params exit on error asserted")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating Set Motor Params command")
-        resp = cmd_mtr_param(
-            port, peak_current, mtr_guard, mtr_recval, mtr_speed, mech_lim_rel, repeat=False, exit_if_error=True
-        )
-
-    return resp
-
-
-def cmd_mtr_mov_pos(port, pos_steps, repeat=True, exit_if_error=False):
-    resp = tc.mtr_mov_pos(port, pos_steps, verify_ack=True)
-
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("MTR_MOV_POS exit on error asserted")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating MTR_MOV_POS command")
-        resp = cmd_mtr_mov_pos(port, pos_steps, repeat=False, exit_if_error=True)
-
-    return resp
-
-
-def cmd_mtr_mov_neg(port, neg_steps, repeat=True, exit_if_error=False):
-    resp = tc.mtr_mov_neg(port, neg_steps, verify_ack=True)
-
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("MTR_MOV_POS exit on error asserted")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating MTR_MOV_POS command")
-        resp = cmd_mtr_mov_neg(port, neg_steps, repeat=False, exit_if_error=True)
-
-    return resp
-
-
-def cmd_mtr_halt(port, repeat=True, exit_if_error=True):
-    resp = tc.mtr_halt(port, verify=True)
-
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("MTR HALT exit on error asserted")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating MTR HALT command")
-        resp = cmd_mtr_halt(port, repeat=False, exit_if_error=True)
-
-    return resp
-
-
-# TODO Finish this
-def cmd_mtr_homing(port, cal: bool, outer: bool, repeat=True, exit_if_error=True):
-    resp = tc.mtr_homing(port, cal, outer, verify=True)
-    if resp != "ERROR":
-        return resp
-
-    if exit_if_error:
-        info_log.error("MTR HALT exit on error asserted")
-        return "ERROR"
-
-    if repeat:
-        info_log.warning("Clearing errors")
-        tc.clear_errors(port)
-        info_log.warning("Repeating MTR Homing command")
-        resp = cmd_mtr_homing(port, cal, outer, repeat=False, exit_if_error=True)
-
-    return resp
+        stop_event.wait(1)

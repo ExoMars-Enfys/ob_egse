@@ -16,7 +16,7 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
-import send_cmd
+from send_cmd import *
 import tc
 
 
