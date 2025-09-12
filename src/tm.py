@@ -92,6 +92,18 @@ class TM:
         for k, v in mtr_error_param.items():
             setattr(self.MTR_ERRORS, k, v)
 
+    def decode_thrm_status_byte(self):
+        ## Decode bit maps
+        # Thermal Status
+        self.THRM_STATUS_FLAGS = namedtuple("THRM_STATUS_FLAGS", "".join(i[1] for i in tmstruct.thrm_status_struct))
+        thrm_status_param = bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.thrm_status_struct),
+            [i[0] for i in tmstruct.thrm_status_struct],
+            self.THRM_STATUS.to_bytes(1),
+        )
+        for k, v in thrm_status_param.items():
+            setattr(self.THRM_STATUS_FLAGS, k, v)
+
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
             info_log.error(f"HK Error asserted: {self.ERROR_BYTE}")
@@ -125,6 +137,7 @@ class HK(TM):
         self.decode_bytes(tmstruct.hk)
         self.decode_error_byte()
         self.decode_mtr_error_byte()
+        self.decode_thrm_status_byte()
 
         # Motor Flags
         self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[1] for i in tmstruct.mtr_flag_struct))

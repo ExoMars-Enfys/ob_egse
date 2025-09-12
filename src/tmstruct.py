@@ -84,6 +84,17 @@ mtr_flag_struct = [
     ("HOMED", "u1"),
 ]
 
+thrm_status_struct = [
+    ("HDS", "u1"),
+    ("HMS", "u1"),
+    ("UNUSED", "u1"),
+    ("S", "u1"),
+    ("DM", "u1"),
+    ("DA", "u1"),
+    ("MM", "u1"),
+    ("MA", "u1"),
+]
+
 ack_struct = [
     ("MOD_ID", "u3"),
     ("UNUSED1", "u1"),
