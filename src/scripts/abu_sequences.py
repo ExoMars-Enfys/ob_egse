@@ -83,7 +83,6 @@ def read_hk(port, display_contents=True):
                                 ("CD " if resp.MTR_ERRORS.CD else "") +
                                 ("AB " if resp.MTR_ERRORS.AB else "") +
                                 ("ABS " if resp.MTR_ERRORS.ABS else "") +
-                                ("REL " if resp.MTR_ERRORS.REL else "") +
                                 ("DSE " if resp.MTR_ERRORS.DSE else "") +
                                 ("None" if resp.ERROR_MTR == 0 else "")
         )
@@ -122,7 +121,7 @@ def cal_motor_to_base(port):
                         f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9")
 
     # Cal to BASE
-    send_cmd.cmd_mtr_homing(port, True, False)    
+    send_cmd.cmd_mtr_homing(port, True, False)
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Base
@@ -159,6 +158,7 @@ def cal_motor_to_base(port):
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
+
 def home_to_outer(port):
     """
     This function powers the Mechanism board (if it isn't already).
@@ -166,7 +166,7 @@ def home_to_outer(port):
     As it moves it will report the relative and absolute steps.
     """
     event_log.info("Running abu home_to_outer")
-    #TODO: Update all to "send_cmd" 
+    #TODO: Update all to "send_cmd"
     # Check mechanism powered, if not enable.
     hk = tc.hk_request(port)
     if not (hk.PWR_STAT & 0x01):
@@ -177,18 +177,18 @@ def home_to_outer(port):
         resp = tc.hk_request(port)
 
     # Home to Outer with no Cal
-    send_cmd.cmd_mtr_homing(port, False, True)    
+    send_cmd.cmd_mtr_homing(port, False, True)
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Outer
     if not hk_tm.MTR_FLAGS.OUTER:
         event_log.info("Moving to outer, waiting for switch to be pressed.")
         while hk_tm.MTR_FLAGS.MOVING:
-            time.sleep(1) 
+            time.sleep(1)
             hk_tm = tc.hk_request(port)
             event_log.info(f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}")
         event_log.info("Motor movement finished")
-    else : 
+    else :
         event_log.info("Motor Did not Move, Outer Flag Asserted")
 
     #Check motor status now its stopped.
@@ -209,8 +209,10 @@ def home_to_outer(port):
     if (resp.MTR_REL_STEPS == 0):
         event_log.error("Motor Steps Do not match expected : " +
                         f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
+
 
 def home_to_base(port):
     """
@@ -218,7 +220,7 @@ def home_to_base(port):
     As it moves it will report the relative and absolute steps.
     """
     event_log.info("Running abu home_to_base")
-    #TODO: Update all to "send_cmd" 
+    #TODO: Update all to "send_cmd"
 
     # Check mechanism powered, if not enable.
     hk = tc.hk_request(port)
@@ -230,7 +232,7 @@ def home_to_base(port):
         resp = tc.hk_request(port)
 
     # Home to base
-    send_cmd.cmd_mtr_homing(port,False, False)    
+    send_cmd.cmd_mtr_homing(port,False, False)
     hk_tm = tc.hk_request(port)
 
     # Check to see if at the Base
@@ -239,17 +241,17 @@ def home_to_base(port):
         while hk_tm.MTR_FLAGS.MOVING:
             time.sleep(1)
             hk_tm = tc.hk_request(port)
-            event_log.error(f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}" + 
+            event_log.error(f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}" +
                             f"\n CAL : {hk_tm.MTR_FLAGS.CAL}"+
-                            f"\n HOLD : {hk_tm.MTR_FLAGS.HOLD}" + 
-                            f"\n DIR : {hk_tm.MTR_FLAGS.DIR}" + 
-                            f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}" + 
+                            f"\n HOLD : {hk_tm.MTR_FLAGS.HOLD}" +
+                            f"\n DIR : {hk_tm.MTR_FLAGS.DIR}" +
+                            f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}" +
                             f"\n BASE : {hk_tm.MTR_FLAGS.BASE}" +
-                            f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}" + 
+                            f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}" +
                             f"\n HOMED : {hk_tm.MTR_FLAGS.HOMED}"
                             )
         event_log.info("Motor movement finished")
-    else : 
+    else :
         event_log.error("Motor Did not Move, Base Flag Asserted")
 
     #Check motor status now its stopped.
@@ -273,7 +275,8 @@ def home_to_base(port):
 
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
-   
+
+
 def mv_pos_steps(port, pos_steps):
     """
     Script that moves the mechanism a certain number of steps positive (towards the base).
@@ -301,7 +304,6 @@ def mv_pos_steps(port, pos_steps):
                         f"\n CD : {hk.MTR_ERRORS.CD}"+
                         f"\n AB : {hk.MTR_ERRORS.AB}" +
                         f"\n ABS : {hk.MTR_ERRORS.ABS}" +
-                        f"\n REL : {hk.MTR_ERRORS.REL}" +
                         f"\n DSE : {hk.MTR_ERRORS.DSE}"
                         )
 
@@ -315,6 +317,7 @@ def mv_pos_steps(port, pos_steps):
     #                )
 
     return
+
 
 def mv_neg_steps(port, pos_steps):
     """
@@ -343,9 +346,9 @@ def mv_neg_steps(port, pos_steps):
                         f"\n CD : {hk.MTR_ERRORS.CD}"+
                         f"\n AB : {hk.MTR_ERRORS.AB}" +
                         f"\n ABS : {hk.MTR_ERRORS.ABS}" +
-                        f"\n REL : {hk.MTR_ERRORS.REL}" +
                         f"\n DSE : {hk.MTR_ERRORS.DSE}"
                         )
+
 
 def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -379,6 +382,7 @@ def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci
         event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}")
     if sci.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
+
 
 def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
@@ -424,6 +428,7 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
     return sci.MWIR_OFFSET
 
+
 def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     """
     This sets the MWIR DAC offset as per the functional call.
@@ -444,9 +449,9 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
 
     swir_value = 0x0 # Seed Value
 
-    for i in range(12, 0, -1):
+    for i in range(12, 0, -1): #(12, 0,-1)
         event_log.info(f"Testing bit {i} out of 12")
-        swir_delta  = 0x1 << (i -1)
+        swir_delta  = 0x1 << (i -1) #0x1
         event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
         tc.sci_offset(port, swir_value + swir_delta, mwir_fixed)
         sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
@@ -468,6 +473,7 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
     return sci.SWIR_OFFSET
 
+
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
@@ -481,6 +487,39 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
 
     if pos_steps > 0:
         mv_pos_steps(port, pos_steps)
+    else:
+        event_log.info("No need to move any steps, proceeding to measurement")
+
+    # Request a Science Mesaurement and log to the screen.
+    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+    hk_tm = tc.hk_request(port)
+    event_log.info(f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
+                  f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}" +
+                  f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}" +
+                  f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}" +
+                  f"\t\t SW_L: {sci.SWIR_LOW:04d}" +
+                  f"   SW_M: {sci.SWIR_MED:04d}" +
+                  f"   SW_H: {sci.SWIR_HIGH:04d}" +
+                  f"\t MW_L: {sci.MWIR_LOW:04d}" +
+                  f"   MW_M: {sci.MWIR_MED:04d}" +
+                  f"   MW_H: {sci.MWIR_HIGH:04d}" +
+                  f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}" +
+                  f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}")
+    return
+
+def moveneg_and_measure(port, neg_steps, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
+    and the sequence will just measure the same point once again.
+
+    This sequence should be executed once the motor has been homed and the offsets applied.
+
+    The motor moves from the Base to Outer using (negative steps)
+    """
+    event_log.info("Running abu moveneg_and_measure")
+
+    if neg_steps > 0:
+        mv_neg_steps(port, neg_steps)
     else:
         event_log.info("No need to move any steps, proceeding to measurement")
 
@@ -523,8 +562,30 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
     event_log.info("Starting Science Measurements")
     move_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
-    for i in range(0, 8600, step_spacing):
+    for i in range(0, 8900, step_spacing):
         move_and_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
+
+    event_log.info("Science Measurements Completed!!")
+
+def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    """
+    event_log.info("Running ABU Measurement Scan")
+    read_hk(port, False)
+
+    # Cal to Base
+    cal_motor_to_base(port)
+
+    
+    # Measurement sequence
+    # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
+    event_log.info("Starting Science Measurements")
+    moveneg_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    for i in range(0, 8900, step_spacing):
+        moveneg_and_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
 
@@ -537,6 +598,7 @@ def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     for offset in range(1440, 1785, step):
         set_offset_and_check_sci(port, 100, offset, sci_adc_samp, sci_adc_skip)
 
+
 def sweep_offset_swir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
     This function sweeps through the swir DAC from 0 to 4095 using the increment specified.
@@ -548,8 +610,8 @@ def sweep_offset_swir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
 
 
 def first_power_on(port):
-    """ 
-    Very simple sequence that powers on both sub-systems. 
+    """
+    Very simple sequence that powers on both sub-systems.
     Then Calibrates the mech to BASE
     Then Moves the mech to OUTER
     """
@@ -561,7 +623,8 @@ def first_power_on(port):
     cal_motor_to_base(port)
     home_to_outer(port)
 
-def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 20):
+
+def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 100):
     """
     This function tries to find a DAC offset which results in a high gain output close
     to the value or target_output. The sensor that's *not* being configured has its gain
@@ -713,25 +776,45 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
     # target high gain values at 510 motor steps to try to get a dark DAC
     # level of 200 at 7500 motor steps. It uses HT_SINK_TEMP for the
     # estimation.
-    measurement_position = 510
+    measurement_position = 1510
 
     # From 2025-08-20 data set
+    ## Update: from the revised Sci TRP data (post firmware update) we 'just' need to
+    ## multiply the table value first number by 16 as a starting point, because 
+    ## the HT_SINK_TEMP values are now around 6400 at 20oC
+    ## But! the Sci Data is coming back 16bit now
+
+    mwir_interpolation_table = [
+            (298, 84), (306, 107), (314, 140), (323, 193),
+            (331, 263), (339, 362), (347, 503), (355, 703),
+            (363, 988), (371, 1393), (379, 1971), (388, 2917),
+            (396, 4139), (404, 5877), (412, 8352), (420, 11874)
+    ]
+
+    #Post firmware table update JJT 11/09 didn't work :-( 
     #mwir_interpolation_table = [
-    #        (298, 84), (306, 107), (314, 140), (323, 193),
-    #        (331, 263), (339, 362), (347, 503), (355, 703),
-    #        (363, 988), (371, 1393), (379, 1971), (388, 2917),
-    #        (396, 4139), (404, 5877), (412, 8352), (420, 11874)
+    #        (4076, 84), (4896, 107), (5024, 140), (5168, 193),
+    #        (5296, 263), (5424, 362), (5552, 503), (5680, 703),
+    #        (5808, 988), (5936, 1393), (6064, 1971), (6208, 2917),
+    #        (6336, 4139), (6464, 5877), (6592, 8352), (6720, 11874)
+    #]
+    
+    #swir_interpolation_table = [
+    #        (4768, 190), (6720, 190)
     #]
 
     # From 2025-08-20 and 2025-09-03/04 data sets
-    mwir_interpolation_table = [
-       (297, 92), (305, 112), (313, 140), (321, 180), (330, 248), (338, 336),
-       (346, 462), (354, 645), (363, 948), (371, 1345), (379, 1916), (387, 2739),
-       (395, 3925), (404, 5893), (412, 8468), (420, 12177)
-    ]
+    #mwir_interpolation_table = [
+    #   (297, 92), (305, 112), (313, 140), (321, 180), (330, 248), (338, 336),
+    #   (346, 462), (354, 645), (363, 948), (371, 1345), (379, 1916), (387, 2739),
+    #   (395, 3925), (404, 5893), (412, 8468), (420, 12177)
+    #]
+
+
     swir_interpolation_table = [
             (298, 190), (420, 190)
     ]
+
 
     # Move to the measurement position.
     mv_abs_pos(port, measurement_position)

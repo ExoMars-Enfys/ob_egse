@@ -18,7 +18,6 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
-import send_cmd
 import tc
 
 
@@ -103,14 +102,12 @@ def main() -> None:
 
         # info_log.info("Initialising PSU Comms")
         # psuport = psu.init_psu_comms(psu_com)
-        # psuport = psu.open_psu_comms(psuport, args.nopsu)
+        # psuport = psu.open_psu_comms(psuport,args.nopsu)
         # psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
         # psu.switchPSU(psuport, 1)  # Switch on PSU
-        # time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
+        # time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
         # stop_event = threading.Event()
-        # psu_thread = threading.Thread(
-        #     target=psu.psu_monitor_thread, args=(psuport, stop_event, const.PSU_LOGGING_FREQ), daemon=True
-        # )
+        # psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
         # psu_thread.start()
 
         # First HK
@@ -121,33 +118,98 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # First power on
-        # abu.first_power_on(port)
+        abu.first_power_on(port)
+
+        ## Clear Errors
+        #tc.clear_errors(port)
+
+        #abu.mv_abs_pos(port, 100)
+        #abu.read_hk(port)
 
         # Move to position 510 and try to set DAC offsets
         #abu.dac_auto_offset(port)
 
         # Move to absolute position and take a reading
-        #abu.mv_abs_pos(port, 7600)
+        #abu.mv_abs_pos(port, 8600)
         #abu.move_and_measure(port, 0)
 
         # sweep through SWIR DAC offset
         # abu.sweep_offset_swir(port, 5)
-
         # sweep through MWIR DAC offset
         # abu.sweep_offset_mwir(port, 1)
 
         # move to 7600 absolute (dark zone)
-        # abu.mv_pos_steps(port, 7600-283)
+        #abu.mv_pos_steps(port, 7600-283)
         # abu.mv_neg_steps(port, 1358)
 
         # swir binary chop
-        # abu.swir_binary_chop(port, 100, 0, 100)
+        #abu.swir_binary_chop(port, 100, 4, 100)
 
+        #abu.set_offset_and_check_sci(port, 4095, 4095, 4, 100)
+        
         # mwir binary chop
-        # abu.mwir_binary_chop(port, 2240, 0, 100)
+        #abu.mwir_binary_chop(port, 2560, 4, 100)
 
+        #
         # Measurement scan with found values
-        # abu.abu_measurement_scan(port, 30, 0, 100)
+        #abu.abu_measurement_scan(port, 30, 4, 100)
+
+        ############################################
+        ############################################
+        #log_dir = Path(const.HK_LOG_FH.name).parent
+        #choplog = open(log_dir / "swir-mwir.log", "w")
+
+        ## CSV header
+        #print("Seconds,SWIR_OFFSET,MWIR_OFFSET,HT_SINK_TRP,SWIR_TEMP,SW_H,MW_H", file=choplog)
+
+        ## Where we'll measure.
+        #abu.mv_abs_pos(port, 8600)
+        #while True:
+        #    swir_offset = abu.find_dac_offset(port, "SWIR", 200, 1)
+        #    mwir_offset = abu.find_dac_offset(port, "MWIR", 1500, swir_offset)
+        #    hk_tm = tc.hk_request(port)
+        #    sci = tc.sci_request(port, 4, 100)
+        #    print(f"HT_SINK_TEMP={sci.HT_SINK_TEMP}")
+        #    time.sleep(30)
+
+        ## Run for an hour.
+        #start_time = time.time()
+        #end_time = start_time + 5400
+        #while time.time() < end_time:
+            ## Do full binary chop on swir and mwir, with 
+            ## swir target=200 and mwir target=1500.
+        #    swir_offset = abu.find_dac_offset(port, "SWIR", 200, 1)
+        #    mwir_offset = abu.find_dac_offset(port, "MWIR", 1500, swir_offset)
+
+            ## Get a science packet so we can note the TRP values in our log.
+        #    sci = tc.sci_request(port, 4, 100)
+
+        #    print(f"{time.time()-start_time:.0f},{swir_offset},{mwir_offset},{sci.HT_SINK_TEMP},{sci.SWIR_TEMP},{sci.SWIR_HIGH},{sci.MWIR_HIGH}", file=choplog)
+        #    choplog.flush()
+        #    event_log.info(f"SWIR_OFFSET: {sci.SWIR_OFFSET:5d}" +
+        #          f" MWIR_OFFSET: {sci.MWIR_OFFSET:5d}" +
+        #          f" SWIR_HIGH: {sci.SWIR_HIGH:5d}" +
+        #          f" MWIR_HIGH: {sci.MWIR_HIGH:5d}" +
+        #          f" HT_SINK_TEMP: {sci.HT_SINK_TEMP:5d}" +
+        #          f" SWIR_TEMP: {sci.SWIR_TEMP:5d}")
+        #    time.sleep(10)
+
+        #choplog.close()
+        ###############################
+        
+
+        #abu.mv_abs_pos(port, 7500)
+        #swir_offset = abu.swir_binary_chop(port, 100, 4, 100)
+        #abu.mwir_binary_chop(port, swir_offset, 4, 100)
+
+        #for i in range(7200):
+        #    abu.move_and_measure(port, 0)
+        #    time.sleep(1)
+
+        # Cal to base then Home to outer to count the steps
+        #abu.home_to_base (port)
+        #abu.home_to_outer (port)
+
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
@@ -165,6 +227,7 @@ def main() -> None:
         # stop_event.set()
         # psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
         # # TODO! Add ability to give back local control of PSU
+        # psuport.write(f"LOCAL\r\n".encode('utf-8'))
         # psu.close_psu_comms(psuport)
 
         comms.close_comms(port)
