@@ -79,6 +79,7 @@ def hk_request(port, verify=True):
     if response.cmd_type != "HK_Request":
         info_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
         info_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
+        return "ERROR"
 
     parsed = tm.parse_tm(response)
 
@@ -104,7 +105,7 @@ def clear_errors(port, verify_ack=True):
 
     if ack.cmd_type != "Clear_Errors":
         info_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
-        return
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -177,6 +178,7 @@ def power_control(port, pwr_stat, verify_ack=True):
 
     if ack.cmd_type != "Power_Control":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -219,6 +221,7 @@ def heater_control(
 
     if ack.cmd_type != "Heater_Control":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -264,6 +267,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
 
     if ack.cmd_type != "Set_Mech_SP":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return
 
     if not verify_ack:
         return
@@ -315,6 +319,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
 
     if ack.cmd_type != "Set_Detec_SP":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -373,6 +378,7 @@ def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = T
 
     if ack.cmd_type != "Set_MTR_Param":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -523,6 +529,7 @@ def mtr_halt(port, verify=True):
 
     if ack.cmd_type != "Halt":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify:
         return
@@ -554,6 +561,7 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
 
     if ack.cmd_type != "Set_HK_Samples":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -591,6 +599,7 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
 
     if ack.cmd_type != "SCI_Offset":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify:
         return
@@ -631,6 +640,7 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
 
     if ack.cmd_type != "Set_HK_Samples":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
+        return "ERROR"
 
     if not verify_ack:
         return
@@ -673,7 +683,7 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     if sci.cmd_type != "SCI_Request":
         info_log.error(f"Incorrect response to SCI CMD. Got {sci.cmd_type}")
         info_log.error(f"Response: {bytes.hex(sci.raw_bytes, ' ', 2)}")
-        return
+        return "ERROR"
 
     if not verify_resp:
         return
