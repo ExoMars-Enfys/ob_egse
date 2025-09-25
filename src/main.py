@@ -20,7 +20,9 @@ import scripts.error_checks as ec
 import scripts.abu_sequences as abu
 import scripts.heaters as h
 from send_cmd import cmd_repeat as repeat
+from scripts.OB_FFT import fft as fft
 import tc
+from scripts.LTM import LTM_Measurement as LTM
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -79,69 +81,78 @@ def clean_exit():
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-#     psu.emergencyShutDown(psuport)
+    # psu.emergencyShutDown("COM8")
     sys.exit(1001)
 #     #! TODO Add code here, possibly try and power insturment off
 #     #! TODO power off power supply
 #     #! TODO ensure all logs are written
 
 def main() -> None:
-    parser = init_arparse()
-    args = parser.parse_args()
+    try : 
+        parser = init_arparse()
+        args = parser.parse_args()
 
-    # Setup loggers
-    const.LOG_PREFIX = str(args.prefix).strip("'")
-    const.LOG_PATH = args.basedir
-    (event_log, info_log, psu_log) = setup_logs()
+        # Setup loggers
+        const.LOG_PREFIX = str(args.prefix).strip("'")
+        const.LOG_PATH = args.basedir
+        (event_log, info_log, psu_log) = setup_logs()
 
-    com_port = "COM" + str(args.com)
-    psu_com = "COM" + str(args.psuport)
+        com_port = "COM" + str(args.com)
+        psu_com = "COM" + str(args.psuport)
 
-    if args.script:
-        info_log.info("Running Script")
-        info_log.info("Initialising RS-485 Comms")
-        port = comms.initialise_comms(com_port)
-        port = comms.open_comms(port)
+        if args.script:
+            info_log.info("Running Script")
+            info_log.info("Initialising RS-485 Comms")
+            port = comms.initialise_comms(com_port)
+            port = comms.open_comms(port)
 
-        info_log.info("Initialising PSU Comms")
-        psuport = psu.init_psu_comms(psu_com)       
-        psuport = psu.open_psu_comms(psuport,args.nopsu)
-        psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
-        psu.switchPSU(psuport, 1)  # Switch on PSU
-        time.sleep(1) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
-        stop_event = threading.Event()
-        psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
-        psu_thread.start()
+            info_log.info("Initialising PSU Comms")
+            psuport = psu.init_psu_comms(psu_com)       
+            psuport = psu.open_psu_comms(psuport,args.nopsu)
+            psu.psuLinkCheck(psuport)
+            psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
+            psu.switchPSU(psuport,True)
+            time.sleep(3) #Adding a 1 second delay before starting monitoring thread for compensation of OVP
+            stop_event = threading.Event()
+            psu_thread = threading.Thread(target=psu.psu_monitor_thread, args=(psuport, stop_event,const.PSU_LOGGING_FREQ), daemon=True)
+            psu_thread.start()
 
-        # TODO: Ensure sequence runs are recorded in info log as well.
-        # ------------------------------------------------------------------------------------------
-        # User add commands or sequences from here:
-        # ----------------------------------------------------------------------------------------
-        result = repeat(port, tc.mtr_mov_pos, 0x20)
-        # ------------------------------------------------------------------------------------------
+            # TODO: Ensure sequence runs are recorded in info log as well.
+            # ------------------------------------------------------------------------------------------
+            # User add commands or sequences from here:
+            # ----------------------------------------------------------------------------------------
+            # LTM(port)
+            sq.power_up(port)
+            tc.mtr_mov_pos(port,0x050)
+            # ------------------------------------------------------------------------------------------
 
-        # Clean up and exit
-        # # ------------------------------------------------------------------------------------------
+            comms.close_comms(port)
+        else:
+            info_log.info("Running GUI")
+            gui.streamlit_gui(com_port,psu_com)
+    except KeyboardInterrupt:
+        info_log.error("Keyboard Interrupt detected, shutting down.")
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        psu.close_psu_comms(psuport)        
-        # psu.emergencyShutDown(psuport)
         comms.close_comms(port)
-    else:
-        info_log.info("Running GUI")
-        gui.streamlit_gui(com_port,psu_com)
+        psu.emergencyShutDown(psuport)
+        clean_exit()
+
 
 
 if __name__ == "__main__":
     main()
 
 # TODO
-# - Add a way to stop the script
+# 1 Add a way to stop the script
+#?1 A keyboard interrupt of CTRL+C triggers the psu thread stop, closes all comms and shuts down psu
+
+#2 See if the python run button can have arguments in vscode
+#?2 launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
+#?2 Current version has args for -s -np prepassed
 
 # - Implement some sort of thread queue with the GUI running seperately
 # - Move streamlit stuff to a different module
 # - See if there is a better way to launch streamlit
 
-#? See if the python run button can have arguments in vscode
-# launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
-# Current version has args for -s -np prepassed
+

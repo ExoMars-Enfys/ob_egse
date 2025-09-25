@@ -83,7 +83,7 @@ mtr_flag_struct = [
     ("OUTER", "u1"),
     ("BASE", "u1"),
     ("MOVING", "u1"),
-    ("HOMED", "u1"),
+    ("HOMING", "u1"),
 ]
 
 ack_struct = [

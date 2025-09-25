@@ -3,6 +3,7 @@ import time
 import constants as const
 import send_cmd
 import tc
+from send_cmd import cmd_repeat as repeat
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -12,16 +13,17 @@ info_log = logging.getLogger("info_log")
 # ----
 def power_up(port):
     try : 
-        send_cmd.cmd_power_control(port,0x01)
-        send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+        repeat(port,tc.clear_errors)
+        repeat(port,tc.power_control ,0x01)
+        repeat(port,tc.set_mtr_param ,0x40,0xc8,0x0F,0x8,0x3200)
         resp = tc.hk_request(port)
-        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 64 or resp.MTR_GUARD != 32 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 9 or resp.MECH_LIM_REL != 12800:            
+        if resp.MTR_CURRENT != 64 or resp.MTR_GUARD != 200 or resp.MTR_RECVAL != 15 or resp.MTR_SPEED != 8 :            
             raise ValueError(f"OB Parameters not initialized correctly:"+
                             f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1" +
                             f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
-                            f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+                            f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 200" +
                             f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                            f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+                            f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8" +
                             f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
         else : 
             event_log.info("Power Up and set params : Passed")
@@ -105,7 +107,7 @@ def check_hk(port) :
                             f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
                             f"\n BASE : {resp.MTR_FLAGS.BASE}" +
                             f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
-                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
                             )
     event_log.info(f"Unused : {resp.MTR_ERRORS.UNUSED}" + 
                             f"\n CD : {resp.MTR_ERRORS.CD}"+

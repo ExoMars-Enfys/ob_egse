@@ -696,7 +696,6 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
 
     verify_blank_ack_params(parsed, start_index=2)
 
-#TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Check input parameters before sending CMD ---
     if (sci_adc_samp < 0) or (sci_adc_samp > 0x0A):

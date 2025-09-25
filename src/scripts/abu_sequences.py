@@ -66,23 +66,23 @@ def abu_cal_motor(port):
         resp = tc.hk_request(port)
     
     # Set motor parameters
-    send_cmd.cmd_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
-    resp = tc.hk_request(port)
-    if (
-    resp.MTR_CURRENT != 0x40
-    or resp.MTR_GUARD != 0x20
-    or resp.MTR_RECVAL != 0x0F
-    or resp.MTR_SPEED != 0x9
-    or resp.MECH_LIM_REL != 0x3200):
-        event_log.error(f"OB Parameters not initialized correctly:"+
-                        f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
-                        f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
-                        f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
-                        f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
-                        f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
+    # tc.set_mtr_param(port,0x40,0x20,0x0F,0x9,0x3200)
+    # resp = tc.hk_request(port)
+    # if (
+    # resp.MTR_CURRENT != 0x40
+    # or resp.MTR_GUARD != 0x20
+    # or resp.MTR_RECVAL != 0x0F
+    # or resp.MTR_SPEED != 0x9
+    # or resp.MECH_LIM_REL != 0x3200):
+    #     event_log.error(f"OB Parameters not initialized correctly:"+
+    #                     f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64" +
+    #                     f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32" +
+    #                     f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15" +
+    #                     f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9" +
+    #                     f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800")
         
     # Cal to BASE
-    send_cmd.cmd_mtr_homing(port, True, False)    
+    tc.mtr_homing(port, True, False)    
     hk = tc.hk_request(port)
 
     # If ABS Steps at 8960 we are already there, otherwise wait for movement
@@ -107,8 +107,8 @@ def abu_cal_motor(port):
         event_log.error(f"BASE Switch Flag is not asserted : {resp.MTR_FLAGS.BASE}")
     if resp.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
-    if resp.MTR_FLAGS.HOMED != 0:
-        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
+    if resp.MTR_FLAGS.HOMING != 0:
+        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
    
     if (resp.MTR_ABS_STEPS != 8960):
         event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
@@ -131,7 +131,7 @@ def abu_outer_home(port):
         resp = tc.hk_request(port)
 
     # Home to Outer with no Cal
-    send_cmd.cmd_mtr_homing(port, False, True)    
+    tc.mtr_homing(port, False, True)    
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1 : 
         event_log.info("Moving to outer, waiting for switch to be pressed.")
@@ -145,7 +145,7 @@ def abu_outer_home(port):
                                         f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
                                         f"\n BASE : {resp.MTR_FLAGS.BASE}" +
                                         f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
-                                        f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                                        f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
                                         )
             event_log.error(f"\nMotor Error Flags : {resp.ERROR_MTR}")
         event_log.info("Motor movement finished")
@@ -164,8 +164,8 @@ def abu_outer_home(port):
         event_log.error(f"Base Switch Flag is asserted : {resp.MTR_FLAGS.BASE}")
     if resp.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
-    if resp.MTR_FLAGS.HOMED != 0:
-        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
+    if resp.MTR_FLAGS.HOMING != 0:
+        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
     if (resp.MTR_REL_STEPS == 0):
         event_log.error(f"Motor Steps Do not match expected : " + 
@@ -188,7 +188,7 @@ def abu_rtn_to_base(port):
         resp = tc.hk_request(port)
 
     # Home to base
-    send_cmd.cmd_mtr_homing(port,False, False)    
+    tc.mtr_homing(port,False, False)    
     resp = tc.hk_request(port)
     if resp.MTR_FLAGS.MOVING == 1 : 
         event_log.info("Moving to the base, waiting for switch to be pressed.")
@@ -202,7 +202,7 @@ def abu_rtn_to_base(port):
                             f"\n OUTER : {resp.MTR_FLAGS.OUTER}" + 
                             f"\n BASE : {resp.MTR_FLAGS.BASE}" +
                             f"\n MOVING : {resp.MTR_FLAGS.MOVING}" + 
-                            f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                            f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
                             )
         event_log.info("Motor movement finished")
     else : 
@@ -220,8 +220,8 @@ def abu_rtn_to_base(port):
         event_log.error(f"Base Switch Flag not raised : {resp.MTR_FLAGS.BASE}")
     if resp.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
-    if resp.MTR_FLAGS.HOMED != 0:
-        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
+    if resp.MTR_FLAGS.HOMING != 0:
+        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
     if (resp.MTR_REL_STEPS == 0):
         event_log.error(f"Motor Steps Do not match expected : " + 
@@ -244,7 +244,7 @@ def abu_pos_steps(port, pos_steps):
     #     return
     
     # Then move the desired number of steps
-    send_cmd.cmd_mtr_mov_pos(port, pos_steps)
+    tc.mtr_mov_pos(port, pos_steps)
 
     # Request a HK and wait until no longer moving
     hk = tc.hk_request(port)
@@ -285,7 +285,7 @@ def abu_neg_steps(port, pos_steps):
     #     return
 
     # Then move the desired number of steps
-    send_cmd.cmd_mtr_mov_neg(port, pos_steps)
+    tc.mtr_mov_neg(port, pos_steps)
 
     # Request a HK and wait until no longer moving
     hk = tc.hk_request(port)
@@ -411,30 +411,36 @@ def abu_dac_swir_offset(port, mwir_value=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
     return sci.SWIR_OFFSET
 
-def abu_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
+def abu_measure(port,dir,steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
     and the sequence will just measure the same point once again.
 
-    This sequence should be executed once the motor has been homed and the offsets applied.
+    This sequence should be executed once the motor has been HOMING and the offsets applied.
 
     The motor moves from the Outer to Base using (positive steps)
     """
-    if pos_steps > 0:
-        abu_pos_steps(port, pos_steps)
+    if dir == 0:
+        if steps > 0:
+            abu_pos_steps(port, steps)
+        else:
+            event_log.info(f"No need to move any steps, proceeding to measurement")
     else:
-        event_log.info(f"No need to move any steps, proceeding to measurement")
-
+        if steps > 0:
+            abu_neg_steps(port, steps)
+        else:
+            event_log.info(f"No need to move any steps, proceeding to measurement")
     # Request a Science Mesaurement and log to the screen.
-    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
-    event_log.info(f"MTR_ABS_STEPS: {sci.MTR_ABS_STEPS}" +
-                  f"\t SWIR_LOW: {sci.SWIR_LOW}" +
-                  f"\t SWIR_MED: {sci.SWIR_MED}" +
-                  f"\t SWIR_HIGH: {sci.SWIR_HIGH}" +
-                  f"\t MWIR_LOW: {sci.MWIR_LOW}" +
-                  f"\t MWIR_MED: {sci.MWIR_MED}" +
-                  f"\t MWIR_HIGH: {sci.MWIR_HIGH}")
-    
+    # sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+    # event_log.info(f"MTR_ABS_STEPS: {sci.MTR_ABS_STEPS}" +
+    #               f"\t SWIR_LOW: {sci.SWIR_LOW}" +
+    #               f"\t SWIR_MED: {sci.SWIR_MED}" +
+    #               f"\t SWIR_HIGH: {sci.SWIR_HIGH}" +
+    #               f"\t MWIR_LOW: {sci.MWIR_LOW}" +
+    #               f"\t MWIR_MED: {sci.MWIR_MED}" +
+    #               f"\t MWIR_HIGH: {sci.MWIR_HIGH}")
+    hk = tc.hk_request(port)
+    event_log.info(f"MTR_ABS_STEPS: {hk.MTR_ABS_STEPS}")
     return
     
 def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
@@ -457,22 +463,32 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     abu_outer_home(port)
 
     # MWIR Offset determination
-    mwir_offset = abu_dac_mwir_offset(port, 2048, sci_adc_samp, sci_adc_skip)
+    # mwir_offset = abu_dac_mwir_offset(port, 2048, sci_adc_samp, sci_adc_skip)
         
     # SWIR Offset determination
-    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
+    # swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
     # Measurement sequence
     # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
     event_log.info("Starting Science Measurements")
-    abu_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    abu_measure(port,0, 0, sci_adc_samp, sci_adc_skip)
     for i in range(0, 8600, step_spacing):
-        abu_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
+        abu_measure(port,0, step_spacing, sci_adc_samp, sci_adc_skip)
+        hk = tc.hk_request(port)
+        if hk.MTR_FLAGS.BASE:
+            event_log.info("Reached the Base, stopping further movement")
+            break
+    for i in range(0, 8600, step_spacing):
+        abu_measure(port,1, step_spacing, sci_adc_samp, sci_adc_skip)
+        hk = tc.hk_request(port)
+        if hk.MTR_FLAGS.OUTER:
+            event_log.info("Reached the Base, stopping further movement")
+            break
     
     # MWIR Offset determination at the end
-    mwir_offset = abu_dac_mwir_offset(port, swir_offset, sci_adc_samp, sci_adc_skip)
+    # mwir_offset = abu_dac_mwir_offset(port, swir_offset, sci_adc_samp, sci_adc_skip)
 
     # SWIR Offset determination at the end
-    swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
+    # swir_offset = abu_dac_swir_offset(port, mwir_offset, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")

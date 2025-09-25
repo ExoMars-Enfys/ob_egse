@@ -10,8 +10,7 @@
             "request": "launch",
             "program": "./src/main.py",
             "console": "externalTerminal",
-            "args": ["--script" , "-s",
-                     "--nopsu","-np"]
+            "args": ["--script" , "-s"]
         }
     ]
 }

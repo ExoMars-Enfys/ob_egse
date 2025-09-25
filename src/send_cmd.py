@@ -12,7 +12,7 @@ import tc
 info_log = logging.getLogger("info_log")
 
 def cmd_repeat(port, cmd_func,*args, repeat=True, exit_if_error=False, **kwargs):
-    resp = cmd_func(port,*args, verify_ack=True)
+    resp = cmd_func(port,*args)
 
     if resp != "ERROR":
         return resp
