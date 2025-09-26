@@ -150,8 +150,8 @@ def cal_motor_to_base(port):
     if resp.MTR_FLAGS.HOMED != 0:
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMED}")
 
-    if (resp.MTR_ABS_STEPS != 8960):
-        event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
+    if (resp.MTR_ABS_STEPS != 9960):
+        event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 9960")
     if (resp.MTR_REL_STEPS == 0):
         event_log.error(f"Motor Steps Do not match expected REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
@@ -474,6 +474,41 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     return sci.SWIR_OFFSET
 
 
+def move_and_measure_loop(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Moves the specified number of steps forward and then takes a repeated measurement. 0 steps can be entered
+    and the sequence will just measure the same point once again.
+
+    This sequence should be executed once the motor has been homed and the offsets applied.
+
+    The motor moves from the Outer to Base using (positive steps)
+    """
+    for i in range(0, 720, 1):
+        event_log.info("Running abu move_and_measure")
+
+        if pos_steps > 0:
+            mv_pos_steps(port, pos_steps)
+        else:
+            event_log.info("No need to move any steps, proceeding to measurement")
+
+    # Request a Science Mesaurement and log to the screen.
+        sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+        hk_tm = tc.hk_request(port)
+        event_log.info(f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
+                    f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}" +
+                    f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}" +
+                    f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}" +
+                    f"\t\t SW_L: {sci.SWIR_LOW:04d}" +
+                    f"   SW_M: {sci.SWIR_MED:04d}" +
+                    f"   SW_H: {sci.SWIR_HIGH:04d}" +
+                    f"\t MW_L: {sci.MWIR_LOW:04d}" +
+                    f"   MW_M: {sci.MWIR_MED:04d}" +
+                    f"   MW_H: {sci.MWIR_HIGH:04d}" +
+                    f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}" +
+                    f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}")
+        time.sleep(10)
+    return
+
 def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
@@ -483,6 +518,7 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
 
     The motor moves from the Outer to Base using (positive steps)
     """
+    
     event_log.info("Running abu move_and_measure")
 
     if pos_steps > 0:
@@ -494,17 +530,18 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
     hk_tm = tc.hk_request(port)
     event_log.info(f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
-                  f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}" +
-                  f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}" +
-                  f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}" +
-                  f"\t\t SW_L: {sci.SWIR_LOW:04d}" +
-                  f"   SW_M: {sci.SWIR_MED:04d}" +
-                  f"   SW_H: {sci.SWIR_HIGH:04d}" +
-                  f"\t MW_L: {sci.MWIR_LOW:04d}" +
-                  f"   MW_M: {sci.MWIR_MED:04d}" +
-                  f"   MW_H: {sci.MWIR_HIGH:04d}" +
-                  f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}" +
-                  f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}")
+                f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}" +
+                f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}" +
+                f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}" +
+                f"\t\t SW_L: {sci.SWIR_LOW:04d}" +
+                f"   SW_M: {sci.SWIR_MED:04d}" +
+                f"   SW_H: {sci.SWIR_HIGH:04d}" +
+                f"\t MW_L: {sci.MWIR_LOW:04d}" +
+                f"   MW_M: {sci.MWIR_MED:04d}" +
+                f"   MW_H: {sci.MWIR_HIGH:04d}" +
+                f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}" +
+                f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}")
+        
     return
 
 def moveneg_and_measure(port, neg_steps, sci_adc_samp=4, sci_adc_skip=20):
@@ -567,6 +604,20 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
 
     event_log.info("Science Measurements Completed!!")
 
+def abu_measurement_scan_loop(port):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Goes to the Outer
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    and loops around for the number of times set
+    """
+
+    for i in range(0, 20, 1):
+        abu_measurement_scan(port, 30, 4, 100)
+        
+    return
+
 def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
     """
     Performs the basic Enfys science measurement
@@ -624,7 +675,7 @@ def first_power_on(port):
     home_to_outer(port)
 
 
-def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 100, sci_adc_samp: int = 4, sci_adc_skip: int = 100):
+def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 1600, sci_adc_samp: int = 4, sci_adc_skip: int = 100):
     """
     This function tries to find a DAC offset which results in a high gain output close
     to the value or target_output. The sensor that's *not* being configured has its gain
@@ -774,7 +825,7 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
 
     # The interpolation tables below (from the jupyter notebook) give the
     # target high gain values at 510 motor steps to try to get a dark DAC
-    # level of 200 at 7500 motor steps. It uses HT_SINK_TEMP for the
+    # level of 200 at 8500 motor steps. It uses HT_SINK_TEMP for the
     # estimation.
     measurement_position = 1510
 
@@ -784,24 +835,24 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
     ## the HT_SINK_TEMP values are now around 6400 at 20oC
     ## But! the Sci Data is coming back 16bit now
 
-    mwir_interpolation_table = [
-            (298, 84), (306, 107), (314, 140), (323, 193),
-            (331, 263), (339, 362), (347, 503), (355, 703),
-            (363, 988), (371, 1393), (379, 1971), (388, 2917),
-            (396, 4139), (404, 5877), (412, 8352), (420, 11874)
-    ]
-
-    #Post firmware table update JJT 11/09 didn't work :-( 
     #mwir_interpolation_table = [
-    #        (4076, 84), (4896, 107), (5024, 140), (5168, 193),
-    #        (5296, 263), (5424, 362), (5552, 503), (5680, 703),
-    #        (5808, 988), (5936, 1393), (6064, 1971), (6208, 2917),
-    #        (6336, 4139), (6464, 5877), (6592, 8352), (6720, 11874)
+    #        (298, 84), (306, 107), (314, 140), (323, 193),
+    #        (331, 263), (339, 362), (347, 503), (355, 703),
+    #        (363, 988), (371, 1393), (379, 1971), (388, 2917),
+    #        (396, 4139), (404, 5877), (412, 8352), (420, 11874)
     #]
+
+    #Post firmware table update JJT 16/09  changes to the table values make no diff to dac offset?
+    mwir_interpolation_table = [
+            (4076, 1344), (4896, 1712), (5024, 2240), (5168, 3088),
+            (5296, 4208), (5424, 5792), (5552, 8048), (5680, 11248),
+            (5808, 15808), (5936, 22288), (6064, 31536), (6208, 46672),
+            (6336, 66224), (6464, 94032), (6592, 133632), (6720, 189984)
+    ]
     
-    #swir_interpolation_table = [
-    #        (4768, 190), (6720, 190)
-    #]
+    swir_interpolation_table = [
+            (4768, 3040), (6720, 3040)
+    ]
 
     # From 2025-08-20 and 2025-09-03/04 data sets
     #mwir_interpolation_table = [
@@ -811,9 +862,9 @@ def dac_auto_offset(port: serial.rs485.RS485, sci_adc_samp: int = 4, sci_adc_ski
     #]
 
 
-    swir_interpolation_table = [
-            (298, 190), (420, 190)
-    ]
+    #swir_interpolation_table = [
+    #        (298, 190), (420, 190)
+    #]
 
 
     # Move to the measurement position.
@@ -899,7 +950,7 @@ def convert_logs() -> None:
                     print(entry.csv_header(), file=csv_file)
                     printed_header = True
                 date, timeofday = timestamp.split(" ")
-                print(date, end=",", file=csv_file)
+                print(date, end=" ,", file=csv_file)
                 print(timeofday, end=",", file=csv_file)
                 print(entry.csv(), file=csv_file)
 
