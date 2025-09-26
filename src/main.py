@@ -61,6 +61,25 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
 
     return (event_log, info_log, psu_log)
 
+# If we want to perform multiple tasks in one run (e.g. multiple sweeps with
+# DAC offset calculation in between) then having everything land in a single
+# log is inconvenient. So I've added this function which re-initialises the
+# log paths, based on time, then calls setup_logs() to open new logs. This
+# isn't ideal (e.g. it doesn't take account of -prefix and -basedir CLI
+# options), but should save a lot of time for Lorna & John.
+#
+# The function will call abu.convert_logs() before opening the new ones
+# if generate_csv is True (which is the default).
+def open_new_logs(generate_csv: bool = True) -> tuple[logging.Logger, logging.Logger, logging.Logger]:
+    if generate_csv:
+        abu.convert_logs()
+    const.DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
+    const.DEFAULT_PATH = Path.cwd() / "logs" / const.DEFAULT_PREFIX
+    const.LOG_PREFIX = const.DEFAULT_PREFIX
+    const.LOG_PATH = const.DEFAULT_PATH
+    print(f"Starting new data logs, prefix is {const.DEFAULT_PREFIX}")
+    return setup_logs()
+
 
 # ----FPGA Boot and Connect-------------------------------------------------------------------------
 
@@ -123,13 +142,30 @@ def main() -> None:
         ## Clear Errors
         #tc.clear_errors(port)
 
+        ######## 2025-09-26 automation for darks
+        #   Home to outer
+        abu.home_to_outer(port)
+
+        # 5 times over for dark data...
+        for i in range(5):
+            #   Move to 8000 and run SWIR/MWIR binary chops
+            abu.move_abs_pos(8000)
+            swir_offset = abu.find_dac_offset(port, "SWIR", 4000, 1)
+            mwir_offset = abu.find_dac_offset(port, "MWIR", 4000, swir_offset)
+
+            #   Start new log and do measurement scan in the forward direction.
+            open_new_logs()
+            abu.measurement_scan(port, 30, 4, 100)
+
+            open_new_logs()
+            abu.measurement_scan_neg(port, 30, 4, 100)
+        ######## end of 2025-09-26 automation for darks
+
         #abu.mv_abs_pos(port, 100)
         #abu.read_hk(port)
 
         # Move to position 510 and try to set DAC offsets
         #abu.dac_auto_offset(port)
-
-
 
         ## Move and Measure in a loop (set values in abu_sequences)
         #abu.move_and_measure_loop(port, 0)
