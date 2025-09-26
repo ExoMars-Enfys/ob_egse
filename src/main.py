@@ -118,7 +118,7 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # First power on
-        abu.first_power_on(port)
+        #abu.first_power_on(port)
 
         ## Clear Errors
         #tc.clear_errors(port)
@@ -129,9 +129,10 @@ def main() -> None:
         # Move to position 510 and try to set DAC offsets
         #abu.dac_auto_offset(port)
 
-        # Move to absolute position and take a reading
-        #abu.mv_abs_pos(port, 8600)
-        #abu.move_and_measure(port, 0)
+
+
+        ## Move and Measure in a loop (set values in abu_sequences)
+        #abu.move_and_measure_loop(port, 0)
 
         # sweep through SWIR DAC offset
         # abu.sweep_offset_swir(port, 5)
@@ -142,17 +143,25 @@ def main() -> None:
         #abu.mv_pos_steps(port, 7600-283)
         # abu.mv_neg_steps(port, 1358)
 
+        #abu.set_offset_and_check_sci(port, 2112, 1544, 4, 100)
+
+        ## Move to absolute position and take a reading
+        #abu.mv_abs_pos(port, 8000)
+        #abu.move_and_measure(port, 0)
+
         # swir binary chop
         #abu.swir_binary_chop(port, 100, 4, 100)
 
-        #abu.set_offset_and_check_sci(port, 4095, 4095, 4, 100)
-        
-        # mwir binary chop
-        #abu.mwir_binary_chop(port, 2560, 4, 100)
 
-        #
-        # Measurement scan with found values
-        #abu.abu_measurement_scan(port, 30, 4, 100)
+        # mwir binary chop
+        #abu.mwir_binary_chop(port, 1600, 4, 100)
+
+
+        # Measurement scan with found (or set) values
+        abu.abu_measurement_scan(port, 30, 4, 100)
+
+        # Measurement scan with found (or set) values looping
+        #abu.abu_measurement_scan_loop(port)
 
         ############################################
         ############################################
@@ -176,7 +185,7 @@ def main() -> None:
         #start_time = time.time()
         #end_time = start_time + 5400
         #while time.time() < end_time:
-            ## Do full binary chop on swir and mwir, with 
+            ## Do full binary chop on swir and mwir, with
             ## swir target=200 and mwir target=1500.
         #    swir_offset = abu.find_dac_offset(port, "SWIR", 200, 1)
         #    mwir_offset = abu.find_dac_offset(port, "MWIR", 1500, swir_offset)
@@ -196,7 +205,7 @@ def main() -> None:
 
         #choplog.close()
         ###############################
-        
+
 
         #abu.mv_abs_pos(port, 7500)
         #swir_offset = abu.swir_binary_chop(port, 100, 4, 100)
