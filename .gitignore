@@ -1,5 +1,6 @@
 __pycache__/
 logs/
+logs-bak/
 loggers/
 examples/
 .gitignore
