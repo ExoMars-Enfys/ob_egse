@@ -549,7 +549,7 @@ def mtr_halt(port, verify=True):
     # Parse anyway to log to file
     parsed = tm.parse_tm(ack)
 
-    if ack.cmd_type != "Halt":
+    if ack.cmd_type != "MTR_Halt":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
