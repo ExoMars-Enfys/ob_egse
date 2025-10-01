@@ -76,12 +76,13 @@ def hk_request(port, verify=True):
     response_bytes = tm.get_response(port, 66)
     response = tm.Response(response_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(response)
+
     if response.cmd_type != "HK_Request":
         info_log.error(f"Incorrect response to HK CMD. Got {response.cmd_type}")
         info_log.error(f"Response: {bytes.hex(response.raw_bytes, ' ', 2)}")
         return "ERROR"
-
-    parsed = tm.parse_tm(response)
 
     ## --- Verification ---
     # No verification performed here, but throughout scripts instead
@@ -103,13 +104,15 @@ def clear_errors(port, verify_ack=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Clear_Errors":
         info_log.error(f"Incorrect ACK to Clear_Errors CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     # Clear errors, has no parameters but LAST_ERROR should be 0
@@ -176,13 +179,15 @@ def power_control(port, pwr_stat, verify_ack=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Power_Control":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -219,13 +224,15 @@ def heater_control(
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Heater_Control":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -265,13 +272,15 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Set_Mech_SP":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -317,13 +326,15 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Set_Detec_SP":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -376,13 +387,15 @@ def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = T
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Set_MTR_Param":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -420,13 +433,15 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "MTR_Mov_Pos":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -457,13 +472,15 @@ def mtr_mov_neg(port, neg_steps, verify_ack=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "MTR_Mov_Neg":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -493,13 +510,15 @@ def mtr_homing(port, CAL: bool, OUTER: bool, verify=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "MTR_Homing":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -527,13 +546,15 @@ def mtr_halt(port, verify=True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Halt":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -559,13 +580,15 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Set_HK_Samples":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -597,13 +620,15 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "SCI_Offset":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -638,13 +663,15 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
     ack_bytes = tm.get_response(port, 9)
     ack = tm.Response(ack_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(ack)
+
     if ack.cmd_type != "Set_HK_Samples":
         info_log.error(f"Incorrect ACK to CMD. Got {ack.cmd_type}")
         return "ERROR"
 
     if not verify_ack:
         return
-    parsed = tm.parse_tm(ack)
 
     ## --- Verification ---
     verify_ack_hdr(parsed)
@@ -680,6 +707,9 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     sci_bytes = tm.get_response(port, 29)
     sci = tm.Response(sci_bytes)
 
+    # Parse anyway to log to file
+    parsed = tm.parse_tm(sci)
+
     if sci.cmd_type != "SCI_Request":
         info_log.error(f"Incorrect response to SCI CMD. Got {sci.cmd_type}")
         info_log.error(f"Response: {bytes.hex(sci.raw_bytes, ' ', 2)}")
@@ -687,7 +717,6 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
 
     if not verify_resp:
         return
-    parsed = tm.parse_tm(sci)
 
     ## --- Verification ---
     # TODO
