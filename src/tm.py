@@ -95,14 +95,14 @@ class TM:
     def decode_thrm_status_byte(self):
         ## Decode bit maps
         # Thermal Status
-        self.THRM_STATUS_FLAGS = namedtuple("THRM_STATUS_FLAGS", "".join(i[1] for i in tmstruct.thrm_status_struct))
+        self.THRM_STATUS = namedtuple("THRM_STATUS", "".join(i[1] for i in tmstruct.thrm_status_struct))
         thrm_status_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.thrm_status_struct),
             [i[0] for i in tmstruct.thrm_status_struct],
-            self.THRM_STATUS.to_bytes(1),
+            self.THRM_STATUS_BYTE.to_bytes(1),
         )
         for k, v in thrm_status_param.items():
-            setattr(self.THRM_STATUS_FLAGS, k, v)
+            setattr(self.THRM_STATUS, k, v)
 
     def check_errors(self):
         if self.ERROR_BYTE != 0x00:
@@ -150,14 +150,14 @@ class HK(TM):
             setattr(self.MTR_FLAGS, k, v)
 
         # Motor ERROR Masks
-        self.MTR_ERROR_MASK = namedtuple("MTR_ERROR_MASK", "".join(i[1] for i in tmstruct.mtr_err_msk_struct))
+        self.MTR_ERR_MSK = namedtuple("MTR_ERR_MSK", "".join(i[1] for i in tmstruct.mtr_err_msk_struct))
         mtr_err_msk_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_err_msk_struct),
             [i[0] for i in tmstruct.mtr_err_msk_struct],
-            self.MTR_ERR_MSK.to_bytes(1),
+            self.MTR_ERR_MSK_BYTE.to_bytes(1),
         )
         for k, v in mtr_err_msk_param.items():
-            setattr(self.MTR_ERROR_MASK, k, v)
+            setattr(self.MTR_ERR_MSK, k, v)
 
         info_log.info(f"CMD Count: {self.CMD_CNT=}")
 

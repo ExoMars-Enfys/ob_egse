@@ -11,7 +11,7 @@ hk = [
     ("ERROR_BYTE", "u8"),
     ("UNUSED2", ">u32"),
     ("ERROR_MTR", "u8"),
-    ("MTR_ERR_MSK", "u8"),
+    ("MTR_ERR_MSK_BYTE", "u8"),
     ("MTR_FLAGS_BYTE", "u8"),
     ("MTR_ABS_STEPS", ">u16"),
     ("MTR_REL_STEPS", ">s16"),
@@ -22,7 +22,7 @@ hk = [
     ("MTR_SPEED", "u4"),
     ("UNUSED4", ">u88"),
     ("PWR_STAT", "u8"),
-    ("THRM_STATUS", "u8"),
+    ("THRM_STATUS_BYTE", "u8"),
     ("THRM_MECH_OFF_SP", ">u16"),
     ("THRM_MECH_ON_SP", ">u16"),
     ("THRM_DET_OFF_SP", ">u16"),
@@ -76,12 +76,12 @@ mtr_err_msk_struct = [
 mtr_flag_struct = [
     ("UNUSED1", "u1"),
     ("CAL", "u1"),
-    ("HOLD", "u1"),
+    ("UNUSED2", "u1"),
     ("DIR", "u1"),
     ("OUTER", "u1"),
     ("BASE", "u1"),
     ("MOVING", "u1"),
-    ("HOMED", "u1"),
+    ("HOMING", "u1"),
 ]
 
 thrm_status_struct = [
@@ -122,7 +122,7 @@ sci = [
     ("CMD_CNT", "u8"),
     ("ERROR_BYTE", "u8"),
     ("MTR_ABS_STEPS", ">u16"),
-    ("THRM_STATUS", "u8"),
+    ("THRM_STATUS_BYTE_BYTE_BYTE_BYTE", "u8"),
     ("SWIR_OFFSET", ">u16"),
     ("MWIR_OFFSET", ">u16"),
     ("SCI_ADC_SAMPLES", "u8"),
