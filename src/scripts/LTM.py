@@ -30,10 +30,18 @@ def base_cal(port):
     # If ABS Steps at 8960 we are already there, otherwise wait for movement
     if hk.MTR_ABS_STEPS != 9960:
         event_log.info("Moving to the BASE, waiting for switch to be pressed.")
+        timeout = 0
         while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+            try:
+                if  timeout<=30:
+                    time.sleep(1)
+                    timeout += 1
+                    hk = repeat(port,tc.hk_request,port)
+                    event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+                else:
+                    raise TimeoutError("Timeout waiting for motor to home to base")
+            except TimeoutError as e:
+                    event_log.error(f"Error occurred: {e}")
         event_log.info("Motor movement finished")
     else:
         event_log.info("Motor Did not Move, already at Base")
@@ -73,11 +81,18 @@ def outer_home(port):
     # If ABS Steps at 0 we are already there, otherwise wait for movement
     if (50 > hk.MTR_ABS_STEPS or 150 < hk.MTR_ABS_STEPS):
         event_log.info("Moving to the OUTER, waiting for switch to be pressed.")
+        timeout = 0
         while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
-        event_log.info("Motor movement finished")
+            try:
+                if  timeout<=30:
+                    time.sleep(1)
+                    timeout += 1
+                    hk = repeat(port,tc.hk_request,port)
+                    event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+                else:
+                    raise TimeoutError("Timeout waiting for motor to home to outer")
+            except TimeoutError as e:
+                    event_log.error(f"Error occurred: {e}")
     else:
         event_log.info("Motor Did not Move, already at Outer")
 
@@ -114,11 +129,18 @@ def base_home(port):
     # If ABS Steps at 0 we are already there, otherwise wait for movement
     if (8910 > hk.MTR_ABS_STEPS > 9010):
         event_log.info("Moving to the Base, waiting for switch to be pressed.")
+        timeout = 0
         while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
-        event_log.info("Motor movement finished")
+            try:
+                if  timeout<=30:
+                    time.sleep(1)
+                    timeout += 1
+                    hk = repeat(port,tc.hk_request,port)
+                    event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+                else:
+                    raise TimeoutError("Timeout waiting for motor to home to base")
+            except TimeoutError as e:
+                    event_log.error(f"Error occurred: {e}")
     else:
         event_log.info("Motor Did not Move, already at Base")
 
@@ -150,10 +172,18 @@ def dark_region_step(port,dir):
     else:
         repeat(port, tc.mtr_mov_neg, 30)
     hk = repeat(port,tc.hk_request,port)
+    timeout = 0
     while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+        try:
+            if  timeout<=45:
+                time.sleep(1)
+                timeout += 1
+                hk = repeat(port,tc.hk_request,port)
+                event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+            else:
+                raise TimeoutError("Timeout waiting for motor to home to base")
+        except TimeoutError as e:
+                event_log.error(f"Error occurred: {e}")
     # event_log.info("Motor movement finished")
 
 def open_aperture_step(port,dir):
@@ -163,10 +193,18 @@ def open_aperture_step(port,dir):
     else:
         repeat(port, tc.mtr_mov_neg, 50)
     hk = repeat(port,tc.hk_request,port)
+    timeout = 0
     while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+        try:
+            if  timeout<=45:
+                time.sleep(1)
+                timeout += 1
+                hk = repeat(port,tc.hk_request,port)
+                event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+            else:
+                raise TimeoutError("Timeout waiting for motor to home to base")
+        except TimeoutError as e:
+                event_log.error(f"Error occurred: {e}")
     # event_log.info("Motor movement finished")
 
 def pos_acquisition(port,dir = 0):
@@ -211,11 +249,18 @@ def park(port):
     hk = repeat(port,tc.hk_request,port)
     if hk.MTR_ABS_STEPS != 8100:
         event_log.info("Moving to Parked, waiting for movement to finish")
+        timeout = 0
         while hk.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk = repeat(port,tc.hk_request,port)
-            event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
-        event_log.info("Motor movement finished")
+            try:
+                if  timeout<=30:
+                    time.sleep(1)
+                    timeout += 1
+                    hk = repeat(port,tc.hk_request,port)
+                    event_log.info(f"Motor absolute steps: {hk.MTR_ABS_STEPS}")
+                else:
+                    raise TimeoutError("Timeout waiting for motor to home to base")
+            except TimeoutError as e:
+                    event_log.error(f"Error occurred: {e}")
     else:
         event_log.info("Motor Did not Move, already at Parked")
 
