@@ -105,16 +105,12 @@ def main() -> None:
         psu_thread.start()
 
         # First HK
-        # abu.read_hk(ob_port)
+        abu.read_hk(ob_port)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-
-        # tc.power_control(ob_port, 0)
-        # tc.set_mtr_param(ob_port, peak_current=0x40, guard=0x20, recval=0x0F, speed=9)
-        # tc.clear_errors(ob_port)
-        # tc.mtr_mov_pos(ob_port, 8960)
+        # TODO! When psu current limit hit trip off so obvious
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
@@ -128,13 +124,14 @@ def main() -> None:
         comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
-        rs485port = comms.initialise_comms(ob_port)
+
+        rs485port = comms.initialise_comms(rs485_com)
         rs485port = comms.open_comms(rs485port)
         stop_event = threading.Event()
-        hk_thread = threading.Thread(target=send_cmd.poll_hk, args=(rs485port, stop_event), daemon=True)
+        hk_thread = threading.Thread(target=poll_hk, args=(rs485port, stop_event), daemon=True)
         hk_thread.start()
         time.sleep(3)
-        gui.init(ob_port, psu_com)
+        gui.init()
 
 
 if __name__ == "__main__":

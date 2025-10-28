@@ -33,6 +33,8 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
 
 
 def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
+    if port.is_open:
+        return port
     try:
         port.open()
     except serial.SerialException:

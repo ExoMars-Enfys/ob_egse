@@ -25,13 +25,14 @@ LOG_PATH = DEFAULT_PATH
 PSU_LOGGING_FREQ = 1  # in HZ
 PSU_COM_PORT = 6
 CH1_OVP = 12.5
-CH1_I = 0.100
+CH1_I = 0.200
 
 CH2_OVP = 12.5
-CH2_I = 0.135
+CH2_I = 0.155
 
 CH3_OVP = 5.5
 CH3_I = 0.150
+
 # Set by EGSE.py do not write here.
 ACK_LOG_FH = None
 CMD_LOG_FH = None
