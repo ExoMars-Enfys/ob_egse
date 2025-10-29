@@ -98,13 +98,13 @@ def psu_monitor_thread(port, stop_event, freq):
             stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
 
-def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
-    if port:
+def setChannels(psu_com, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
+    if psu_com:
         # Set the voltage and current limits for each channel
         psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-        port.write(f"V1 12\r\n".encode("utf-8"))
-        port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
-        port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
+        psu_com.write(f"V1 12\r\n".encode("utf-8"))
+        psu_com.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
+        psu_com.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
         psu_com.write(f"V2 12\r\n".encode("utf-8"))
@@ -118,8 +118,8 @@ def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
 
         psu_log.info("PSU Channels set successfully")
         psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
-        port.flushOutput()
-        port.flushInput()
+        psu_com.flushOutput()
+        psu_com.flushInput()
 
 
 def switchPSU(port, state):

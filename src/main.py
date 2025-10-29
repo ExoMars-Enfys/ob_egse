@@ -16,7 +16,8 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
-import scripts.heaters as h
+
+# import scripts.heaters as h
 from send_cmd import cmd_repeat as repeat
 from scripts.OB_FFT import fft as fft
 import tc
@@ -76,14 +77,13 @@ def clean_exit(psuport):
 
 
 def main() -> None:
-    try : 
-        parser = init_arparse()
-        args = parser.parse_args()
+    parser = init_arparse()
+    args = parser.parse_args()
 
-        # Setup loggers
-        const.LOG_PREFIX = str(args.prefix).strip("'")
-        const.LOG_PATH = args.basedir
-        (event_log, info_log, psu_log) = setup_logs()
+    # Setup loggers
+    const.LOG_PREFIX = str(args.prefix).strip("'")
+    const.LOG_PATH = args.basedir
+    (event_log, info_log, psu_log) = setup_logs()
 
     rs485_com = "COM" + str(args.com)
     psu_com = "COM" + str(args.psuport)
@@ -115,6 +115,13 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # TODO! When psu current limit hit trip off so obvious
+        tc.power_control(ob_port, 0x01)
+        # New parameters for 3.2rc0
+        tc.set_mtr_param(ob_port, 64, 255, 100, 9)
+
+        # Previous firmware parameters for 3.1rc3
+        # tc.set_mtr_param(ob_port, 64, 0x20, 0x0F, 9)
+        tc.mtr_mov_pos(ob_port, 320 * 11)
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
@@ -143,14 +150,12 @@ if __name__ == "__main__":
 
 # TODO
 # 1 Add a way to stop the script
-#?1 A keyboard interrupt of CTRL+C triggers the psu thread stop, closes all comms and shuts down psu
+# ?1 A keyboard interrupt of CTRL+C triggers the psu thread stop, closes all comms and shuts down psu
 
-#2 See if the python run button can have arguments in vscode
-#?2 launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
-#?2 Current version has args for -s -np prepassed
+# 2 See if the python run button can have arguments in vscode
+# ?2 launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
+# ?2 Current version has args for -s -np prepassed
 
 # - Implement some sort of thread queue with the GUI running seperately
 # - Move streamlit stuff to a different module
 # - See if there is a better way to launch streamlit
-
-
