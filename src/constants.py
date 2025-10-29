@@ -10,7 +10,7 @@ CMD_SPEED_DICT = {
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
-EXP_MODEL_ID = 0x07
+EXP_MODEL_ID = 0x06
 
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")

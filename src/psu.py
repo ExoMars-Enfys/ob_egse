@@ -44,16 +44,21 @@ def close_psu_comms(port: serial.Serial) -> None:
     return
 
 
-def psuRead(port, channel, type, output=False):
+def psuRead(
+    psu_com,
+    channel,
+    type,
+    output=False,
+):
     if output == False:
-        port.write(f"{type}{channel}?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        psu_com.write(f"{type}{channel}?\r\n".encode("utf-8"))
+        response = psu_com.read(8).decode("utf-8")
     else:
-        port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        psu_com.write(f"{type}{channel}O?\r\n".encode("utf-8"))
+        response = psu_com.read(8).decode("utf-8")
 
-    port.flushOutput()
-    port.flushInput()
+    psu_com.flushOutput()
+    psu_com.flushInput()
     return response
 
 
@@ -77,7 +82,7 @@ def psu_monitor_thread(port, stop_event, freq):
                     or not (4.8 < float(ch3_v.strip("V")) < 5.5)
                 ):
                     psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                    emergencyShutDown(port)
+                    emergencyShutDown(psu_com)
 
                 if (
                     (float(ch1_i.strip("A")) >= 150)
@@ -85,7 +90,7 @@ def psu_monitor_thread(port, stop_event, freq):
                     or (float(ch3_i.strip("A")) >= 150)
                 ):
                     psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                    emergencyShutDown(port)
+                    emergencyShutDown(psu_com)
 
             except Exception as e:
                 psu_log.error(f"Error in PSU monitor thread: {e}")
@@ -102,14 +107,14 @@ def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
         port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-        port.write(f"V2 12\r\n".encode("utf-8"))
-        port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
-        port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
+        psu_com.write(f"V2 12\r\n".encode("utf-8"))
+        psu_com.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
+        psu_com.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-        port.write(f"V3 5\r\n".encode("utf-8"))
-        port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
-        port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
+        psu_com.write(f"V3 5\r\n".encode("utf-8"))
+        psu_com.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
+        psu_com.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info("PSU Channels set successfully")
         psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
@@ -130,9 +135,20 @@ def emergencyShutDown(port):
         psu_log.error(f"Closing all channels")
         port.write(f"LOCAL\r\n".encode("utf-8"))
         psu_log.error(f"Setting to Local control")
-        port.flushOutput()
-        port.flushInput()
-        port.close()
+        psu_com.flushOutput()
+        psu_com.flushInput()
+        psu_com.close()
 
 
-# TODO: Report the link status
+## TODO: Create a log for this -
+# #?Done
+## TODO: Create a clear settings file, Voltages to be set, Current limits
+# ?Done in the constants file
+## TODO: Add monitoring, such that we have warning current limits and alarm limits
+## TODO: If alarm limit, automatically shutdown
+# ?Done using emergency shut down function - closes outputs and switches to local control before closing comms
+## TODO: Close the comms
+# ?See above
+## TODO: Report the link status
+## TODO: Loop through every 1s (async?)
+# ?Done with threading

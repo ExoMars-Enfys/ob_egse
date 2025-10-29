@@ -3,6 +3,7 @@ import time
 import constants as const
 import send_cmd
 import tc
+from send_cmd import cmd_repeat as repeat
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -12,8 +13,9 @@ info_log = logging.getLogger("info_log")
 # ----
 def power_up(port):
     try:
-        send_cmd.cmd_power_control(port, 0x01)
-        send_cmd.cmd_mtr_param(port, 0x40, 0x20, 0x0F, 0x9, 0x3200)
+        repeat(port, tc.clear_errors)
+        repeat(port, tc.power_control, 0x01)
+        repeat(port, tc.set_mtr_param, 0x40, 0xC8, 0x0F, 0x8, 0x3200)
         resp = tc.hk_request(port)
         if (
             resp.PWR_STAT != 1
