@@ -1,6 +1,7 @@
 # ----Module Imports--------------------------------------------------------------------------------
 # Std library
 import logging
+import sys
 import time
 import atexit
 import argparse
@@ -21,7 +22,8 @@ import scripts.abu_sequences as abu
 from send_cmd import cmd_repeat as repeat
 from scripts.OB_FFT import fft as fft
 import tc
-from scripts.LTM import LTM_Measurement as LTM
+# from scripts.LTM import LTM_Measurement as LTM
+from scripts import LTM
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -64,13 +66,15 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
 
     return (event_log, info_log, psu_log)
 
-
 def clean_exit(psuport):
+    print("Clean exit initiated")
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-    psu.close_psu_comms(psuport)
+    # psu.close_psu_comms(psuport)
+    psu.emergencyShutDown(psuport)
+
 
     #! TODO add emergency shutdown to that powers off the OB
     #! TODO power off power supply
@@ -109,25 +113,31 @@ def main() -> None:
         psu_thread.start()
 
         # First HK
-        abu.read_hk(ob_port)
+        # abu.read_hk(ob_port)
+        # sq.check_hk(ob_port)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # TODO! When psu current limit hit trip off so obvious
-        tc.power_control(ob_port, 0x01)
+        # tc.power_control(ob_port, 0x01)
         # New parameters for 3.2rc0
-        tc.set_mtr_param(ob_port, 64, 255, 100, 9)
+        # tc.set_mtr_param(ob_port, 64, 255, 60, 8)
+        LTM.LTM_Measurement(ob_port)
+        # tc.mtr_mov_neg(ob_port, 480)
+        
+        
+
 
         # Previous firmware parameters for 3.1rc3
         # tc.set_mtr_param(ob_port, 64, 0x20, 0x0F, 9)
-        tc.mtr_mov_pos(ob_port, 320 * 11)
+        # tc.mtr_mov_neg(ob_port, 320 * 11)
 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
         # Get final HK
-        abu.read_hk(ob_port)
+        # abu.read_hk(ob_port)
 
         stop_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish

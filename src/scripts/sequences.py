@@ -1,4 +1,5 @@
 import logging
+import sys
 import time
 import constants as const
 import send_cmd
@@ -15,31 +16,29 @@ def power_up(port):
     try:
         repeat(port, tc.clear_errors)
         repeat(port, tc.power_control, 0x01)
-        repeat(port, tc.set_mtr_param, 0x40, 0xC8, 0x0F, 0x8, 0x3200)
+        repeat(port, tc.set_mtr_param, 64, 255, 60, 8)
         resp = tc.hk_request(port)
         if (
             resp.PWR_STAT != 1
             or resp.MTR_CURRENT != 64
-            or resp.MTR_GUARD != 32
-            or resp.MTR_RECVAL != 15
-            or resp.MTR_SPEED != 9
-            or resp.MECH_LIM_REL != 12800
+            or resp.MTR_GUARD != 255
+            or resp.MTR_RECVAL != 60
+            or resp.MTR_SPEED != 8
         ):
             raise ValueError(
-                f"OB Parameters not initialized correctly:"
+                f"OB Parameters not initialized correctly within HK:"
                 + f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1"
                 + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
-                + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
-                + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
-                + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
-                + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
+                + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 255"
+                + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 60"
+                + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
             )
         else:
             event_log.info("Power Up and set params : Passed")
             return resp
     except ValueError as e:
         event_log.error(f"Power Up and set params failed : {e}")
-        exit()
+        sys.exit(1)
 
 
 def mech_heater_test(port):
@@ -120,7 +119,8 @@ def check_hk(port):
         + f"\n OUTER : {resp.MTR_FLAGS.OUTER}"
         + f"\n BASE : {resp.MTR_FLAGS.BASE}"
         + f"\n MOVING : {resp.MTR_FLAGS.MOVING}"
-        + f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+                + f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+
     )
     event_log.info(
         f"MTR ERR Flags :"
@@ -129,7 +129,7 @@ def check_hk(port):
         + f"\n ABS : {resp.MTR_ERRORS.ABS}"
         + f"\n DSE : {resp.MTR_ERRORS.DSE}"
     )
-    event_log.info(f" THRM STATUS :" + f"\n DET_Status : {resp.THRM_STATUS_BYTE.HDS & 0x03}")
+    # event_log.info(f" THRM STATUS :" + f"\n DET_Status : {resp.THRM_STATUS_BYTE.HDS & 0x03}")
 
 
 def check_sci(port, sci_adc_samp, sci_adc_skip):

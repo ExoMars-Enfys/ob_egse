@@ -1,5 +1,6 @@
 # Std library
 import logging
+import sys
 import threading
 
 # Added packages
@@ -27,8 +28,8 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
         if psu_not_required:
             return
         else:
-            info_log.error(f"No device found on COM Port {port.port}, try another")
-            raise SystemExit
+            info_log.error(f"No PSU found on COM Port {port.port}, try another")
+            sys.exit(1)
 
     port.flushOutput()  # Port Flushing to clear port
     port.flushInput()
@@ -82,7 +83,7 @@ def psu_monitor_thread(port, stop_event, freq):
                     or not (4.8 < float(ch3_v.strip("V")) < 5.5)
                 ):
                     psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                    emergencyShutDown(psu_com)
+                    emergencyShutDown(port)
 
                 if (
                     (float(ch1_i.strip("A")) >= 150)
@@ -90,7 +91,7 @@ def psu_monitor_thread(port, stop_event, freq):
                     or (float(ch3_i.strip("A")) >= 150)
                 ):
                     psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                    emergencyShutDown(psu_com)
+                    emergencyShutDown(port)
 
             except Exception as e:
                 psu_log.error(f"Error in PSU monitor thread: {e}")
@@ -129,11 +130,11 @@ def switchPSU(port, state):
         port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
 
 
-def emergencyShutDown(port):
-    if port:
-        port.write(f"OPALL 0\r\n".encode("utf-8"))
+def emergencyShutDown(psu_com):
+    if psu_com:
+        psu_com.write(f"OPALL 0\r\n".encode("utf-8"))
         psu_log.error(f"Closing all channels")
-        port.write(f"LOCAL\r\n".encode("utf-8"))
+        psu_com.write(f"LOCAL\r\n".encode("utf-8"))
         psu_log.error(f"Setting to Local control")
         psu_com.flushOutput()
         psu_com.flushInput()
