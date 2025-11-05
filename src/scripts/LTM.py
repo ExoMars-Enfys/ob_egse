@@ -13,46 +13,45 @@ info_log = logging.getLogger("info_log")
 
 
 def LTM_Measurement(port):
+    #START AT PARKED POSITION
     sq.power_up(port)
-    # traverse 1
+    # OUTER SWITCH 1 - PART TRAVERSE 1
     outer_cal(port)
     time.sleep(2)
 
-    # traverse 2
-    base_home(port)
+    # BASE SWITCH 1 - FULL TRAVERSE 2
+    soft_error1 = base_home(port)
     time.sleep(2)
+    # PART TRAVERSE 3
     mwir_dark_region_start(port)
-    time.sleep(2)
-    base_home(port)
-    tc.mtr_mov_neg(port, 10)
+    time.sleep(2)    
+
+    #OUTER SWITCH 2 - REST OF TRAVERSE 3
+    soft_error2 = outer_home(port)
     time.sleep(2)
 
-    # traverse 3
-    acquisition(port, 0)
-    time.sleep(2)
-    tc.mtr_mov_pos(port, 7)
+    # BASE SWITCH 2 - FULL TRAVERSE 4
+    soft_error3 = acquisition(port, 1)
     time.sleep(2)
 
-    # traverse 4
-    acquisition(port, 1)
-    time.sleep(2)
-    tc.mtr_mov_neg(port, 7)
+    # OUTER SWITCH 3 - FULL TRAVERSE 5
+    soft_error4 = acquisition(port, 0)
     time.sleep(2)
 
-    # traverse 5
-    acquisition(port, 0)
-    time.sleep(2)
-    tc.mtr_mov_pos(port, 7)
+    # BASE SWITCH 3 - FULL TRAVERSE 6
+    soft_error5 = acquisition(port, 1)
     time.sleep(2)
 
-    # traverse 6
-    acquisition(port, 1)
-    time.sleep(2)
-    tc.mtr_mov_pos(port, 7)
-    time.sleep(2)
+    # REST OF TRAVERSE 1
+    park(port)   
+    hk = repeat(port, tc.hk_request, port)
+    event_log.info(f"Parked Motor absolute steps: {hk.MTR_ABS_STEPS}")
 
-    # Parking
-    park(port)
+    if soft_error1 or soft_error2 or soft_error3 or soft_error4 or soft_error5:
+        sys.exit(2)
+        event_log.error("LTM Simulated Sol Completed with Soft Errors")
+    else:
+        event_log.info("LTM  Simulated Sol Complete")
 
 
 def outer_cal(port):
@@ -85,16 +84,24 @@ def outer_cal(port):
     hk = repeat(port, tc.hk_request, port)
     if hk.MTR_FLAGS.CAL != 1:
         event_log.error(f" Calibration Flag not Asserted : {hk.MTR_FLAGS.CAL}")
+        sys.exit(1)
     if hk.MTR_FLAGS.DIR != 0:
         event_log.error(f" Calibration Dir not to BASE : {hk.MTR_FLAGS.DIR}")
+        sys.exit(1)
     if hk.MTR_FLAGS.OUTER != 1:
         event_log.error(f"OUTER Switch Flag raised : {hk.MTR_FLAGS.OUTER}")
+        sys.exit(1)
     if hk.MTR_FLAGS.BASE != 0:
         event_log.error(f"BASE Switch Flag is not asserted : {hk.MTR_FLAGS.BASE}")
+        sys.exit(1)
     if hk.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {hk.MTR_FLAGS.MOVING}")
+        sys.exit(1)
     if hk.MTR_FLAGS.HOMING != 0:
         event_log.error(f"Motor Homing flag is asserted: {hk.MTR_FLAGS.HOMING}")
+        sys.exit(1)
+
+    event_log.info(f"Outer Cal Finished Motor absolute steps: {hk.MTR_ABS_STEPS}")
 
 
 def outer_home(port):
@@ -103,7 +110,7 @@ def outer_home(port):
     hk = repeat(port, tc.hk_request, port)
     timeout = 1
     while (
-        not hk.MTR_FLAGS.OUTER and hk.MTR_ABS_STEPS not in const.LTM_OUTER_TOL and timeout <= const.LTM_HOMING_TIMEOUT
+        not hk.MTR_FLAGS.OUTER  and timeout <= const.LTM_HOMING_TIMEOUT
     ):
         time.sleep(1)
         timeout += 1
@@ -123,24 +130,38 @@ def outer_home(port):
     hk = repeat(port, tc.hk_request, port)
     if hk.MTR_FLAGS.CAL != 0:
         event_log.error(f" Calibration FlagAsserted : {hk.MTR_FLAGS.CAL}")
+        sys.exit(1)
     if hk.MTR_FLAGS.DIR != 0:
         event_log.error(f" Calibration Dir not to BASE : {hk.MTR_FLAGS.DIR}")
+        sys.exit(1)
     if hk.MTR_FLAGS.OUTER != 1:
-        event_log.error(f"OUTER Switch Flag not raised : {hk.MTR_FLAGS.OUTER}")
+        event_log.error(f"OUTER Switch Flag raised : {hk.MTR_FLAGS.OUTER}")
+        sys.exit(1)
     if hk.MTR_FLAGS.BASE != 0:
-        event_log.error(f"BASE Switch Flag asserted : {hk.MTR_FLAGS.BASE}")
+        event_log.error(f"BASE Switch Flag is not asserted : {hk.MTR_FLAGS.BASE}")
+        sys.exit(1)
     if hk.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {hk.MTR_FLAGS.MOVING}")
+        sys.exit(1)
     if hk.MTR_FLAGS.HOMING != 0:
         event_log.error(f"Motor Homing flag is asserted: {hk.MTR_FLAGS.HOMING}")
+        sys.exit(1)
 
+    event_log.info(f"Outer Home Finish Motor absolute steps: {hk.MTR_ABS_STEPS}")
+    if  hk.MTR_ABS_STEPS not in const.LTM_OUTER_TOL:
+        event_log.error(f"Motor Absolute Steps not within tolerance of OUTER switch: Got {hk.MTR_ABS_STEPS} expected to be in {const.LTM_OUTER_TOL}")
+        soft_error = True
+    else:
+        soft_error = False
+    
+    return soft_error
 
 def base_home(port):
     event_log.info("Starting Base Homing Sequence")
     repeat(port, tc.mtr_homing, False, False)
     hk = repeat(port, tc.hk_request, port)
     timeout = 1
-    while not hk.MTR_FLAGS.BASE and hk.MTR_ABS_STEPS not in const.LTM_BASE_TOL and timeout <= const.LTM_HOMING_TIMEOUT:
+    while not hk.MTR_FLAGS.BASE and timeout <= const.LTM_HOMING_TIMEOUT:
         time.sleep(1)
         timeout += 1
         hk = repeat(port, tc.hk_request, port)
@@ -159,16 +180,31 @@ def base_home(port):
     hk = repeat(port, tc.hk_request, port)
     if hk.MTR_FLAGS.CAL != 0:
         event_log.error(f" Calibration FlagAsserted : {hk.MTR_FLAGS.CAL}")
+        sys.exit(1)
     if hk.MTR_FLAGS.DIR != 0:
         event_log.error(f" Calibration Dir not to BASE : {hk.MTR_FLAGS.DIR}")
+        sys.exit(1)
     if hk.MTR_FLAGS.OUTER != 0:
         event_log.error(f"OUTER Switch Flag raised : {hk.MTR_FLAGS.OUTER}")
+        sys.exit(1)
     if hk.MTR_FLAGS.BASE != 1:
         event_log.error(f"BASE Switch Flag is not asserted : {hk.MTR_FLAGS.BASE}")
+        sys.exit(1)
     if hk.MTR_FLAGS.MOVING != 0:
         event_log.error(f"Motor moving flag still asserted: {hk.MTR_FLAGS.MOVING}")
+        sys.exit(1)
     if hk.MTR_FLAGS.HOMING != 0:
         event_log.error(f"Motor Homing flag is asserted: {hk.MTR_FLAGS.HOMING}")
+        sys.exit(1)
+
+    event_log.info(f"Base Homing Finished Motor absolute steps: {hk.MTR_ABS_STEPS}")
+    if  hk.MTR_ABS_STEPS not in const.LTM_BASE_TOL:
+        event_log.error(f"Motor Absolute Steps not within tolerance of BASE switch: Got {hk.MTR_ABS_STEPS} expected to be in {const.LTM_BASE_TOL}")
+        soft_error = True
+    else:
+        soft_error = False
+    
+    return soft_error
 
 
 def mwir_dark_region_start(port):
@@ -192,43 +228,52 @@ def mwir_dark_region_start(port):
         sys.exit(1)
 
 
-def stepping(port, dir, target_pos, steps):
-    if dir == 0:
-        repeat(port, tc.mtr_mov_neg, steps)
-    else:
+def stepping(port, toBase, target_pos, steps):
+    if toBase:
         repeat(port, tc.mtr_mov_pos, steps)
+    else:
+        repeat(port, tc.mtr_mov_neg, steps)
     hk = repeat(port, tc.hk_request, port)
-    while hk.MTR_FLAGS.MOVING:  # TODO - potentially add check for rel steps
+    while hk.MTR_FLAGS.MOVING:
         hk = repeat(port, tc.hk_request, port)
-    if hk.MTR_ABS_STEPS != target_pos:
-        event_log.error(f"Target Position {target_pos} not reached - Motor absolute steps: {hk.MTR_ABS_STEPS}")
+    if hk.ERROR_MTR != 0:
+        event_log.error(f"Motor Error Asserted : {hk.ERROR_MTR}")
         sys.exit(1)
 
-    # event_log.info("Motor movement finished")
 
-
-def acquisition(port, dir):
+def acquisition(port, toBase):
     hk = repeat(port, tc.hk_request, port)
     initial_pos = hk.MTR_ABS_STEPS
-    if dir == 0:
-        dir_sign = -1
+    if toBase:
+        dir_sign = 1 
     else:
-        dir_sign = 1
-    for i in range(21):
+        dir_sign = -1
+    for i in range(20):
         target_pos = initial_pos + (i + 1) * 32 * dir_sign
-        stepping(port, dir, target_pos, 32)
+        stepping(port, toBase, target_pos, 32)
         event_log.info(f"Dark Region Loop {i + 1} of 21 - Motor absolute steps: {target_pos}")
     initial_pos = target_pos
-    for i in range(149):
+    for i in range(150):
         target_pos = initial_pos + (i + 1) * 48 * dir_sign
-        stepping(port, dir, target_pos, 48)
+        stepping(port, toBase, target_pos, 48)
         event_log.info(f"Open Aperture Loop {i + 1} of 149 - Motor absolute steps: {target_pos}")
 
     initial_pos = target_pos
-    for i in range(21):
+    for i in range(20):
         target_pos = initial_pos + (i + 1) * 32 * dir_sign
-        stepping(port, dir, target_pos, 32)
+        stepping(port, toBase, target_pos, 32)
         event_log.info(f"Dark Region Loop {i + 1} of 21 - Motor absolute steps: {target_pos}")
+    
+    if toBase:
+        time.sleep(2)
+        soft_error = base_home(port)
+
+    else:
+        time.sleep(2)
+        soft_error = outer_home(port)
+    
+    event_log.info("Acquisition Sequence Complete")
+    return soft_error
 
 
 def park(port):
@@ -236,7 +281,7 @@ def park(port):
     base_home(port)
     time.sleep(2)
     hk = repeat(port, tc.hk_request, port)
-    target_steps = hk.MTR_ABS_STEPS - const.LTM_PARKED
+    target_steps = hk.MTR_ABS_STEPS - const.LTM_PARKED # TODO: Discuss if we should just move 480 steps always
     repeat(port, tc.mtr_mov_neg, target_steps)
     timeout = 1
     while hk.MTR_ABS_STEPS != const.LTM_PARKED and timeout <= const.LTM_PARKING_TIMEOUT:
