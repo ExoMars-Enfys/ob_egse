@@ -67,7 +67,6 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     return (event_log, info_log, psu_log)
 
 def clean_exit(psuport):
-    print("Clean exit initiated")
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()

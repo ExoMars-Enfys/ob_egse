@@ -133,9 +133,9 @@ def switchPSU(port, state):
 def emergencyShutDown(psu_com):
     if psu_com:
         psu_com.write(f"OPALL 0\r\n".encode("utf-8"))
-        psu_log.error(f"Closing all channels")
+        psu_log.info(f"Closing all channels")
         psu_com.write(f"LOCAL\r\n".encode("utf-8"))
-        psu_log.error(f"Setting to Local control")
+        psu_log.info(f"Setting to Local control")
         psu_com.flushOutput()
         psu_com.flushInput()
         psu_com.close()
