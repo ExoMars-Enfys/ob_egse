@@ -6,7 +6,6 @@ import send_cmd
 import tc
 from send_cmd import cmd_repeat as repeat
 import keyboard
-import keyboard
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -247,10 +246,4 @@ def torque_test(port):
         repeat(port, tc.mtr_halt)
         event_log.info("Motor halt command sent. - Reset the jig and press return to continue to next step.")
         i += 1
-        event_log.info("Press Escape within 10 s to terminate")
-        if keyboard.wait('escape'):  
-            time.sleep(10)          
-            sys.exit()
-        else :
-            continue
     return
