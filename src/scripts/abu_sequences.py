@@ -35,7 +35,6 @@ def read_hk(port, display_contents=True):
             + f"\n MTR_RECVAL : {resp.MTR_RECVAL}"
             + f"\n UNUSED3 : {resp.UNUSED3}"
             + f"\n MTR_SPEED :{resp.MTR_SPEED}"
-            + f"\n MECH_LIM_REL : {resp.MECH_LIM_REL}"
             + f"\n UNUSED4 : {resp.PWR_STAT}"
             + f"\n PWR_STAT : {resp.PWR_STAT}"
             + f"\n THRM_STATUS :{resp.THRM_STATUS}"
@@ -69,19 +68,17 @@ def read_hk(port, display_contents=True):
         event_log.info(
             f"\n\n MTR Flags : \nUnused : {resp.MTR_FLAGS.UNUSED1}"
             + f"\n CAL : {resp.MTR_FLAGS.CAL}"
-            + f"\n HOLD : {resp.MTR_FLAGS.HOLD}"
             + f"\n DIR : {resp.MTR_FLAGS.DIR}"
             + f"\n OUTER : {resp.MTR_FLAGS.OUTER}"
             + f"\n BASE : {resp.MTR_FLAGS.BASE}"
             + f"\n MOVING : {resp.MTR_FLAGS.MOVING}"
-            + f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+            + f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
         )
         event_log.info(
             f"Unused : {resp.MTR_ERRORS.UNUSED}"
             + f"\n CD : {resp.MTR_ERRORS.CD}"
             + f"\n AB : {resp.MTR_ERRORS.AB}"
             + f"\n ABS : {resp.MTR_ERRORS.ABS}"
-            + f"\n REL : {resp.MTR_ERRORS.REL}"
             + f"\n DSE : {resp.MTR_ERRORS.DSE}"
         )
 
@@ -112,7 +109,6 @@ def cal_motor_to_base(port):
         or resp.MTR_GUARD != 0x20
         or resp.MTR_RECVAL != 0x0F
         or resp.MTR_SPEED != 0x7
-        or resp.MECH_LIM_REL != 0x3200
     ):
         event_log.error(
             f"OB Parameters not initialized correctly:"
@@ -120,7 +116,6 @@ def cal_motor_to_base(port):
             + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
             + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
             + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
-            + f"\n Relative Steps Limit : {resp.MECH_LIM_REL}    ~ Expected : 12800"
         )
 
     # Cal to BASE

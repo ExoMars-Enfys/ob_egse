@@ -5,6 +5,7 @@ import constants as const
 import send_cmd
 import tc
 from send_cmd import cmd_repeat as repeat
+import keyboard
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -206,3 +207,49 @@ def hk_approx_cal(port):
         + "\n"
     )
     return resp
+
+def increasing_torque_test(port):
+    """Perform a motor torque test by incrementally increasing the motor current until the motor moves."""
+    power_up(port)
+    initial_current = 0x38
+    max_current = 0x70
+    step = 0x08
+    current = initial_current
+    i = 1
+    while current <= max_current:
+        event_log.info(f"Testing motor movement at current: {hex(current)}, Test iteration: {i}")
+        event_log.info("Press 'Enter' to send the command to move the motor...")
+        keyboard.wait('return')        
+        repeat(port, tc.set_mtr_param, current, 255, 60, 8)
+        repeat(port, tc.mtr_mov_pos, 0x0A0)
+        time.sleep(5)  # Wait for the command to take effect
+        repeat(port, tc.mtr_halt)
+        event_log.info("Motor halt command sent. - Reset the jig and press return to continue to next step.")
+        keyboard.wait('return')
+
+        current += step
+        i += 1
+    return
+
+def torque_test(port):
+    """Perform a motor torque test by incrementally increasing the motor current until the motor moves."""
+    power_up(port)
+    current = 0x40
+    i = 1
+    while True:
+        event_log.info(f"Testing motor movement at current: {hex(current)}, Test iteration: {i}")
+        event_log.info("Press 'Enter' to send the command to move the motor...")
+        keyboard.wait('return')        
+        repeat(port, tc.set_mtr_param, current, 255, 60, 8)
+        repeat(port, tc.mtr_mov_pos, 0x0A0)
+        time.sleep(5)  # Wait for the command to take effect
+        repeat(port, tc.mtr_halt)
+        event_log.info("Motor halt command sent. - Reset the jig and press return to continue to next step.")
+        i += 1
+        event_log.info("Press Escape within 10 s to terminate")
+        if keyboard.wait('escape'):  
+            time.sleep(10)          
+            sys.exit()
+        else :
+            continue
+    return

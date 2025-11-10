@@ -6,6 +6,7 @@ command retry.
 """
 
 import logging
+import sys
 
 import tc
 
@@ -20,7 +21,7 @@ def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs
 
     if exit_if_error:
         info_log.error(f"{cmd_func.__name__} exit on error asserted")
-        return "ERROR"
+        sys.exit(1)
 
     if repeat:
         info_log.warning("Clearing errors")

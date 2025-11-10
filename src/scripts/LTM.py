@@ -129,7 +129,7 @@ def outer_home(port):
     # Check motor status now its stopped.
     hk = repeat(port, tc.hk_request, port)
     if hk.MTR_FLAGS.CAL != 0:
-        event_log.error(f" Calibration FlagAsserted : {hk.MTR_FLAGS.CAL}")
+        event_log.error(f" Calibration Flag Asserted : {hk.MTR_FLAGS.CAL}")
         sys.exit(1)
     if hk.MTR_FLAGS.DIR != 0:
         event_log.error(f" Calibration Dir not to BASE : {hk.MTR_FLAGS.DIR}")
@@ -147,7 +147,7 @@ def outer_home(port):
         event_log.error(f"Motor Homing flag is asserted: {hk.MTR_FLAGS.HOMING}")
         sys.exit(1)
 
-    event_log.info(f"Outer Home Finish Motor absolute steps: {hk.MTR_ABS_STEPS}")
+    event_log.info(f"Outer Home Finished Motor absolute steps: {hk.MTR_ABS_STEPS}")
     if  hk.MTR_ABS_STEPS not in const.LTM_OUTER_TOL:
         event_log.error(f"Motor Absolute Steps not within tolerance of OUTER switch: Got {hk.MTR_ABS_STEPS} expected to be in {const.LTM_OUTER_TOL}")
         soft_error = True
@@ -281,10 +281,9 @@ def park(port):
     base_home(port)
     time.sleep(2)
     hk = repeat(port, tc.hk_request, port)
-    target_steps = hk.MTR_ABS_STEPS - const.LTM_PARKED # TODO: Discuss if we should just move 480 steps always
-    repeat(port, tc.mtr_mov_neg, target_steps)
+    repeat(port, tc.mtr_mov_neg, const.LTM_PARK_OFFSET) # Bob said 480 steps from base to parked
     timeout = 1
-    while hk.MTR_ABS_STEPS != const.LTM_PARKED and timeout <= const.LTM_PARKING_TIMEOUT:
+    while hk.MTR_REL_STEPS != -1 * const.LTM_PARK_OFFSET and timeout <= const.LTM_PARKING_TIMEOUT:
         time.sleep(1)
         timeout += 1
         hk = repeat(port, tc.hk_request, port)
