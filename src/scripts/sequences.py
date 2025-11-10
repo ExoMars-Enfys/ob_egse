@@ -6,6 +6,7 @@ import send_cmd
 import tc
 from send_cmd import cmd_repeat as repeat
 import keyboard
+import keyboard
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
