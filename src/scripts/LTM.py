@@ -47,6 +47,12 @@ def LTM_Measurement(port):
     hk = repeat(port, tc.hk_request, port)
     event_log.info(f"Parked Motor absolute steps: {hk.MTR_ABS_STEPS}")
 
+    #Motor Halt and power down
+    time.sleep(2)
+    repeat(port, tc.mtr_halt)
+    repeat(port,tc.power_control,0)
+
+
     if soft_error1 or soft_error2 or soft_error3 or soft_error4 or soft_error5:
         sys.exit(2)
         event_log.error("LTM Simulated Sol Completed with Soft Errors")
