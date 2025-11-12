@@ -24,6 +24,7 @@ from scripts.OB_FFT import fft as fft
 import tc
 # from scripts.LTM import LTM_Measurement as LTM
 from scripts import LTM
+from scripts import analysis as ana
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -73,6 +74,8 @@ def clean_exit(psuport):
     const.SCI_LOG_FH.close()
     # psu.close_psu_comms(psuport)
     psu.emergencyShutDown(psuport)
+    ana.analysis(const.DEFAULT_PATH)
+
 
 
     #! TODO add emergency shutdown to that powers off the OB

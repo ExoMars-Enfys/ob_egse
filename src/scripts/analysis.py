@@ -4,9 +4,11 @@ from tkinter import filedialog
 import matplotlib.pyplot as plt
 import bitstruct
 import sys
+import logging
 # Add parent directory to Python path to find tmstruct
 sys.path.append(str(Path(__file__).parent.parent))
 import tmstruct
+info_log = logging.getLogger("info_log")
 
 def calculate_cumulative_steps(abs_steps, rel_steps, cal_flag):
     if not rel_steps:
@@ -56,32 +58,15 @@ def parse_log_file(file_path):
     
     return abs_steps, rel_steps, cal_flag
 
-def export_results(file_path, abs_steps, rel_steps, cum_steps,cal_flag):
-    output_path = Path(file_path).parent / "step_analysis.md"
-    print(output_path)
+def export_results(abs_steps,cum_steps):
     
-    with open(output_path, "w") as f:
-        f.write("# Step Analysis Results\n\n")
-        f.write(f"## Analysis of: {Path(file_path).name}\n\n")
-        f.write(f"* Total samples: {len(abs_steps)}\n")
         if cum_steps:
-            f.write(f"* Total cumulative steps moved: {cum_steps[-1]}\n")
-            f.write(f"* Maximum absolute position: {max(abs_steps)}\n")
-            f.write(f"* Minimum absolute position: {min(abs_steps)}\n\n")
-            
-            f.write("## Sample Data\n\n")
-            f.write("| Sample | Absolute Position | Relative Steps | Cumulative Steps |\n")
-            f.write("|--------|------------------:|---------------:|------------------:|\n")
-            
-            for i in range(len(abs_steps)):
-                abs_pos = abs_steps[i]
-                cum_pos = cum_steps[i] if i < len(cum_steps) else ""
-                rel = ""
-                if rel_steps is not None and i < len(rel_steps):
-                    rel = rel_steps[i]
-                f.write(f"| {i} | \t{ abs_pos} | \t{rel} | \t{cum_pos} |\t{cal_flag[i]}\n")
+            info_log.info(f"\n------------------------------------------------------------------")
+            info_log.info(f"* Total cumulative steps moved: {cum_steps[-1]}")
+            info_log.info(f"* Maximum absolute position: {max(abs_steps)}")
+            info_log.info(f"* Minimum absolute position: {min(abs_steps)}")
 
-def main(path):
+def analysis(path):
     if path:
         file_path = path / (path.name + "_HK.LOG")
     else:
@@ -107,7 +92,7 @@ def main(path):
         print(f"Minimum absolute position: {min(abs_steps)}")
         
     # Export results
-    export_results(file_path, abs_steps, rel_steps, cum_steps,cal_flag)
+    export_results(abs_steps,cum_steps)
 
     # Create separate figure for Absolute Position
     fig1 = plt.figure(figsize=(10, 4))
@@ -128,8 +113,7 @@ def main(path):
     ax2.set_ylabel('Cumulative Steps')
     ax2.grid(True)
     plt.tight_layout()
-
-    plt.show()
+    plt.savefig(path / "-Cumulative_steps.jpg", format="jpg")
 
 if __name__ == '__main__':
     main()
