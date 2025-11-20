@@ -72,9 +72,8 @@ def clean_exit(psuport):
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-    # psu.close_psu_comms(psuport)
     psu.emergencyShutDown(psuport)
-    ana.analysis(const.DEFAULT_PATH)
+    ana.analysis(const.LOG_PATH,const.DEFAULT_PREFIX)
 
 
 
@@ -116,25 +115,11 @@ def main() -> None:
 
         # First HK
         # abu.read_hk(ob_port)
-        # sq.check_hk(ob_port)
-
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # TODO! When psu current limit hit trip off so obvious
-        # tc.power_control(ob_port, 0x01)
-        # New parameters for 3.2rc0
-        # tc.set_mtr_param(ob_port, 64, 255, 60, 8)
         LTM.LTM_Measurement(ob_port)
-        # tc.mtr_mov_neg(ob_port, 480)
-        
-        
-
-
-        # Previous firmware parameters for 3.1rc3
-        # tc.set_mtr_param(ob_port, 64, 0x20, 0x0F, 9)
-        # tc.mtr_mov_neg(ob_port, 320 * 11)
-
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------

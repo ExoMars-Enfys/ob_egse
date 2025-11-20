@@ -66,9 +66,9 @@ def export_results(abs_steps,cum_steps):
             info_log.info(f"* Maximum absolute position: {max(abs_steps)}")
             info_log.info(f"* Minimum absolute position: {min(abs_steps)}")
 
-def analysis(path):
+def analysis(path,prefix):
     if path:
-        file_path = path / (path.name + "_HK.LOG")
+        file_path = path / (prefix + "_HK.LOG")
     else:
     # Open file dialog
         root = tk.Tk()
@@ -102,13 +102,14 @@ def analysis(path):
     ax1.set_xlabel('Sample')
     ax1.set_ylabel('Steps')
     ax1.grid(True)
-    plt.tight_layout()
+    plt.tight_layout()    
+    plt.savefig(path / "-Abs_Steps.jpg", format="jpg")
 
     # Create separate figure for Cumulative Steps based only on relative steps
     fig2 = plt.figure(figsize=(10, 4))
     ax2 = fig2.add_subplot(1, 1, 1)
     ax2.plot(cum_steps, marker='.', linestyle='-', color='C1')
-    ax2.set_title('Cumulative Steps (relative-only)')
+    ax2.set_title('Cumulative Steps')
     ax2.set_xlabel('Sample')
     ax2.set_ylabel('Cumulative Steps')
     ax2.grid(True)
@@ -116,4 +117,4 @@ def analysis(path):
     plt.savefig(path / "-Cumulative_steps.jpg", format="jpg")
 
 if __name__ == '__main__':
-    main()
+    analysis(path=None)
