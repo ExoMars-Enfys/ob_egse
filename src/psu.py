@@ -15,9 +15,9 @@ event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
 
 
-def init_psu_comms(psu_com: str) -> serial.Serial:
+def init_psu_comms(port: str) -> serial.Serial:
     psuport = serial.Serial(port=None, timeout=1.0)
-    psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
+    psuport.port = port  # Assign com_port afterwards to prevent opening immediately
     return psuport
 
 
@@ -26,6 +26,7 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
         port.open()
     except serial.SerialException:
         if psu_not_required:
+            port.close()
             return
         else:
             info_log.error(f"No PSU found on COM Port {port.port}, try another")
@@ -46,20 +47,19 @@ def close_psu_comms(port: serial.Serial) -> None:
 
 
 def psuRead(
-    psu_com,
+    port,
     channel,
     type,
     output=False,
 ):
     if output == False:
-        psu_com.write(f"{type}{channel}?\r\n".encode("utf-8"))
-        response = psu_com.read(8).decode("utf-8")
+        port.write(f"{type}{channel}?\r\n".encode("utf-8"))
+        response = port.read(8).decode("utf-8")
     else:
-        psu_com.write(f"{type}{channel}O?\r\n".encode("utf-8"))
-        response = psu_com.read(8).decode("utf-8")
-
-    psu_com.flushOutput()
-    psu_com.flushInput()
+        port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
+        response = port.read(8).decode("utf-8")
+    port.flushOutput()
+    port.flushInput()
     return response
 
 
@@ -99,28 +99,29 @@ def psu_monitor_thread(port, stop_event, freq):
             stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
 
 
-def setChannels(psu_com, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
-    if psu_com:
+def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
+    if port:
         # Set the voltage and current limits for each channel
         psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-        psu_com.write(f"V1 12\r\n".encode("utf-8"))
-        psu_com.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
-        psu_com.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
+        port.write(f"V1 12\r\n".encode("utf-8"))
+        port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
+        port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-        psu_com.write(f"V2 12\r\n".encode("utf-8"))
-        psu_com.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
-        psu_com.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
+        port.write(f"V2 12\r\n".encode("utf-8"))
+        port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
+        port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-        psu_com.write(f"V3 5\r\n".encode("utf-8"))
-        psu_com.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
-        psu_com.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
+        port.write(f"V3 5\r\n".encode("utf-8"))
+        port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
+        port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
         psu_log.info("PSU Channels set successfully")
         psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
-        psu_com.flushOutput()
-        psu_com.flushInput()
+        port.flushOutput()
+        port.flushInput()
+    return
 
 
 def switchPSU(port, state):
@@ -128,17 +129,19 @@ def switchPSU(port, state):
     # psu_status = not psu_status
     if port:
         port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
+    return
 
 
-def emergencyShutDown(psu_com):
-    if psu_com:
-        psu_com.write(f"OPALL 0\r\n".encode("utf-8"))
+def emergencyShutDown(port):
+    if port:
+        port.write(f"OPALL 0\r\n".encode("utf-8"))
         psu_log.info(f"Closing all channels")
-        psu_com.write(f"LOCAL\r\n".encode("utf-8"))
+        port.write(f"LOCAL\r\n".encode("utf-8"))
         psu_log.info(f"Setting to Local control")
-        psu_com.flushOutput()
-        psu_com.flushInput()
-        psu_com.close()
+        port.flushOutput()
+        port.flushInput()
+        port.close()
+    return
 
 
 ## TODO: Create a log for this -
