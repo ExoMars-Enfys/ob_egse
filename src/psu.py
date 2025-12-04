@@ -26,7 +26,6 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
         port.open()
     except serial.SerialException:
         if psu_not_required:
-            port.close()
             return
         else:
             info_log.error(f"No PSU found on COM Port {port.port}, try another")
