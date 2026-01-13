@@ -39,6 +39,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
+    parser.add_argument("-hla", "--nohla", action="store_true")
     return parser
 
 def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
@@ -101,13 +102,14 @@ def main() -> None:
         psuport = psu.open_psu_comms(psuport, args.nopsu)
         psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
         psu.switchPSU(psuport, 1)  # Switch on PSU
-        atexit.register(clean_exit, psuport)
-
-        info_log.info("Initialising HLA")
-        hla_inst = hla.HLA()
-        hla_inst.hla_init()   
         stop_event = threading.Event()
-        hla_event = threading.Event()
+        atexit.register(clean_exit, psuport)
+        
+        if not args.nohla:
+            info_log.info("Initialising HLA")
+            hla_inst = hla.HLA()
+            hla_inst.hla_init()   
+            hla_event = threading.Event()
 
 
         time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
@@ -116,10 +118,11 @@ def main() -> None:
         )
         psu_thread.start()
 
-        hla_thread = threading.Thread(
-            target=hla_inst.hla_capture, args=(const.LOG_PATH,hla_event), daemon=True
-        )
-        hla_thread.start()
+        if not args.nohla:
+            hla_thread = threading.Thread(
+                target=hla_inst.hla_capture, args=(const.LOG_PATH,hla_event), daemon=True
+            )
+            hla_thread.start()
         time.sleep(10)  # Wait for PSU and HLA threads to stabilise
 
         # First HK
@@ -128,6 +131,7 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # TODO! When psu current limit hit trip off so obvious 
+        pkt = sniff.read_pkt("C:/Users/GK/OneDrive - University College London/General - Enfys - Shared/Test/EB Logs/251105_EQM_PostDel_To_MSSL/RS422if_2025-11-05_13-35-02.log")
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
@@ -135,10 +139,11 @@ def main() -> None:
         # abu.read_hk(ob_port)
 
         stop_event.set()
-        hla_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-        hla_inst.hla_stop(const.LOG_PATH)
-        hla_thread.join(timeout=1.0)  # Wait for the HLA thread to finish
+        if not args.nohla:            
+            hla_event.set()
+            hla_inst.hla_stop(const.LOG_PATH)
+            hla_thread.join(timeout=1.0)  # Wait for the HLA thread to finish
         comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
