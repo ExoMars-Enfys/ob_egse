@@ -13,19 +13,18 @@ import comms
 import constants as const
 import egse_logger
 import gui
+import hk_sniffer as sniff
+import hla_handler as hla
 import psu
-import scripts.sequences as sq
-import scripts.error_checks as ec
-import scripts.abu_sequences as abu
-
-# import scripts.heaters as h
 from send_cmd import cmd_repeat as repeat
-from scripts.OB_FFT import fft as fft
 import tc
-# from scripts.LTM import LTM_Measurement as LTM
-from scripts import LTM
-from scripts import analysis as ana
 
+# Script modules
+import scripts.abu_sequences as abu
+from scripts import analysis as ana
+import scripts.error_checks as ec
+from scripts import LTM
+import scripts.sequences as sq
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
 def init_arparse() -> argparse.ArgumentParser:
@@ -41,7 +40,6 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     return parser
-
 
 def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     if const.LOG_PATH == const.DEFAULT_PATH:
@@ -80,7 +78,6 @@ def clean_exit(psuport):
     #! TODO add emergency shutdown to that powers off the OB
     #! TODO power off power supply
 
-
 def main() -> None:
     parser = init_arparse()
     args = parser.parse_args()
@@ -105,7 +102,13 @@ def main() -> None:
         psu.setChannels(psuport, const.CH1_OVP, const.CH1_I, const.CH2_OVP, const.CH2_I, const.CH3_OVP, const.CH3_I)
         psu.switchPSU(psuport, 1)  # Switch on PSU
         atexit.register(clean_exit, psuport)
+
+        info_log.info("Initialising HLA")
+        hla_inst = hla.HLA()
+        hla_inst.hla_init()   
         stop_event = threading.Event()
+        hla_event = threading.Event()
+
 
         time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
         psu_thread = threading.Thread(
@@ -113,13 +116,18 @@ def main() -> None:
         )
         psu_thread.start()
 
+        hla_thread = threading.Thread(
+            target=hla_inst.hla_capture, args=(const.LOG_PATH,hla_event), daemon=True
+        )
+        hla_thread.start()
+        time.sleep(10)  # Wait for PSU and HLA threads to stabilise
+
         # First HK
         # abu.read_hk(ob_port)
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # TODO! When psu current limit hit trip off so obvious
-        LTM.LTM_Measurement(ob_port)
+        # TODO! When psu current limit hit trip off so obvious 
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
@@ -127,8 +135,10 @@ def main() -> None:
         # abu.read_hk(ob_port)
 
         stop_event.set()
+        hla_event.set()
         psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
-
+        hla_inst.hla_stop(const.LOG_PATH)
+        hla_thread.join(timeout=1.0)  # Wait for the HLA thread to finish
         comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
@@ -139,7 +149,7 @@ def main() -> None:
         hk_thread = threading.Thread(target=poll_hk, args=(rs485port, stop_event), daemon=True)
         hk_thread.start()
         time.sleep(3)
-        gui.init()
+        gui.streamlit_gui(rs485port, psu_com)
 
 
 if __name__ == "__main__":
