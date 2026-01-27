@@ -39,10 +39,11 @@ def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
         port.open()
     except serial.SerialException:
         info_log.error(f"No device found on COM Port {port}, try another")
-        # raise SystemExit
+        return port
 
-    port.flushOutput()  # Port Flushing to clear port
-    port.flushInput()
+    if port.is_open:
+        port.flushOutput()  # Port Flushing to clear port
+        port.flushInput()
 
     return port
 

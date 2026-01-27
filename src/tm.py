@@ -43,7 +43,8 @@ class Response:
 
     def verify_crc(self):
         self.hash = crc8.crc8()
-        if self.hash.update(self.raw_bytes).hexdigest() != "00":
+        self.hash.update(self.raw_bytes)
+        if self.hash.hexdigest() != "00":
             info_log.error(
                 f"Incorrect CRC8. Calculated: 0x{self.hash.hexdigest()}. For Packet {bytes.hex(self.raw_bytes, ' ', 2)}"
             )

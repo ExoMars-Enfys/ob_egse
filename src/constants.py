@@ -6,11 +6,11 @@ from pathlib import Path
 
 CMD_SPEED_DICT = {
     "Steady": 0.25,
-    "Fast": 0.05,
+    "Fast": 0.005,
 }
 
 # ----Initialisation---------------------------------------------------------------------------------
-EXP_MODEL_ID = 0x06
+EXP_MODEL_ID = 0x07
 
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -22,9 +22,11 @@ LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
 EB_LOG_PATH = "C:/wdir/IFM/EB/EGSE/RS422if_log"
 
+# PSU queue
+psu_queue = deque(maxlen=100)
 # PSU Config
-PSU_LOGGING_FREQ = 1  # in HZ
-PSU_COM_PORT = None
+PSU_LOGGING_FREQ = 10  # in HZ
+PSU_COM_PORT = 9
 CH1_OVP = 12.5
 CH1_I = 0.200
 
@@ -33,6 +35,9 @@ CH2_I = 0.155
 
 CH3_OVP = 5.5
 CH3_I = 0.150
+
+CH4_OVP = 28.5
+CH4_I = 0.500
 
 # Set by EGSE.py do not write here.
 ACK_LOG_FH = None
@@ -72,3 +77,4 @@ DARK_REGION_STEP_SIZE = 32  # steps
 OPEN_APERTURE_STEP_SIZE = 48
 # SCI queue
 sci_queue = deque(maxlen=100)
+

@@ -40,6 +40,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     parser.add_argument("-hla", "--nohla", action="store_true")
+    parser.add_argument("-eb", "--ebmode", action="store_true")
     return parser
 
 def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
@@ -97,6 +98,21 @@ def main() -> None:
         ob_port = comms.initialise_comms(rs485_com)
         ob_port = comms.open_comms(ob_port)
 
+        
+        
+        if not args.nohla:
+            info_log.info("Initialising HLA")
+            hla_inst = hla.HLA()
+            hla_inst.hla_init()   
+            hla_event = threading.Event()
+        
+        if not args.nohla:
+            hla_thread = threading.Thread(
+                target=hla_inst.hla_capture, args=(const.LOG_PATH,hla_event), daemon=True
+            )
+            hla_thread.start()
+        time.sleep(5)  # Wait for PSU and HLA threads to stabilise
+
         info_log.info("Initialising PSU Comms")
         psuport = psu.init_psu_comms(psu_com)
         psuport = psu.open_psu_comms(psuport, args.nopsu)
@@ -104,26 +120,14 @@ def main() -> None:
         psu.switchPSU(psuport, 1)  # Switch on PSU
         stop_event = threading.Event()
         atexit.register(clean_exit, psuport)
-        
-        if not args.nohla:
-            info_log.info("Initialising HLA")
-            hla_inst = hla.HLA()
-            hla_inst.hla_init()   
-            hla_event = threading.Event()
-
-
         time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
+
         psu_thread = threading.Thread(
-            target=psu.psu_monitor_thread, args=(psuport, stop_event, const.PSU_LOGGING_FREQ), daemon=True
+            target=psu.psu_monitor_thread, args=(psuport, stop_event, const.PSU_LOGGING_FREQ, False), daemon=True
         )
         psu_thread.start()
 
-        if not args.nohla:
-            hla_thread = threading.Thread(
-                target=hla_inst.hla_capture, args=(const.LOG_PATH,hla_event), daemon=True
-            )
-            hla_thread.start()
-        time.sleep(10)  # Wait for PSU and HLA threads to stabilise
+        
 
         # First HK
         # abu.read_hk(ob_port)
@@ -131,7 +135,14 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
         # TODO! When psu current limit hit trip off so obvious 
-        pkt = sniff.read_pkt("C:/Users/GK/OneDrive - University College London/General - Enfys - Shared/Test/EB Logs/251105_EQM_PostDel_To_MSSL/RS422if_2025-11-05_13-35-02.log")
+        # tc.power_control(ob_port, True)
+        # sq.power_up(ob_port)
+        for i in range(100):
+            sq.check_hk(ob_port)
+            time.sleep(0.01)
+        # tc.mtr_homing(ob_port,True, True)
+        # tc.mtr_mov_pos(ob_port, 1000)
+        # pkt = sniff.read_pkt("C:/Users/GK/OneDrive - University College London/General - Enfys - Shared/Test/EB Logs/251105_EQM_PostDel_To_MSSL/RS422if_2025-11-05_13-35-02.log")
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # # ------------------------------------------------------------------------------------------
@@ -145,16 +156,13 @@ def main() -> None:
             hla_inst.hla_stop(const.LOG_PATH)
             hla_thread.join(timeout=1.0)  # Wait for the HLA thread to finish
         comms.close_comms(ob_port)
+    
     else:
-        info_log.info("Running GUI")
-
-        rs485port = comms.initialise_comms(rs485_com)
-        rs485port = comms.open_comms(rs485port)
-        stop_event = threading.Event()
-        hk_thread = threading.Thread(target=poll_hk, args=(rs485port, stop_event), daemon=True)
-        hk_thread.start()
-        time.sleep(3)
-        gui.streamlit_gui(rs485port, psu_com)
+        parser = init_arparse()
+        args = parser.parse_args()
+        info_log.info("Running GUI")        
+        gui.init(args.ebmode,rs485_com, psu_com)
+        # gui.init(rs485port)
 
 
 if __name__ == "__main__":
