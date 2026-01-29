@@ -59,7 +59,7 @@ event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 
 # Initialize EGSE interface
-egse_interface = EGSEInterface(r"C:\wdir\IFM\EB\EGSE")
+egse_interface = EGSEInterface(r"C:\wdir\IFM\EB")
 
 st.set_page_config(page_title = "Enfys EGSE v3.0" , page_icon="./rsrc/ExoMars_Logo_PNG.png",initial_sidebar_state="expanded", layout="wide")
 
@@ -1074,21 +1074,35 @@ def display_post_info():
             st.info("⏳ Waiting for POST HK packet...")
 def start_egse_tools():
     try:
+        button_press_time = time.time()
         if egse_interface.start_egse():
             st.success("✓ EGSE tools started successfully")
             st.session_state.egse_started = True
             
-            # Wait 2 seconds for tools to initialize
-            time.sleep(2)
+            # Wait 5 seconds for tools to initialize and create log file
+            time.sleep(5)
             
-            # Set test log file path for simulation
-            test_log_path = r"C:\Users\GK\Downloads\HK CHECK.txt"
+            # Look for the latest RS422if log file created after button press
+            log_folder = egse_interface.egse_path / "RS422if_log"
             
-            if os.path.exists(test_log_path):
-                st.session_state.eb_filepath = test_log_path
-                st.info(f"📋 Using test log: {Path(test_log_path).name}")
+            if log_folder.exists():
+                log_files = sorted(log_folder.glob("RS422if_*.log"), key=os.path.getmtime, reverse=True)
+                # Filter for files created after the button was pressed
+                recent_logs = [f for f in log_files if os.path.getmtime(f) > button_press_time]
+                
+                if recent_logs:
+                    latest_log = recent_logs[0]
+                    st.session_state.eb_filepath = str(latest_log)
+                    st.info(f"📋 Using latest log: {latest_log.name}")
+                elif log_files:
+                    # Fallback to latest if no recent logs found
+                    latest_log = log_files[0]
+                    st.session_state.eb_filepath = str(latest_log)
+                    st.warning(f"⚠ Using existing log (no new log created): {latest_log.name}")
+                else:
+                    st.warning(f"⚠ No RS422if log files found in {log_folder}")
             else:
-                st.warning(f"⚠ Test log file not found: {test_log_path}")
+                st.warning(f"⚠ Log folder not found: {log_folder}")
         else:
             st.error("✗ Failed to start EGSE tools")
     except Exception as e:

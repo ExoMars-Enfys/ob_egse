@@ -5,7 +5,7 @@ from pathlib import Path
 
 class EGSEInterface:
     
-    def __init__(self, egse_path: str = r"C:\wdir\IFM\EB\EGSE"):
+    def __init__(self, egse_path: str = r"C:\wdir\IFM\EB"):
         self.egse_path = Path(egse_path)
         self.process_handle = None
     

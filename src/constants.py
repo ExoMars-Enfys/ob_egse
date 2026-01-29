@@ -20,13 +20,13 @@ DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 SCI_RESP_MARGIN = 0.020  # seconds
 LOG_PREFIX = DEFAULT_PREFIX
 LOG_PATH = DEFAULT_PATH
-EB_LOG_PATH = "C:/wdir/IFM/EB/EGSE/RS422if_log"
+EB_LOG_PATH = "C:/wdir/IFM/EB/RS422if_log"
 
 # PSU queue
 psu_queue = deque(maxlen=100)
 # PSU Config
 PSU_LOGGING_FREQ = 10  # in HZ
-PSU_COM_PORT = 9
+PSU_COM_PORT = 4
 CH1_OVP = 12.5
 CH1_I = 0.200
 

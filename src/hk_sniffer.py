@@ -223,5 +223,5 @@ def hk_checker(pkt):
 
 
 if __name__ == '__main__':
-    file_path = "C:\\wdir\\IFM\\EB\\EGSE\\RS422if_log\\RS422if_2026-01-22_10-09-12.log"
+    file_path = "C:\\wdir\\IFM\\EB\\RS422if_log\\RS422if_2026-01-22_10-09-12.log"
     raw_bytes,post_bytes, tm_index = read_pkt(file_path)

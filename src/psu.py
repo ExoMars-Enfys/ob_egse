@@ -265,6 +265,10 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None,
                         psu_log.warning(f"Error closing plot figure: {e}")
         else:
             start_time = time.time()
+            ch3_start_time = None
+            ch4_start_time = None
+            prev_ch3_on = False
+            prev_ch4_on = False
             while not stop_event.is_set():
                 try:
                     ch1_v = "N/A"
@@ -312,9 +316,6 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None,
                     # Append data to queue for GUI display
                     const.psu_queue.append([ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i, ch4_v, ch4_i])
                     
-                    elapsed = time.time() - start_time
-                    lower_bound = 0.0 if elapsed < 0.5 else 26.0
-
                     def safe_float(value):
                         try:
                             return float(value)
@@ -330,11 +331,36 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None,
                         ch3_on = bool(channel_state.get("ch3", True))
                         ch4_on = bool(channel_state.get("ch4", True))
 
-                    if ch3_on and ch3_v_val is not None and not (lower_bound <= ch3_v_val <= 29.5):
+                    # Track when each channel is turned on
+                    if ch3_on and not prev_ch3_on:
+                        ch3_start_time = time.time()
+                    elif not ch3_on:
+                        ch3_start_time = None
+                    
+                    if ch4_on and not prev_ch4_on:
+                        ch4_start_time = time.time()
+                    elif not ch4_on:
+                        ch4_start_time = None
+                    
+                    prev_ch3_on = ch3_on
+                    prev_ch4_on = ch4_on
+
+                    # Calculate lower bound for each channel based on its own start time
+                    ch3_lower_bound = 0.0
+                    if ch3_start_time is not None:
+                        ch3_elapsed = time.time() - ch3_start_time
+                        ch3_lower_bound = 0.0 if ch3_elapsed < 1.0 else 26.0
+                    
+                    ch4_lower_bound = 0.0
+                    if ch4_start_time is not None:
+                        ch4_elapsed = time.time() - ch4_start_time
+                        ch4_lower_bound = 0.0 if ch4_elapsed < 1.0 else 26.0
+
+                    if ch3_on and ch3_v_val is not None and not (ch3_lower_bound <= ch3_v_val <= 29.5):
                         psu_log.error(f"Voltage out of bounds Ch3 :  {ch3_v} ")
                         emergencyShutDown(port)
 
-                    if ch4_on and ch4_v_val is not None and not (lower_bound <= ch4_v_val <= 29.5):
+                    if ch4_on and ch4_v_val is not None and not (ch4_lower_bound <= ch4_v_val <= 29.5):
                         psu_log.error(f"Voltage out of bounds Ch4 :  {ch4_v} ")
                         emergencyShutDown(port)
 
