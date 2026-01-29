@@ -1,7 +1,6 @@
 from saleae import automation
 import os
 import os.path
-from datetime import datetime
 import constants as const
 import logging
 

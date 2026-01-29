@@ -1,10 +1,3 @@
-"""
-This module is used for generally sending commands. These are one step higher level than the TC
-module which is mainly used to handle generation of the bytes over the RS-485. This module
-implements simple logic to verify that it has properly executed and will generally attempt one
-command retry.
-"""
-
 import logging
 import sys
 

@@ -161,7 +161,7 @@ def main() -> None:
         parser = init_arparse()
         args = parser.parse_args()
         info_log.info("Running GUI")        
-        gui.init(args.ebmode,rs485_com, psu_com)
+        gui.init(args.ebmode,args.psu,rs485_com, psu_com)
         # gui.init(rs485port)
 
 

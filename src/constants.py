@@ -36,8 +36,11 @@ CH2_I = 0.155
 CH3_OVP = 5.5
 CH3_I = 0.150
 
-CH4_OVP = 28.5
-CH4_I = 0.500
+EB_OVP = 30
+EB_I = 0.500
+
+ROV_HTR_OVP = 30.0
+ROV_HTR_I = 0.050
 
 # Set by EGSE.py do not write here.
 ACK_LOG_FH = None

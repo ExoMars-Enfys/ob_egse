@@ -1,20 +1,10 @@
-from collections import namedtuple
-from pathlib import Path
+
 from types import SimpleNamespace
-import tkinter as tk
-from tkinter import filedialog
-from altair import param
+from typing import Any, cast
 import bitstruct
-import sys
 import logging
-import constants as const
-import tm
 import tmstruct
-import scripts.analysis as ana
-import time
 
-
-import tmstruct
 info_log = logging.getLogger("info_log")
 
 def read_pkt(file_path):    
@@ -22,6 +12,7 @@ def read_pkt(file_path):
         all_lines = [line.strip() for line in f]
         tm_indices = [i for (i, line) in enumerate(all_lines) if line.startswith("Telemetry Data:")]
         raw_bytes = None
+        post_bytes = None
         tm_index = -1
         packet_ids_found = set()
         for tm_index in tm_indices:
@@ -32,12 +23,11 @@ def read_pkt(file_path):
             byte_array = bytes([int(x, 16) for x in byte_string.split()])
             tm_type_id = (byte_array[5] >> 2) & 0x3F  # TM Type ID - bits 7-2 of byte 5
             packet_ids_found.add(tm_type_id)
-            if tm_type_id in (0x1, 0x3):  # HK packet IDs
+            if tm_type_id in (0x1, 0x2):  # HK packet IDs
                 raw_bytes = byte_array
-        
-                
-    
-    return raw_bytes, tm_index
+            if tm_type_id  == 0x3:
+                post_bytes = byte_array
+    return raw_bytes,post_bytes, tm_index
 
 
 def parse_eb_hk(packet_data):
@@ -49,75 +39,76 @@ def parse_eb_hk(packet_data):
     parsed = decode_instrument_status_flags(parsed)
     return parsed
 
-def decode_eb_bytes(raw_bytes, struct = tmstruct.eb_hk):
-        param_dict = bitstruct.unpack_dict(
-            "".join(i[1] for i in struct),
-            [i[0] for i in struct],
-            raw_bytes,
-        )
-        # Convert dict to SimpleNamespace to allow dot notation access
-        param = SimpleNamespace(**param_dict)
-        return param
-
 def decode_bytes(raw_bytes, struct = tmstruct.eb_hk):
-        param_dict = bitstruct.unpack_dict(
+        param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
             "".join(i[1] for i in struct),
             [i[0] for i in struct],
             raw_bytes,
-        )
+        ))
         # Convert dict to SimpleNamespace to allow dot notation access
         param = SimpleNamespace(**param_dict)
         return param
 
 def decode_errors(param):
-    error_dict = bitstruct.unpack_dict(
+    error_dict = cast(dict[str, Any], bitstruct.unpack_dict(
         "".join(i[1] for i in tmstruct.error_struct),
         [i[0] for i in tmstruct.error_struct],
         bytes([param.OB_LAST_ERROR]),
-    )
+    ))
     # Convert error dict to SimpleNamespace and assign to param
     param.ERRORS = SimpleNamespace(**error_dict)
     return param
 
 def decode_mtr_error_byte(param):
-        mtr_error_dict = bitstruct.unpack_dict(
+        mtr_error_dict = cast(dict[str, Any], bitstruct.unpack_dict(
         "".join(i[1] for i in tmstruct.mtr_error_struct),
         [i[0] for i in tmstruct.mtr_error_struct],
         bytes([param.OB_MOTOR_ERROR]),
-    )
+    ))
         param.MTR_ERRORS = SimpleNamespace(**mtr_error_dict)
         return param
 
 def decode_thrm_status_byte(param):
     ## Decode bit maps
     # Thermal Status
-    thrm_status_dict = bitstruct.unpack_dict(
+    thrm_status_dict = cast(dict[str, Any], bitstruct.unpack_dict(
         "".join(i[1] for i in tmstruct.thrm_status_struct),
         [i[0] for i in tmstruct.thrm_status_struct],
         bytes([param.OB_THERMAL_STATUS]),
-    )
+    ))
     param.THRM_STATUS = SimpleNamespace(**thrm_status_dict)
     return param
 
 def decode_mtr_flags_byte(param):
     ## Decode bit maps
     # Thermal Status
-    mtr_flag_dict = bitstruct.unpack_dict(
+    mtr_flag_dict = cast(dict[str, Any], bitstruct.unpack_dict(
         "".join(i[1] for i in tmstruct.mtr_flag_struct),
         [i[0] for i in tmstruct.mtr_flag_struct],
         bytes([param.OB_MOTOR_STATUS_FLAGS]),
-    )
+    ))
     param.MTR_FLAGS = SimpleNamespace(**mtr_flag_dict)
     return param
 
 def decode_instrument_status_flags(param):
-    instr_status_dict = bitstruct.unpack_dict(
+    instr_status_dict = cast(dict[str, Any], bitstruct.unpack_dict(
         "".join(i[1] for i in tmstruct.eb_instrument_status_flags),
         [i[0] for i in tmstruct.eb_instrument_status_flags],
         (param.INSTRUMENT_STATUS_FLAGS.to_bytes(2, 'big')),
-    )
+    ))
     param.INSTR_STATUS_FLAGS = SimpleNamespace(**instr_status_dict)
     return param
+
+def decode_post_hk(packet_data, struct = tmstruct.post_hk):
+    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+            "".join(i[1] for i in struct),
+            [i[0] for i in struct],
+            packet_data,
+        ))
+        # Convert dict to SimpleNamespace to allow dot notation access
+    param = SimpleNamespace(**param_dict)
+    return param
+
 def hk_checker(pkt):
     print(
         f" PACKET_ID: {pkt.PACKET_ID}"
@@ -233,4 +224,4 @@ def hk_checker(pkt):
 
 if __name__ == '__main__':
     file_path = "C:\\wdir\\IFM\\EB\\EGSE\\RS422if_log\\RS422if_2026-01-22_10-09-12.log"
-    raw_bytes, tm_index = read_pkt(file_path)
+    raw_bytes,post_bytes, tm_index = read_pkt(file_path)

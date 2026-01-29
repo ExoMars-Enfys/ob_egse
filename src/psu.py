@@ -1,7 +1,6 @@
 # Std library
 import logging
 import sys
-import threading
 from collections import deque
 
 # Added packages
@@ -9,8 +8,6 @@ import serial
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-import numpy as np
 
 # Local modules
 import constants as const
@@ -27,7 +24,7 @@ def init_psu_comms(port) -> serial.Serial:
     return psuport
 
 
-def open_psu_comms(port, psu_not_required) -> serial.Serial:
+def open_psu_comms(port, psu_not_required) -> serial.Serial | None:
     try:
         port.open()
     except serial.SerialException:
@@ -37,8 +34,13 @@ def open_psu_comms(port, psu_not_required) -> serial.Serial:
             info_log.error(f"No PSU found on COM Port {port.port}, try another")
             sys.exit(1)
 
-    port.flushOutput()  # Port Flushing to clear port
-    port.flushInput()
+    # Clear buffers multiple times to ensure clean state
+    for _ in range(3):
+        port.flushOutput()
+        port.flushInput()
+    
+    # Give PSU time to be ready after opening
+    time.sleep(1.0)
 
     return port
 
@@ -57,7 +59,7 @@ def psuRead(
     type,
     output=False,
 ):
-    if output == False:
+    if not output:
         port.write(f"{type}{channel}?\r\n".encode("utf-8"))
         response = port.read(8).decode("utf-8")
     else:
@@ -127,13 +129,6 @@ def plot_psu_live_data(port, stop_event, freq):
 
 
 def update_psu_plot(data_dict, ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i):
-    """
-    Update the PSU plot with new data and save to file periodically.
-    
-    Args:
-        data_dict: Dictionary containing plot data and line objects
-        ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i: String values from PSU readings
-    """
     if data_dict is None:
         return
     
@@ -211,7 +206,7 @@ def update_psu_plot(data_dict, ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i):
         psu_log.error(f"Error updating PSU plot: {e}")
 
 
-def psu_monitor_thread(port, stop_event , freq, ebmode = False ):
+def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None, channel_state=None):
     if port:
         
         if not ebmode:
@@ -269,30 +264,81 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False ):
                     except Exception as e:
                         psu_log.warning(f"Error closing plot figure: {e}")
         else:
+            start_time = time.time()
             while not stop_event.is_set():
                 try:
                     ch1_v = "N/A"
                     ch1_i = "N/A"
                     ch2_v = "N/A"
                     ch2_i = "N/A"
-                    ch3_v = "N/A"
-                    ch3_i = "N/A"
-                    # Read the voltage and current for channel 4
-                    ch4_v = psuRead(port, "4", "V", True).rstrip()
-                    ch4_i = psuRead(port, "4", "I", True).rstrip()
+                    
+                    # Acquire lock before reading from PSU
+                    if psu_lock:
+                        with psu_lock:
+                            # Read the voltage and current for channel 3 (ROV heaters)
+                            ch3_v = psuRead(port, "3", "V", True).rstrip()
+                            ch3_i = psuRead(port, "3", "I", True).rstrip()
+                            # Read the voltage and current for channel 4 (EB)
+                            ch4_v = psuRead(port, "4", "V", True).rstrip()
+                            ch4_i = psuRead(port, "4", "I", True).rstrip()
+                    else:
+                        # Read the voltage and current for channel 3 (ROV heaters)
+                        ch3_v = psuRead(port, "3", "V", True).rstrip()
+                        ch3_i = psuRead(port, "3", "I", True).rstrip()
+                        # Read the voltage and current for channel 4 (EB)
+                        ch4_v = psuRead(port, "4", "V", True).rstrip()
+                        ch4_i = psuRead(port, "4", "I", True).rstrip()
+                    
+                    # Clean up readings by removing common artifacts
+                    def clean_psu_reading(value):
+                        if not value or value == "N/A":
+                            return "N/A"
+                        # Remove null bytes and common non-numeric chars, keep only digits, decimal, V, A
+                        cleaned = ''.join(c for c in value if c.isdigit() or c in '.-VA')
+                        # Extract just the numeric part
+                        numeric_part = ''.join(c for c in cleaned if c.isdigit() or c == '.')
+                        if numeric_part:
+                            return numeric_part
+                        return "N/A"
+                    
+                    ch3_v = clean_psu_reading(ch3_v)
+                    ch3_i = clean_psu_reading(ch3_i)
+                    ch4_v = clean_psu_reading(ch4_v)
+                    ch4_i = clean_psu_reading(ch4_i)
 
                     # Log the readings
-                    psu_log.info(f"CH4 Voltage: {ch4_v}  \tCH4 Current: {ch4_i}  ")
+                    psu_log.info(f"CH3 Voltage: {ch3_v}  \tCH3 Current: {ch3_i}  \tCH4 Voltage: {ch4_v}  \tCH4 Current: {ch4_i}  ")
                     
                     # Append data to queue for GUI display
                     const.psu_queue.append([ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i, ch4_v, ch4_i])
                     
-                    # ! TODO Set proper limits for EB mode
-                    if not (26.5 < float(ch4_v.strip("V")) < 29.5):
+                    elapsed = time.time() - start_time
+                    lower_bound = 0.0 if elapsed < 0.5 else 26.0
+
+                    def safe_float(value):
+                        try:
+                            return float(value)
+                        except (TypeError, ValueError):
+                            return None
+
+                    ch3_v_val = safe_float(ch3_v)
+                    ch4_v_val = safe_float(ch4_v)
+
+                    ch3_on = True
+                    ch4_on = True
+                    if isinstance(channel_state, dict):
+                        ch3_on = bool(channel_state.get("ch3", True))
+                        ch4_on = bool(channel_state.get("ch4", True))
+
+                    if ch3_on and ch3_v_val is not None and not (lower_bound <= ch3_v_val <= 29.5):
+                        psu_log.error(f"Voltage out of bounds Ch3 :  {ch3_v} ")
+                        emergencyShutDown(port)
+
+                    if ch4_on and ch4_v_val is not None and not (lower_bound <= ch4_v_val <= 29.5):
                         psu_log.error(f"Voltage out of bounds Ch4 :  {ch4_v} ")
                         emergencyShutDown(port)
 
-                    if (float(ch4_i.strip("A")) >= 500):
+                    if ch4_on and (float(ch4_i.strip("A")) >= 500):
                         psu_log.error(f"Current out of bounds Ch4 :  {ch4_i} ")
                         emergencyShutDown(port)
 
@@ -302,7 +348,7 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False ):
                 stop_event.wait(waitTime)  # Sleep before the next reading
 
 
-def setChannels(port,ebmode = False):
+def setChannels(port,rov_htrs = False,ebmode = False):
     if port:
         # Set the voltage and current limits for each channel
         if not ebmode:
@@ -320,27 +366,44 @@ def setChannels(port,ebmode = False):
             port.write(f"V3 5\r\n".encode("utf-8"))
             port.write(f"I3 {const.CH3_I}\r\n".encode("utf-8"))
             port.write(f"OVP3 {const.CH3_OVP} 1\r\n".encode("utf-8"))
-        else : 
-            psu_log.info(f"Setting PSU Channels: CH4 V: {28}V OVP: {const.CH4_OVP}V, CH4 I: {const.CH4_I}A")
-            port.write(f"V4 28\r\n".encode("utf-8"))
-            port.write(f"I4 {const.CH4_I}\r\n".encode("utf-8"))
-            port.write(f"OVP4 {const.CH4_OVP} 1\r\n".encode("utf-8"))
 
-        psu_log.info("PSU Channels set successfully")
-        psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
-        port.flushOutput()
-        port.flushInput()
+            psu_log.info("PSU Channels set successfully")
+            psu_log.info(f"  CH1_V +12 \t   CH1_I {const.CH1_I}\t  CH2_V -12 \t  CH2_I {const.CH2_I}\t  CH3_V +5 \t   CH3_I {const.CH3_I}")
+            port.flushOutput()
+            port.flushInput()
+        else : 
+            if rov_htrs:
+                psu_log.info(f"Setting PSU Channels: CH3 V: {28}V OVP: {const.ROV_HTR_OVP}V, CH4 I: {const.ROV_HTR_I}A")
+                port.write(f"V3 28\r\n".encode("utf-8"))
+                port.write(f"I3 {const.ROV_HTR_I}\r\n".encode("utf-8"))
+                port.write(f"OVP3 {const.ROV_HTR_OVP} 1\r\n".encode("utf-8"))
+                psu_log.info("PSU Channels set successfully")
+                psu_log.info(f"  ROV_HTR_V +28 \t   ROV_HTR_I {const.ROV_HTR_I}")
+                port.flushOutput()
+                port.flushInput()
+            else : 
+                psu_log.info(f"Setting PSU Channels: CH4 V: {28}V OVP: {const.EB_OVP}V, CH4 I: {const.EB_I}A")
+                port.write(f"V4 28\r\n".encode("utf-8"))
+                port.write(f"I4 {const.EB_I}\r\n".encode("utf-8"))
+                port.write(f"OVP4 {const.EB_OVP} 1\r\n".encode("utf-8"))
+                psu_log.info("PSU Channels set successfully")
+                psu_log.info(f"  EB_V +28 \t   EB_I {const.EB_I}")
+                port.flushOutput()
+                port.flushInput()                
     return
 
 
-def switchPSU(port, state,ebmode = False):
+def switchPSU(port, state,rov_htrs = False, ebmode = False):
     # psu_status = int(psuRead(psu_com, "1", "OP",False))
     # psu_status = not psu_status
     if port:
         if not ebmode:
             port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
         else : 
-            port.write(f"OP4 {int(state)}\r\n".encode("utf-8"))
+            if rov_htrs:
+                port.write(f"OP3 {int(state)}\r\n".encode("utf-8"))
+            else :
+                port.write(f"OP4 {int(state)}\r\n".encode("utf-8"))
     return
 
 

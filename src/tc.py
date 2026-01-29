@@ -6,10 +6,6 @@ import tm
 from crc8_function import crc8Calculate
 
 info_log = logging.getLogger("info_log")
-"""
-The verify used in the TC is only to verify the ACK response. Any HK checking or response checking
-beyond that should be done at a higher level, such as in the main script or send_cmd.py.
-"""
 
 # TODO! Need to decide how to return errors and hadnle them at a higher level.
 # TODO Add type hints to the functions and full docstrings for clarity.
@@ -38,15 +34,6 @@ def verify_ack_hdr(parsed):
 
 
 def verify_blank_ack_params(parsed: tm.ACK, start_index: int = 1):
-    """This function verifies that all unused parameters in the ACK resposne are set to 0. Saves
-    having to check them all individually in each command. If the value is not 0, then a
-    info_log.error is raised.
-
-    Args:
-        parsed (tm.ACK): The parsed ACK response object that already has the parameters decoded.
-        start_index (int, optional): The number of the first blank parameter, this is used to
-        generate the set of parameters that will be looped through. Defaults to 1.
-    """
 
     # Create the list of parameters to check
     param_keys = [f"PARAM{i}" for i in range(start_index, 7)]
