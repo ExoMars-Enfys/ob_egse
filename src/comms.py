@@ -5,7 +5,7 @@ import logging
 import serial.rs485
 
 # Local modules
-import constants as const
+import config
 
 info_log = logging.getLogger("info_log")
 
@@ -24,7 +24,7 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
         rts_level_for_tx=False,
         rts_level_for_rx=True,
         loopback=False,
-        delay_before_tx=const.CMD_SPEED_DICT[const.DEFAULT_CMD_SPEED],
+        delay_before_tx=config.CMD_SPEED_DICT[config.DEFAULT_CMD_SPEED],
         delay_before_rx=0,
     )
 
@@ -33,8 +33,6 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
 
 
 def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
-    if port.is_open:
-        return port
     try:
         port.open()
     except serial.SerialException:

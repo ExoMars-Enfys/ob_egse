@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 import time
 import constants as const
+import config
 import tm
 from crc8_function import crc8Calculate
 
@@ -24,8 +25,8 @@ def send_tc(port, cmd_bytes: bytes):
 
 
 def verify_ack_hdr(parsed):
-    if parsed.MOD_ID != const.EXP_MODEL_ID:
-        info_log.error(f"ACK MOD_ID does not match expected. Got: {parsed.MOD_ID}, Expected: {const.EXP_MODEL_ID}")
+    if parsed.MOD_ID != config.EXP_MODEL_ID:
+        info_log.error(f"ACK MOD_ID does not match expected. Got: {parsed.MOD_ID}, Expected: {config.EXP_MODEL_ID}")
 
     if parsed.UNUSED1 != 0:
         info_log.error(f"ACK UNUSED1 does not match expected. Got: {parsed.UNUSED1}, Expected: 0")
