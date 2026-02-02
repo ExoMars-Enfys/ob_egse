@@ -9,6 +9,7 @@ import crc8
 import serial.rs485
 from datetime import datetime
 
+import config
 import constants as const
 import tmstruct
 from cmd_ids import cmd_ids
@@ -38,8 +39,8 @@ class Response:
             info_log.error(f"CMD ID Not Found. Got:{self.cmd_id}")
 
     def verify_model_id(self):
-        if self.mod_id != const.EXP_MODEL_ID:
-            info_log.error(f"Model ID not as expected. Expected:{const.EXP_MODEL_ID}, Got: {self.mod_id}")
+        if self.mod_id != config.EXP_MODEL_ID:
+            info_log.error(f"Model ID not as expected. Expected:{config.EXP_MODEL_ID}, Got: {self.mod_id}")
 
     def verify_crc(self):
         self.hash = crc8.crc8()

@@ -5,6 +5,7 @@ import sys
 import time
 import atexit
 import argparse
+from nicegui import ui
 from pathlib import Path
 import threading
 
@@ -94,6 +95,10 @@ def main() -> None:
     rs485_com = "COM" + str(args.com)
     psu_com = "COM" + str(args.psuport)
 
+    info_log.info("Initialising RS-485 Comms")
+    ob_port = comms.initialise_comms(rs485_com)
+    ob_port = comms.open_comms(ob_port)
+
     if args.script:
         info_log.info("Running Script")
         info_log.info("Initialising RS-485 Comms")
@@ -135,14 +140,8 @@ def main() -> None:
         comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
-
-        rs485port = comms.initialise_comms(rs485_com)
-        rs485port = comms.open_comms(rs485port)
-        stop_event = threading.Event()
-        hk_thread = threading.Thread(target=poll_hk, args=(rs485port, stop_event), daemon=True)
-        hk_thread.start()
-        time.sleep(3)
-        gui.init()
+        gui.build_ui(ob_port)
+        ui.run(port=8085, reload=False)
 
 
 if __name__ == "__main__":

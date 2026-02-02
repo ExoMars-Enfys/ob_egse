@@ -8,10 +8,9 @@ requires-python = ">=3.12"
 dependencies = [
  "bitstruct>=8.19.0",
  "crc8>=0.2.1",
- "pandas>=2.2.3",
+ "nicegui",
  "pyserial>=3.5",
- "ruff>=0.9.4",
- "streamlit>=1.49.0",
+ "streamlit>=1.50.0",
  "streamlit-extras>=0.7.8",
 ]
 
