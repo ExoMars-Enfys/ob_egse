@@ -30,3 +30,16 @@ def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs
         resp = cmd_repeat(port, cmd_func, *args, repeat=False, exit_if_error=True, **kwargs)
 
     return resp
+
+
+def poll_hk(port, stop_event):
+    if not port:
+        return
+
+    while not stop_event.is_set():
+        try:
+            tc.hk_request(port)
+        except Exception as e:
+            info_log.error(f"Error in HK poll thread {e}")
+
+        stop_event.wait(5)  # Poll every 5 seconds

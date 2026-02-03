@@ -101,9 +101,6 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
-        info_log.info("Initialising RS-485 Comms")
-        ob_port = comms.initialise_comms(rs485_com)
-        ob_port = comms.open_comms(ob_port)
 
         info_log.info("Initialising PSU Comms")
         psuport = psu.init_psu_comms(psu_com)
@@ -140,6 +137,10 @@ def main() -> None:
         comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
+        stop_event = threading.Event()
+        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event), daemon=True)
+        hk_thread.start()
+        atexit.register(stop_event.set)
         gui.build_ui(ob_port)
         ui.run(port=8085, reload=False)
 

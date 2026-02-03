@@ -2,6 +2,8 @@
 import logging
 from abc import ABC, abstractmethod
 from collections import namedtuple
+from datetime import datetime
+
 
 from bitstruct import unpack_from as upf
 import bitstruct
@@ -133,6 +135,7 @@ class HK(TM):
         const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        self.TIME = datetime.now()
 
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.hk)
@@ -213,6 +216,7 @@ class SCI(TM):
         const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        self.TIME = datetime.now()
 
         # Allocate variables based on tm struct
         self.decode_bytes(tmstruct.sci)
@@ -256,8 +260,10 @@ def parse_tm(response):
 
     if response.cmd_type == "HK_Request":
         ack = HK(response)
+        const.hk_queue.append(ack)
     elif response.cmd_type == "SCI_Request":
         ack = SCI(response)
+        const.sci_queue.append(ack)
     elif response.cmd_type == "NACK":
         ack = NACK(response)
     else:
