@@ -44,11 +44,19 @@ def build_ui(ob_port) -> None:
     labels: dict[str, ui.label] = {}
     status: dict[str, int] = {"pwr": 0}
 
-    def update_hk_display(plot_3v3) -> None:
+    def update_hk_display() -> None:
         def poll_latest_hk() -> None:
-            if const.hk_queue:
-                hk = const.hk_queue.pop()
-                plot_3v3.push([hk.TIME], [[hk.CMD_CNT]])
+            if not const.hk_queue.empty():
+                hk = const.hk_queue.get()
+
+                labels["plot_3v3"].push(
+                    [hk.TIME],
+                    [[hk.CMD_CNT]],
+                    y_limits=(
+                        hk.CMD_CNT - 20 if hk.CMD_CNT < 0 else 0,
+                        hk.CMD_CNT + 20 if hk.CMD_CNT > 160 else 180,
+                    ),
+                )
 
                 status["pwr"] = hk.PWR_STAT
 
@@ -92,8 +100,8 @@ def build_ui(ob_port) -> None:
         ui.button("Request HK", on_click=lambda: tc.hk_request(ob_port))
 
         with ui.left_drawer(top_corner=True, bottom_corner=True).style("background-color: #d7e3f4"):
-            ui.image("/rsrc/Enfys_logo.jpg")  # .style("width: 150px; margin-bottom: 20px;")
-            ui.markdown("**Enfys OB EGSE GUI v0.2**")
+            ui.image("/rsrc/Enfys_logo.jpg")
+            ui.markdown("**Enfys OB EGSE GUI v0.3**")
 
             with ui.row(align_items="center"):
                 with ui.card():
@@ -159,37 +167,45 @@ def build_ui(ob_port) -> None:
                 ui.element("div").classes("w-full")  # Spacer to keep grid layout consistent
 
                 labels["ERR_IPA"] = ui.chip("IPA", color="grey").classes("m-0 w-full")
-        plot_3v3 = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
-        plot_3v3.fig.axes[0].lines[0].set_marker("2")
 
-        def fmt_time(x, _pos) -> str:
-            dt = mdates.num2date(x)
-            return dt.strftime("%M:%S.") + f"{dt.microsecond // 100000:1d}"
+            with ui.row(align_items="center").classes("w-full justify-center"):
+                ui.button("Clear Errors", on_click=lambda: tc.clear_errors(ob_port))
+
+        labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
+        plot_ax = labels["plot_3v3"].fig.axes[0]
+        plot_ax.lines[0].set_marker("2")
+        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+        plot_ax.axhline(10, color="orange", linewidth=1.0)
+        plot_ax.axhline(5, color="red", linewidth=1.0)
 
         ui.button("Enable Mech HTR", on_click=lambda: tc.heater_control(ob_port, htr_mech_man=True))
 
         ui.button("Move Motor 1000 steps", on_click=lambda: tc.mtr_mov_pos(ob_port, 1000))
 
-        plot_3v3.fig.axes[0].xaxis.set_major_formatter(FuncFormatter(fmt_time))
-
         # Display logger in UI as well
 
-        with ui.row(align_items="center"):
-            ui.label("Log level to display in window")
-            ui.radio(
-                list(level_options.keys()),
-                value="WARNING",
-                on_change=lambda event: handler.setLevel(level_options[event.value]),
-            ).props("inline")
+        with ui.footer().style("background-color: #fafafa"):
+            with ui.row(align_items="center"):
+                ui.label("Log level to display in window").classes("text-black")
+                ui.radio(
+                    list(level_options.keys()),
+                    value="WARNING",
+                    on_change=lambda event: handler.setLevel(level_options[event.value]),
+                ).props("inline").classes("text-black")
 
-        log = ui.log(max_lines=200).classes("w-full h-64 border")
+            log = ui.log(max_lines=200).classes("w-full h-64 border")
 
-        handler = LogElementHandler(log, level=logging.WARNING)
-        # Set formatting for the UI Log
-        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-        logger.addHandler(handler)
+            handler = LogElementHandler(log, level=logging.WARNING)
+            # Set formatting for the UI Log
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+            logger.addHandler(handler)
 
-        # 3. Prevent memory leaks by removing handler on disconnect
-        ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
+            # 3. Prevent memory leaks by removing handler on disconnect
+            ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
 
-        update_hk_display(plot_3v3)
+        update_hk_display()
+
+
+# TODO! Show status of PSU connection
+# TODO! Plot of temperatures and voltages over time with limits

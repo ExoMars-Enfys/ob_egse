@@ -1,5 +1,5 @@
 import logging
-from collections import deque
+from queue import Queue
 
 from datetime import datetime
 from pathlib import Path
@@ -21,5 +21,5 @@ HK_LOG_FH = None
 SCI_LOG_FH = None
 
 # HK queue
-hk_queue = deque(maxlen=100)
-sci_queue = deque(maxlen=100)
+hk_queue = Queue(maxsize=100)
+sci_queue = Queue(maxsize=30)

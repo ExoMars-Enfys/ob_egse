@@ -260,10 +260,10 @@ def parse_tm(response):
 
     if response.cmd_type == "HK_Request":
         ack = HK(response)
-        const.hk_queue.append(ack)
+        const.hk_queue.put(ack)
     elif response.cmd_type == "SCI_Request":
         ack = SCI(response)
-        const.sci_queue.append(ack)
+        const.sci_queue.put(ack)
     elif response.cmd_type == "NACK":
         ack = NACK(response)
     else:
