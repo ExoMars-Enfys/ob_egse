@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from nicegui import app, ui
 from matplotlib import dates as mdates
@@ -6,6 +7,35 @@ from matplotlib.ticker import FuncFormatter
 
 import constants as const
 import tc
+
+logger = logging.getLogger("info_log")
+level_options = {"INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
+
+
+# Define a custom handler for the GUI
+class LogElementHandler(logging.Handler):
+    """A logging handler that emits messages to a ui.log element."""
+
+    def __init__(self, element: ui.log, level: int = logging.NOTSET) -> None:
+        self.element = element
+        super().__init__(level)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            # Map log levels to Tailwind text color classes
+            color_map = {
+                logging.DEBUG: "text-grey",
+                logging.INFO: "text-blue",
+                logging.WARNING: "text-orange",
+                logging.ERROR: "text-red",
+                logging.CRITICAL: "text-red font-bold",
+            }
+            # Get the class for the current level, default to no class
+            log_class = color_map.get(record.levelno, "")
+            self.element.push(msg, classes=log_class)  # Push with styling
+        except Exception:
+            self.handleError(record)
 
 
 def build_ui(ob_port) -> None:
@@ -141,5 +171,25 @@ def build_ui(ob_port) -> None:
         ui.button("Move Motor 1000 steps", on_click=lambda: tc.mtr_mov_pos(ob_port, 1000))
 
         plot_3v3.fig.axes[0].xaxis.set_major_formatter(FuncFormatter(fmt_time))
+
+        # Display logger in UI as well
+
+        with ui.row(align_items="center"):
+            ui.label("Log level to display in window")
+            ui.radio(
+                list(level_options.keys()),
+                value="WARNING",
+                on_change=lambda event: handler.setLevel(level_options[event.value]),
+            ).props("inline")
+
+        log = ui.log(max_lines=200).classes("w-full h-64 border")
+
+        handler = LogElementHandler(log, level=logging.WARNING)
+        # Set formatting for the UI Log
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        logger.addHandler(handler)
+
+        # 3. Prevent memory leaks by removing handler on disconnect
+        ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
 
         update_hk_display(plot_3v3)
