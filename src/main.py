@@ -138,10 +138,11 @@ def main() -> None:
     else:
         info_log.info("Running GUI")
         stop_event = threading.Event()
-        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event), daemon=True)
+        port_lock = threading.Lock()
+        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock), daemon=True)
         hk_thread.start()
         atexit.register(stop_event.set)
-        gui.build_ui(ob_port)
+        gui.build_ui(ob_port, port_lock)
         ui.run(port=8085, reload=False)
 
 

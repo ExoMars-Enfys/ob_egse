@@ -6,7 +6,7 @@ command retry.
 """
 
 import logging
-import sys
+from contextlib import nullcontext
 
 import tc
 
@@ -32,14 +32,17 @@ def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs
     return resp
 
 
-def poll_hk(port, stop_event):
+def poll_hk(port, stop_event, port_lock=None):
     if not port:
         return
 
+    lock_ctx = port_lock if port_lock is not None else nullcontext()
+
     while not stop_event.is_set():
         try:
-            tc.hk_request(port)
+            with lock_ctx:
+                tc.hk_request(port)
         except Exception as e:
             info_log.error(f"Error in HK poll thread {e}")
 
-        stop_event.wait(5)  # Poll every 5 seconds
+        stop_event.wait(1)  # Poll every 1 second

@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 from nicegui import app, ui
 from matplotlib import dates as mdates
@@ -38,11 +39,16 @@ class LogElementHandler(logging.Handler):
             self.handleError(record)
 
 
-def build_ui(ob_port) -> None:
+def build_ui(ob_port, port_lock=None) -> None:
     rsrc_dir = Path(__file__).resolve().parent.parent / "rsrc"
     app.add_static_files("/rsrc", rsrc_dir)
     labels: dict[str, ui.label] = {}
     status: dict[str, int] = {"pwr": 0}
+    lock_ctx = port_lock if port_lock is not None else nullcontext()
+
+    def guarded_tc(func, *args, **kwargs):
+        with lock_ctx:
+            return func(ob_port, *args, **kwargs)
 
     def update_hk_display() -> None:
         def poll_latest_hk() -> None:
@@ -97,7 +103,7 @@ def build_ui(ob_port) -> None:
     @ui.page("/")
     def index() -> None:
         ui.button("shutdown", on_click=app.shutdown)
-        ui.button("Request HK", on_click=lambda: tc.hk_request(ob_port))
+        ui.button("Request HK", on_click=lambda: guarded_tc(tc.hk_request))
 
         with ui.left_drawer(top_corner=True, bottom_corner=True).style("background-color: #d7e3f4"):
             ui.image("/rsrc/Enfys_logo.jpg")
@@ -121,10 +127,11 @@ def build_ui(ob_port) -> None:
             with ui.button_group():
                 labels["MECH_PWR"] = ui.button(
                     "MECH PWR",
-                    on_click=lambda: tc.power_control(ob_port, status["pwr"] ^ 0x01),
+                    on_click=lambda: guarded_tc(tc.power_control, status["pwr"] ^ 0x01),
                 )
                 labels["DET_PWR"] = ui.button(
-                    "DET PWR", on_click=lambda: tc.power_control(ob_port, status["pwr"] ^ 0x02)
+                    "DET PWR",
+                    on_click=lambda: guarded_tc(tc.power_control, status["pwr"] ^ 0x02),
                 )
 
             ui.separator()
@@ -169,7 +176,7 @@ def build_ui(ob_port) -> None:
                 labels["ERR_IPA"] = ui.chip("IPA", color="grey").classes("m-0 w-full")
 
             with ui.row(align_items="center").classes("w-full justify-center"):
-                ui.button("Clear Errors", on_click=lambda: tc.clear_errors(ob_port))
+                ui.button("Clear Errors", on_click=lambda: guarded_tc(tc.clear_errors))
 
         labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_3v3"].fig.axes[0]
@@ -179,9 +186,9 @@ def build_ui(ob_port) -> None:
         plot_ax.axhline(10, color="orange", linewidth=1.0)
         plot_ax.axhline(5, color="red", linewidth=1.0)
 
-        ui.button("Enable Mech HTR", on_click=lambda: tc.heater_control(ob_port, htr_mech_man=True))
+        ui.button("Enable Mech HTR", on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True))
 
-        ui.button("Move Motor 1000 steps", on_click=lambda: tc.mtr_mov_pos(ob_port, 1000))
+        ui.button("Move Motor 1000 steps", on_click=lambda: guarded_tc(tc.mtr_mov_pos, 1000))
 
         # Display logger in UI as well
 
