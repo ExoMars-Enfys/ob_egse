@@ -57,10 +57,19 @@ def build_ui(ob_port, port_lock=None) -> None:
 
                 labels["plot_3v3"].push(
                     [hk.TIME],
-                    [[hk.CMD_CNT]],
+                    [[hk.HK_V_3V3]],
                     y_limits=(
-                        hk.CMD_CNT - 20 if hk.CMD_CNT < 0 else 0,
-                        hk.CMD_CNT + 20 if hk.CMD_CNT > 160 else 180,
+                        hk.HK_V_3V3 - 20 if hk.HK_V_3V3 < 1400 else 1400,
+                        hk.HK_V_3V3 + 20 if hk.HK_V_3V3 > 1900 else 1900,
+                    ),
+                )
+
+                labels["plot_1v5"].push(
+                    [hk.TIME],
+                    [[hk.HK_V_1V5]],
+                    y_limits=(
+                        hk.HK_V_1V5 - 20 if hk.HK_V_1V5 < 1330 else 1330,
+                        hk.HK_V_1V5 + 20 if hk.HK_V_1V5 > 1670 else 1670,
                     ),
                 )
 
@@ -102,8 +111,24 @@ def build_ui(ob_port, port_lock=None) -> None:
     # Decorator needed to allow nicegui to properly route to the index page
     @ui.page("/")
     def index() -> None:
-        ui.button("shutdown", on_click=app.shutdown)
         ui.button("Request HK", on_click=lambda: guarded_tc(tc.hk_request))
+
+        # Display logger in UI as well, add first so that we can toggle visibility in the left_drawer
+        with ui.footer(value=True).style("background-color: #fafafa") as footer:
+            with ui.row(align_items="center"):
+                ui.label("Log level to display in window").classes("text-black")
+                ui.radio(
+                    list(level_options.keys()),
+                    value="WARNING",
+                    on_change=lambda event: handler.setLevel(level_options[event.value]),
+                ).props("inline").classes("text-black")
+
+            log = ui.log(max_lines=200).classes("w-full h-64 border")
+
+            handler = LogElementHandler(log, level=logging.WARNING)
+            # Set formatting for the UI Log
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+            logger.addHandler(handler)
 
         with ui.left_drawer(top_corner=True, bottom_corner=True).style("background-color: #d7e3f4"):
             ui.image("/rsrc/Enfys_logo.jpg")
@@ -177,42 +202,43 @@ def build_ui(ob_port, port_lock=None) -> None:
 
             with ui.row(align_items="center").classes("w-full justify-center"):
                 ui.button("Clear Errors", on_click=lambda: guarded_tc(tc.clear_errors))
+                ui.button("Display Log Terminal", on_click=footer.toggle)
 
         labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_3v3"].fig.axes[0]
         plot_ax.lines[0].set_marker("2")
         plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
-        plot_ax.axhline(10, color="orange", linewidth=1.0)
-        plot_ax.axhline(5, color="red", linewidth=1.0)
+        plot_ax.axhline(const.WLIM_3V3_ADU[0], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.WLIM_3V3_ADU[1], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_3V3_ADU[0], color="red", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_3V3_ADU[1], color="red", linewidth=1.0, linestyle="--")
+
+        labels["plot_1v5"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
+        plot_ax = labels["plot_1v5"].fig.axes[0]
+        plot_ax.lines[0].set_marker("2")
+        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+        plot_ax.axhline(const.WLIM_1V5_ADU[0], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.WLIM_1V5_ADU[1], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_1V5_ADU[0], color="red", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_1V5_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
         ui.button("Enable Mech HTR", on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True))
 
         ui.button("Move Motor 1000 steps", on_click=lambda: guarded_tc(tc.mtr_mov_pos, 1000))
 
-        # Display logger in UI as well
+        with ui.page_sticky(position="bottom-right", x_offset=20, y_offset=20):
+            ui.button("shutdown", on_click=app.shutdown)
 
-        with ui.footer().style("background-color: #fafafa"):
-            with ui.row(align_items="center"):
-                ui.label("Log level to display in window").classes("text-black")
-                ui.radio(
-                    list(level_options.keys()),
-                    value="WARNING",
-                    on_change=lambda event: handler.setLevel(level_options[event.value]),
-                ).props("inline").classes("text-black")
-
-            log = ui.log(max_lines=200).classes("w-full h-64 border")
-
-            handler = LogElementHandler(log, level=logging.WARNING)
-            # Set formatting for the UI Log
-            handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-            logger.addHandler(handler)
-
-            # 3. Prevent memory leaks by removing handler on disconnect
-            ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
+        # 3. Prevent memory leaks by removing handler on disconnect
+        ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
 
         update_hk_display()
 
 
 # TODO! Show status of PSU connection
-# TODO! Plot of temperatures and voltages over time with limits
+# TODO! Plot of temperatures
+# TODO! Create a monitoring thread
+# TODO! Add a mechanism interface
+# TODO! Add a sci acquisition interface

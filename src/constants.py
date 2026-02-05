@@ -23,3 +23,14 @@ SCI_LOG_FH = None
 # HK queue
 hk_queue = Queue(maxsize=100)
 sci_queue = Queue(maxsize=30)
+
+# ----Monitoring Limits-----------------------------------------------------------------------------
+WLIM_3V3 = (3.0, 3.6)
+WLIM_3V3_ADU = (1499, 1799)
+ALIM_3V3 = (2.85, 3.75)
+ALIM_3V3_ADU = (1424, 1874)
+
+WLIM_1V5 = (1.425, 1.575)
+WLIM_1V5_ADU = (1424, 1574)
+ALIM_1V5 = (1.35, 1.65)
+ALIM_1V5_ADU = (1349, 1649)
