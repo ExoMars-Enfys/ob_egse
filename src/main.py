@@ -1,7 +1,6 @@
 # ----Module Imports--------------------------------------------------------------------------------
 # Std library
 import logging
-import sys
 import time
 import atexit
 import argparse
@@ -19,14 +18,8 @@ import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
 import scripts.abu_sequences as abu
-
-# import scripts.heaters as h
-from send_cmd import cmd_repeat as repeat
-from scripts.OB_FFT import fft as fft
+from send_cmd import *
 import tc
-# from scripts.LTM import LTM_Measurement as LTM
-from scripts import LTM
-from scripts import analysis as ana
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -69,15 +62,15 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
 
     return (event_log, info_log, psu_log)
 
-def clean_exit(psuport):
+
+def clean_exit(ob_port, psuport, event_log):
+    event_log.info("Running clean exit")
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-    psu.emergencyShutDown(psuport)
-    ana.analysis(const.LOG_PATH,const.DEFAULT_PREFIX)
-
-
+    comms.close_comms(ob_port)
+    psu.close_psu_comms(psuport)
 
     #! TODO add emergency shutdown to that powers off the OB
     #! TODO power off power supply
@@ -99,64 +92,61 @@ def main() -> None:
     ob_port = comms.initialise_comms(rs485_com)
     ob_port = comms.open_comms(ob_port)
 
+    info_log.info("Initialising PSU Comms")
+    psuport = psu.init_psu_comms(psu_com)
+    psuport = psu.open_psu_comms(psuport, args.nopsu)
+    psu.setChannels(psuport, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I)
+    psu.switchPSU(psuport, 1)  # Switch on PSU
+    stop_event = threading.Event()
+
+    atexit.register(stop_event.set)
+    atexit.register(clean_exit, ob_port, psuport, event_log)
+
+    time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
+    # TODO Update monitoring thread to start very early
+    psu_thread = threading.Thread(
+        target=psu.psu_monitor_thread, args=(psuport, stop_event, config.PSU_LOGGING_FREQ), daemon=True
+    )
+    psu_thread.start()
+
+    hk_thread = None
+
     if args.script:
         info_log.info("Running Script")
 
-        info_log.info("Initialising PSU Comms")
-        psuport = psu.init_psu_comms(psu_com)
-        psuport = psu.open_psu_comms(psuport, args.nopsu)
-        psu.setChannels(
-            psuport, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I
-        )
-        psu.switchPSU(psuport, 1)  # Switch on PSU
-        atexit.register(clean_exit, psuport)
-        stop_event = threading.Event()
-
-        time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
-        psu_thread = threading.Thread(
-            target=psu.psu_monitor_thread, args=(psuport, stop_event, config.PSU_LOGGING_FREQ), daemon=True
-        )
-        psu_thread.start()
-
         # First HK
-        # abu.read_hk(ob_port)
+        abu.read_hk(ob_port)
+
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # TODO! When psu current limit hit trip off so obvious
-        LTM.LTM_Measurement(ob_port)
+
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
-        # # ------------------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------------------
         # Get final HK
-        # abu.read_hk(ob_port)
-
+        abu.read_hk(ob_port)
         stop_event.set()
-        psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
 
-        comms.close_comms(ob_port)
     else:
         info_log.info("Running GUI")
-        stop_event = threading.Event()
         port_lock = threading.Lock()
         hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock), daemon=True)
         hk_thread.start()
-        atexit.register(stop_event.set)
-        gui.build_ui(ob_port, port_lock)
+
+        gui.build_ui(ob_port, port_lock, stop_event)
         ui.run(port=8085, reload=False)
+        # TODO What about stop_envent?
+
+    event_log.info("Shutting down")
+    event_log.info("Waiting for PSU monitor thread to finish")
+    psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+
+    if hk_thread is not None:
+        if hk_thread.is_alive():
+            event_log.info("Waiting for HK polling thread to finish")
+            hk_thread.join(timeout=1.0)  # Wait for the HK polling thread to finish
 
 
 if __name__ == "__main__":
     main()
-
-# TODO
-# 1 Add a way to stop the script
-# ?1 A keyboard interrupt of CTRL+C triggers the psu thread stop, closes all comms and shuts down psu
-
-# 2 See if the python run button can have arguments in vscode
-# ?2 launch.json file can have args passed and already implemented. Sadly json needs to be added as a configuration file in vscode workspace by adding the file in .vscode
-# ?2 Current version has args for -s -np prepassed
-
-# - Implement some sort of thread queue with the GUI running seperately
-# - Move streamlit stuff to a different module
-# - See if there is a better way to launch streamlit

@@ -39,7 +39,7 @@ class LogElementHandler(logging.Handler):
             self.handleError(record)
 
 
-def build_ui(ob_port, port_lock=None) -> None:
+def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
     rsrc_dir = Path(__file__).resolve().parent.parent / "rsrc"
     app.add_static_files("/rsrc", rsrc_dir)
     labels: dict[str, ui.label] = {}
@@ -138,11 +138,43 @@ def build_ui(ob_port, port_lock=None) -> None:
                 labels["ERR_ABS"].set_background_color("red" if hk.MTR_ERRORS.ABS else "grey")
                 labels["ERR_DSE"].set_background_color("red" if hk.MTR_ERRORS.DSE else "grey")
 
+            if not const.psu_queue.empty():
+                psu = const.psu_queue.get()
+
+                labels["PSU_CH1V"].set_text(f"V: {psu['CH1_V']:.2f}")
+                labels["PSU_CH1I"].set_text(f"mA: {psu['CH1_I'] * 1000:.1f}")
+
+                labels["PSU_CH2V"].set_text(f"V: {psu['CH2_V']:.2f}")
+                labels["PSU_CH2I"].set_text(f"mA: {psu['CH2_I'] * 1000:.1f}")
+
+                labels["PSU_CH3V"].set_text(f"V: {psu['CH3_V']:.2f}")
+                labels["PSU_CH3I"].set_text(f"mA: {psu['CH3_I'] * 1000:.1f}")
+
+                labels["plot_psu_ch1"].push(
+                    [psu["TIME"]],
+                    [[psu["CH1_I"] * 1000]],
+                )
+
+                labels["plot_psu_ch2"].push(
+                    [psu["TIME"]],
+                    [[psu["CH2_I"] * 1000]],
+                )
+
+                labels["plot_psu_ch3"].push(
+                    [psu["TIME"]],
+                    [[psu["CH3_I"] * 1000]],
+                )
+
         ui.timer(0.2, poll_latest_hk)
 
     # Decorator needed to allow nicegui to properly route to the index page
     @ui.page("/")
     def index() -> None:
+        def stop_and_shutdown() -> None:
+            if stop_event is not None:
+                stop_event.set()
+            app.shutdown()
+
         def set_temp_visibility(series_key: str, enabled: bool) -> None:
             temp_visibility[series_key] = enabled
 
@@ -239,8 +271,50 @@ def build_ui(ob_port, port_lock=None) -> None:
                 ui.button("Clear Errors", on_click=lambda: guarded_tc(tc.clear_errors))
                 ui.button("Display Log Terminal", on_click=footer.toggle)
 
+        with ui.right_drawer(fixed=True).style("background-color: #ebf1fa").props("width=350 bordered") as right_drawer:
+            with ui.grid(columns=2):
+                with ui.card().tight():
+                    ui.markdown("**CH1**")
+                    with ui.grid(columns=2):
+                        labels["PSU_CH1V"] = ui.label(f"V: --")
+                        labels["PSU_CH1I"] = ui.label(f"mA: --")
+
+                with ui.card().tight().classes("width-full"):
+                    ui.markdown("**CH2**")
+                    with ui.grid(columns=2):
+                        labels["PSU_CH2V"] = ui.label(f"V: --")
+                        labels["PSU_CH2I"] = ui.label(f"mA: --")
+
+                with ui.card().tight():
+                    ui.markdown("**CH3**")
+                    with ui.grid(columns=2):
+                        labels["PSU_CH3V"] = ui.label(f"V: --")
+                        labels["PSU_CH3I"] = ui.label(f"mA: --")
+
+            labels["plot_psu_ch1"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
+            plot_ax = labels["plot_psu_ch1"].fig.axes[0]
+            plot_ax.set_title("CH1 Current (mA)")
+            plot_ax.lines[0].set_marker("x")
+            plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+
+            labels["plot_psu_ch2"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
+            plot_ax = labels["plot_psu_ch2"].fig.axes[0]
+            plot_ax.set_title("CH2 Current (mA)")
+            plot_ax.lines[0].set_marker("x")
+            plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+
+            labels["plot_psu_ch3"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
+            plot_ax = labels["plot_psu_ch3"].fig.axes[0]
+            plot_ax.set_title("CH3 Current (mA)")
+            plot_ax.lines[0].set_marker("x")
+            plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+
         labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_3v3"].fig.axes[0]
+        plot_ax.set_title("3V3 Voltage (ADU)")
         plot_ax.lines[0].set_marker("x")
         plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
@@ -251,7 +325,7 @@ def build_ui(ob_port, port_lock=None) -> None:
 
         labels["plot_1v5"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_1v5"].fig.axes[0]
-        plot_ax.lines[0].set_marker("x")
+        plot_ax.set_title("1V5 Voltage (ADU)")
         plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
         plot_ax.axhline(const.WLIM_1V5_ADU[0], color="orange", linewidth=1.0, linestyle="--")
@@ -268,6 +342,7 @@ def build_ui(ob_port, port_lock=None) -> None:
             ["DIG", "DET", "MECH", "MOT"], loc="upper right", ncol=1
         )
         plot_ax = labels["plot_temps"].fig.axes[0]
+        plot_ax.set_title("Temperatures (ADU)")
         plot_ax.lines[0].set_marker("o")
         plot_ax.lines[1].set_marker("^")
         plot_ax.lines[2].set_marker("2")
@@ -284,7 +359,10 @@ def build_ui(ob_port, port_lock=None) -> None:
         ui.button("Move Motor 1000 steps", on_click=lambda: guarded_tc(tc.mtr_mov_pos, 1000))
 
         with ui.page_sticky(position="bottom-right", x_offset=20, y_offset=20):
-            ui.button("shutdown", on_click=app.shutdown)
+            ui.button("shutdown", on_click=stop_and_shutdown)
+
+        with ui.page_sticky(position="top-right", x_offset=20, y_offset=20):
+            ui.button(icon="menu", on_click=lambda: right_drawer.toggle())
 
         # 3. Prevent memory leaks by removing handler on disconnect
         ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))

@@ -1,7 +1,6 @@
 # Std library
+from datetime import datetime
 import logging
-import sys
-import threading
 
 # Added packages
 import serial
@@ -15,9 +14,9 @@ event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
 
 
-def init_psu_comms(port: str) -> serial.Serial:
+def init_psu_comms(psu_com: str) -> serial.Serial:
     psuport = serial.Serial(port=None, timeout=1.0)
-    psuport.port = port  # Assign com_port afterwards to prevent opening immediately
+    psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
     return psuport
 
 
@@ -26,11 +25,10 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
         port.open()
     except serial.SerialException:
         if psu_not_required:
-            port.close()
             return
         else:
-            info_log.error(f"No PSU found on COM Port {port.port}, try another")
-            sys.exit(1)
+            info_log.error(f"No device found on COM Port {port.port}, try another")
+            raise SystemExit
 
     port.flushOutput()  # Port Flushing to clear port
     port.flushInput()
@@ -46,57 +44,63 @@ def close_psu_comms(port: serial.Serial) -> None:
     return
 
 
-def psuRead(
-    port,
-    channel,
-    type,
-    output=False,
-):
+def psuRead(port, channel, type, output=False):
     if output == False:
         port.write(f"{type}{channel}?\r\n".encode("utf-8"))
         response = port.read(8).decode("utf-8")
     else:
         port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
         response = port.read(8).decode("utf-8")
+
     port.flushOutput()
     port.flushInput()
     return response
 
 
 def psu_monitor_thread(port, stop_event, freq):
-    if port:
-        while not stop_event.is_set():
-            try:
-                # Read the voltage and current for each channel
-                ch1_v = psuRead(port, "1", "V", True).rstrip()
-                ch1_i = psuRead(port, "1", "I", True).rstrip()
-                ch2_v = psuRead(port, "2", "V", True).rstrip()
-                ch2_i = psuRead(port, "2", "I", True).rstrip()
-                ch3_v = psuRead(port, "3", "V", True).rstrip()
-                ch3_i = psuRead(port, "3", "I", True).rstrip()
+    if not port:
+        return
 
-                # Log the readings
-                psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
-                if (
-                    not (11.2 < float(ch1_v.strip("V")) < 13.2)
-                    or not (11.2 < float(ch2_v.strip("V")) < 13.2)
-                    or not (4.8 < float(ch3_v.strip("V")) < 5.5)
-                ):
-                    psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                    emergencyShutDown(port)
+    while not stop_event.is_set():
+        try:
+            # Read the voltage and current for each channel
+            ch1_v = psuRead(port, "1", "V", True).rstrip()
+            ch1_i = psuRead(port, "1", "I", True).rstrip()
+            ch2_v = psuRead(port, "2", "V", True).rstrip()
+            ch2_i = psuRead(port, "2", "I", True).rstrip()
+            ch3_v = psuRead(port, "3", "V", True).rstrip()
+            ch3_i = psuRead(port, "3", "I", True).rstrip()
 
-                if (
-                    (float(ch1_i.strip("A")) >= 150)
-                    or (float(ch2_i.strip("A")) >= 90)
-                    or (float(ch3_i.strip("A")) >= 150)
-                ):
-                    psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                    emergencyShutDown(port)
+            psu_readings = {
+                "TIME": datetime.now(),
+                "CH1_V": float(ch1_v[:-1]),  # Remove the trailing 'V' and convert to float
+                "CH1_I": float(ch1_i[:-1]),  # Remove the trailing 'A' and convert to float
+                "CH2_V": float(ch2_v[:-1]),
+                "CH2_I": float(ch2_i[:-1]),
+                "CH3_V": float(ch3_v[:-1]),
+                "CH3_I": float(ch3_i[:-1]),
+            }
 
-            except Exception as e:
-                psu_log.error(f"Error in PSU monitor thread: {e}")
-            waitTime = 1 / (freq)
-            stop_event.wait(waitTime)  # Sleep for 200 ms before the next reading
+            const.psu_queue.put(psu_readings)
+
+            # Log the readings
+            psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+            if (
+                not (11.2 < float(ch1_v.strip("V")) < 13.2)
+                or not (11.2 < float(ch2_v.strip("V")) < 13.2)
+                or not (4.8 < float(ch3_v.strip("V")) < 5.5)
+            ):
+                psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
+                emergencyShutDown(port)
+
+            if (float(ch1_i.strip("A")) >= 150) or (float(ch2_i.strip("A")) >= 90) or (float(ch3_i.strip("A")) >= 150):
+                psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
+                emergencyShutDown(port)
+
+        except Exception as e:
+            psu_log.error(f"Error in PSU monitor thread: {e}")
+
+        stop_event.wait(1 / freq)
 
 
 def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
@@ -121,7 +125,6 @@ def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
         psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
         port.flushOutput()
         port.flushInput()
-    return
 
 
 def switchPSU(port, state):
@@ -129,30 +132,17 @@ def switchPSU(port, state):
     # psu_status = not psu_status
     if port:
         port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
-    return
 
 
 def emergencyShutDown(port):
     if port:
         port.write(f"OPALL 0\r\n".encode("utf-8"))
-        psu_log.info(f"Closing all channels")
+        psu_log.error(f"Closing all channels")
         port.write(f"LOCAL\r\n".encode("utf-8"))
-        psu_log.info(f"Setting to Local control")
+        psu_log.error(f"Setting to Local control")
         port.flushOutput()
         port.flushInput()
         port.close()
-    return
 
 
-## TODO: Create a log for this -
-# #?Done
-## TODO: Create a clear settings file, Voltages to be set, Current limits
-# ?Done in the constants file
-## TODO: Add monitoring, such that we have warning current limits and alarm limits
-## TODO: If alarm limit, automatically shutdown
-# ?Done using emergency shut down function - closes outputs and switches to local control before closing comms
-## TODO: Close the comms
-# ?See above
-## TODO: Report the link status
-## TODO: Loop through every 1s (async?)
-# ?Done with threading
+# TODO: Report the link status
