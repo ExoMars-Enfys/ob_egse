@@ -44,6 +44,8 @@ def build_ui(ob_port, port_lock=None) -> None:
     app.add_static_files("/rsrc", rsrc_dir)
     labels: dict[str, ui.label] = {}
     status: dict[str, int] = {"pwr": 0}
+    temp_series_order = ["DIG", "DET", "MECH", "MOT"]
+    temp_visibility = {key: True for key in temp_series_order}
     lock_ctx = port_lock if port_lock is not None else nullcontext()
 
     def guarded_tc(func, *args, **kwargs):
@@ -51,6 +53,29 @@ def build_ui(ob_port, port_lock=None) -> None:
             return func(ob_port, *args, **kwargs)
 
     def update_hk_display() -> None:
+        def apply_temp_visibility() -> None:
+            if "plot_temps" not in labels:
+                return
+            plot_ax = labels["plot_temps"].fig.axes[0]
+            for idx, key in enumerate(temp_series_order):
+                plot_ax.lines[idx].set_visible(temp_visibility[key])
+
+        def get_temp_y_limits(hk) -> tuple[float, float]:
+            temp_values = {
+                "DIG": hk.DIGITAL_TRP,
+                "DET": hk.DETEC_TRP,
+                "MECH": hk.MECH_TRP,
+                "MOT": hk.MOTOR_TRP,
+            }
+            selected_values = [temp_values[key] for key in temp_series_order if temp_visibility[key]]
+            if selected_values:
+                min_val = min(selected_values + [const.WLIM_TPR_ADU[0]]) - 20
+                max_val = max(selected_values + [const.WLIM_TPR_ADU[1]]) + 20
+            else:
+                min_val = const.WLIM_TPR_ADU[0] - 20
+                max_val = const.WLIM_TPR_ADU[1] + 20
+            return (min_val, max_val)
+
         def poll_latest_hk() -> None:
             if not const.hk_queue.empty():
                 hk = const.hk_queue.get()
@@ -59,8 +84,8 @@ def build_ui(ob_port, port_lock=None) -> None:
                     [hk.TIME],
                     [[hk.HK_V_3V3]],
                     y_limits=(
-                        hk.HK_V_3V3 - 20 if hk.HK_V_3V3 < 1400 else 1400,
-                        hk.HK_V_3V3 + 20 if hk.HK_V_3V3 > 1900 else 1900,
+                        min(hk.HK_V_3V3, const.WLIM_3V3_ADU[0]) - 20,
+                        max(hk.HK_V_3V3, const.WLIM_3V3_ADU[1]) + 20,
                     ),
                 )
 
@@ -68,9 +93,16 @@ def build_ui(ob_port, port_lock=None) -> None:
                     [hk.TIME],
                     [[hk.HK_V_1V5]],
                     y_limits=(
-                        hk.HK_V_1V5 - 20 if hk.HK_V_1V5 < 1330 else 1330,
-                        hk.HK_V_1V5 + 20 if hk.HK_V_1V5 > 1670 else 1670,
+                        min(hk.HK_V_1V5, const.WLIM_1V5_ADU[0]) - 20,
+                        max(hk.HK_V_1V5, const.WLIM_1V5_ADU[1]) + 20,
                     ),
+                )
+
+                apply_temp_visibility()
+                labels["plot_temps"].push(
+                    [hk.TIME],
+                    [[hk.DIGITAL_TRP], [hk.DETEC_TRP], [hk.MECH_TRP], [hk.MOTOR_TRP]],
+                    y_limits=get_temp_y_limits(hk),
                 )
 
                 status["pwr"] = hk.PWR_STAT
@@ -111,6 +143,9 @@ def build_ui(ob_port, port_lock=None) -> None:
     # Decorator needed to allow nicegui to properly route to the index page
     @ui.page("/")
     def index() -> None:
+        def set_temp_visibility(series_key: str, enabled: bool) -> None:
+            temp_visibility[series_key] = enabled
+
         ui.button("Request HK", on_click=lambda: guarded_tc(tc.hk_request))
 
         # Display logger in UI as well, add first so that we can toggle visibility in the left_drawer
@@ -206,7 +241,7 @@ def build_ui(ob_port, port_lock=None) -> None:
 
         labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_3v3"].fig.axes[0]
-        plot_ax.lines[0].set_marker("2")
+        plot_ax.lines[0].set_marker("x")
         plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
         plot_ax.axhline(const.WLIM_3V3_ADU[0], color="orange", linewidth=1.0, linestyle="--")
@@ -216,13 +251,33 @@ def build_ui(ob_port, port_lock=None) -> None:
 
         labels["plot_1v5"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
         plot_ax = labels["plot_1v5"].fig.axes[0]
-        plot_ax.lines[0].set_marker("2")
+        plot_ax.lines[0].set_marker("x")
         plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
         plot_ax.axhline(const.WLIM_1V5_ADU[0], color="orange", linewidth=1.0, linestyle="--")
         plot_ax.axhline(const.WLIM_1V5_ADU[1], color="orange", linewidth=1.0, linestyle="--")
         plot_ax.axhline(const.ALIM_1V5_ADU[0], color="red", linewidth=1.0, linestyle="--")
         plot_ax.axhline(const.ALIM_1V5_ADU[1], color="red", linewidth=1.0, linestyle="--")
+
+        with ui.row(align_items="center"):
+            ui.label("Temps")
+            for key in temp_series_order:
+                ui.checkbox(key, value=True, on_change=lambda event, k=key: set_temp_visibility(k, event.value))
+
+        labels["plot_temps"] = ui.line_plot(n=4, limit=20, figsize=(10, 4), update_every=1).with_legend(
+            ["DIG", "DET", "MECH", "MOT"], loc="upper right", ncol=1
+        )
+        plot_ax = labels["plot_temps"].fig.axes[0]
+        plot_ax.lines[0].set_marker("o")
+        plot_ax.lines[1].set_marker("^")
+        plot_ax.lines[2].set_marker("2")
+        plot_ax.lines[3].set_marker("x")
+        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+        plot_ax.axhline(const.WLIM_TPR_ADU[0], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.WLIM_TPR_ADU[1], color="orange", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_TPR_ADU[0], color="red", linewidth=1.0, linestyle="--")
+        plot_ax.axhline(const.ALIM_TPR_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
         ui.button("Enable Mech HTR", on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True))
 
@@ -238,7 +293,6 @@ def build_ui(ob_port, port_lock=None) -> None:
 
 
 # TODO! Show status of PSU connection
-# TODO! Plot of temperatures
 # TODO! Create a monitoring thread
 # TODO! Add a mechanism interface
 # TODO! Add a sci acquisition interface
