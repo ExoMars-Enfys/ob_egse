@@ -7,6 +7,7 @@ from matplotlib.ticker import FuncFormatter
 
 
 import constants as const
+import psu
 import tc
 
 logger = logging.getLogger("info_log")
@@ -39,11 +40,11 @@ class LogElementHandler(logging.Handler):
             self.handleError(record)
 
 
-def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
+def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
     rsrc_dir = Path(__file__).resolve().parent.parent / "rsrc"
     app.add_static_files("/rsrc", rsrc_dir)
     labels: dict[str, ui.label] = {}
-    status: dict[str, int] = {"pwr": 0}
+    status: dict[str, int] = {"pwr": 0, "psu": 0}
     temp_series_order = ["DIG", "DET", "MECH", "MOT"]
     temp_visibility = {key: True for key in temp_series_order}
     lock_ctx = port_lock if port_lock is not None else nullcontext()
@@ -69,8 +70,8 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
             }
             selected_values = [temp_values[key] for key in temp_series_order if temp_visibility[key]]
             if selected_values:
-                min_val = min(selected_values + [const.WLIM_TPR_ADU[0]]) - 20
-                max_val = max(selected_values + [const.WLIM_TPR_ADU[1]]) + 20
+                min_val = min(selected_values) - 20
+                max_val = max(selected_values) + 20
             else:
                 min_val = const.WLIM_TPR_ADU[0] - 20
                 max_val = const.WLIM_TPR_ADU[1] + 20
@@ -80,30 +81,20 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
             if not const.hk_queue.empty():
                 hk = const.hk_queue.get()
 
-                labels["plot_3v3"].push(
-                    [hk.TIME],
-                    [[hk.HK_V_3V3]],
-                    y_limits=(
-                        min(hk.HK_V_3V3, const.WLIM_3V3_ADU[0]) - 20,
-                        max(hk.HK_V_3V3, const.WLIM_3V3_ADU[1]) + 20,
-                    ),
-                )
+                # Should implement better way to sort these.
+                hk.HK_V_3V3 = hk.HK_V_3V3 / (16 * 1000) * 2
+                hk.HK_V_1V5 = hk.HK_V_1V5 / (16 * 1000)
+                hk.DIGITAL_TRP = hk.DIGITAL_TRP >> 4
+                hk.DETEC_TRP = hk.DETEC_TRP >> 4
+                hk.MECH_TRP = hk.MECH_TRP >> 4
+                hk.MOTOR_TRP = hk.MOTOR_TRP >> 4
 
-                labels["plot_1v5"].push(
-                    [hk.TIME],
-                    [[hk.HK_V_1V5]],
-                    y_limits=(
-                        min(hk.HK_V_1V5, const.WLIM_1V5_ADU[0]) - 20,
-                        max(hk.HK_V_1V5, const.WLIM_1V5_ADU[1]) + 20,
-                    ),
-                )
+                labels["plot_3v3"].push([hk.TIME], [[hk.HK_V_3V3]], y_limits=(3.0, 3.6))
+
+                labels["plot_1v5"].push([hk.TIME], [[hk.HK_V_1V5]], y_limits=(1.3, 1.7))
 
                 apply_temp_visibility()
-                labels["plot_temps"].push(
-                    [hk.TIME],
-                    [[hk.DIGITAL_TRP], [hk.DETEC_TRP], [hk.MECH_TRP], [hk.MOTOR_TRP]],
-                    y_limits=get_temp_y_limits(hk),
-                )
+                labels["plot_temps"].push([hk.TIME], [[hk.DIGITAL_TRP], [hk.DETEC_TRP], [hk.MECH_TRP], [hk.MOTOR_TRP]])
 
                 status["pwr"] = hk.PWR_STAT
 
@@ -140,6 +131,10 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
 
             if not const.psu_queue.empty():
                 psu = const.psu_queue.get()
+
+                status["psu"] = psu["STATUS"]
+
+                labels["PSU_STATUS"].set_text(f"PSU {'ON' if psu['STATUS'] else 'OFF'}")
 
                 labels["PSU_CH1V"].set_text(f"V: {psu['CH1_V']:.2f}")
                 labels["PSU_CH1I"].set_text(f"mA: {psu['CH1_I'] * 1000:.1f}")
@@ -178,7 +173,7 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
         def set_temp_visibility(series_key: str, enabled: bool) -> None:
             temp_visibility[series_key] = enabled
 
-        ui.button("Request HK", on_click=lambda: guarded_tc(tc.hk_request))
+        fullscreen = ui.fullscreen()
 
         # Display logger in UI as well, add first so that we can toggle visibility in the left_drawer
         with ui.footer(value=True).style("background-color: #fafafa") as footer:
@@ -198,21 +193,23 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
             logger.addHandler(handler)
 
         with ui.left_drawer(top_corner=True, bottom_corner=True).style("background-color: #d7e3f4"):
-            ui.image("/rsrc/Enfys_logo.jpg")
-            ui.markdown("**Enfys OB EGSE GUI v0.3**")
+            ui.image("/rsrc/Enfys_logo.png")
+            ui.markdown("**Enfys OB EGSE GUI v0.5**").style("text-align: center")
 
             with ui.row(align_items="center"):
-                with ui.card():
+                with ui.card().tight():
                     ui.markdown("**CMD CNT**")
                     labels["cmd_cnt"] = ui.label("---")
 
-                with ui.card():
+                with ui.card().tight():
                     ui.markdown("**3V3**")
                     labels["3v3"] = ui.label("---")
 
-                with ui.card():
+                with ui.card().tight():
                     ui.markdown("**1V5**")
                     labels["1v5"] = ui.label("---")
+
+            ui.button("Request HK", on_click=lambda: guarded_tc(tc.hk_request))
 
             ui.separator()
 
@@ -228,7 +225,7 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
 
             ui.separator()
 
-            ui.markdown("**HEATER STATUS**")
+            ui.markdown("**HEATER STATUS**").classes("gap-0")
 
             with ui.row(align_items="center"):
                 with ui.card().tight():
@@ -269,10 +266,16 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
 
             with ui.row(align_items="center").classes("w-full justify-center"):
                 ui.button("Clear Errors", on_click=lambda: guarded_tc(tc.clear_errors))
-                ui.button("Display Log Terminal", on_click=footer.toggle)
+                ui.separator()
+                with ui.button_group():
+                    ui.button("Display Log Terminal", on_click=footer.toggle)
+                    ui.button("Toggle Fullscreen", on_click=fullscreen.toggle)
 
         with ui.right_drawer(fixed=True).style("background-color: #ebf1fa").props("width=350 bordered") as right_drawer:
             with ui.grid(columns=2):
+                ui.button("Toggle PSU", on_click=lambda: psu.switchPSU(psu_port, not (status["psu"])))
+
+                labels["PSU_STATUS"] = ui.label(f"PSU OFF")
                 with ui.card().tight():
                     ui.markdown("**CH1**")
                     with ui.grid(columns=2):
@@ -293,52 +296,54 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
 
             labels["plot_psu_ch1"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
             plot_ax = labels["plot_psu_ch1"].fig.axes[0]
-            plot_ax.set_title("CH1 Current (mA)")
+            plot_ax.set_title("+12V Current (mA)")
             plot_ax.lines[0].set_marker("x")
             plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
             plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
 
             labels["plot_psu_ch2"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
             plot_ax = labels["plot_psu_ch2"].fig.axes[0]
-            plot_ax.set_title("CH2 Current (mA)")
+            plot_ax.set_title("-12V Current (mA)")
             plot_ax.lines[0].set_marker("x")
             plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
             plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
 
             labels["plot_psu_ch3"] = ui.line_plot(n=1, limit=40, figsize=(3.4, 1.8), update_every=1)
             plot_ax = labels["plot_psu_ch3"].fig.axes[0]
-            plot_ax.set_title("CH3 Current (mA)")
+            plot_ax.set_title("+5V Current (mA)")
             plot_ax.lines[0].set_marker("x")
             plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
             plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
 
-        labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
-        plot_ax = labels["plot_3v3"].fig.axes[0]
-        plot_ax.set_title("3V3 Voltage (ADU)")
-        plot_ax.lines[0].set_marker("x")
-        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
-        plot_ax.axhline(const.WLIM_3V3_ADU[0], color="orange", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.WLIM_3V3_ADU[1], color="orange", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.ALIM_3V3_ADU[0], color="red", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.ALIM_3V3_ADU[1], color="red", linewidth=1.0, linestyle="--")
+        with ui.grid(columns=2):
+            labels["plot_3v3"] = ui.line_plot(n=1, limit=20, figsize=(9, 2), update_every=1)
+            plot_ax = labels["plot_3v3"].fig.axes[0]
+            plot_ax.set_title("3V3 Voltage (ADU)")
+            plot_ax.lines[0].set_marker("x")
+            plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+            plot_ax.axhline(const.WLIM_3V3_ADU[0], color="orange", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.WLIM_3V3_ADU[1], color="orange", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.ALIM_3V3_ADU[0], color="red", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.ALIM_3V3_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
-        labels["plot_1v5"] = ui.line_plot(n=1, limit=20, figsize=(10, 2), update_every=1)
-        plot_ax = labels["plot_1v5"].fig.axes[0]
-        plot_ax.set_title("1V5 Voltage (ADU)")
-        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
-        plot_ax.axhline(const.WLIM_1V5_ADU[0], color="orange", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.WLIM_1V5_ADU[1], color="orange", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.ALIM_1V5_ADU[0], color="red", linewidth=1.0, linestyle="--")
-        plot_ax.axhline(const.ALIM_1V5_ADU[1], color="red", linewidth=1.0, linestyle="--")
+            labels["plot_1v5"] = ui.line_plot(n=1, limit=20, figsize=(9, 2), update_every=1)
+            plot_ax = labels["plot_1v5"].fig.axes[0]
+            plot_ax.set_title("1V5 Voltage (ADU)")
+            plot_ax.lines[0].set_marker("x")
+            plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+            plot_ax.axhline(const.WLIM_1V5_ADU[0], color="orange", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.WLIM_1V5_ADU[1], color="orange", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.ALIM_1V5_ADU[0], color="red", linewidth=1.0, linestyle="--")
+            plot_ax.axhline(const.ALIM_1V5_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
         with ui.row(align_items="center"):
             ui.label("Temps")
             for key in temp_series_order:
                 ui.checkbox(key, value=True, on_change=lambda event, k=key: set_temp_visibility(k, event.value))
 
-        labels["plot_temps"] = ui.line_plot(n=4, limit=20, figsize=(10, 4), update_every=1).with_legend(
+        labels["plot_temps"] = ui.line_plot(n=4, limit=40, figsize=(20, 2.5), update_every=1).with_legend(
             ["DIG", "DET", "MECH", "MOT"], loc="upper right", ncol=1
         )
         plot_ax = labels["plot_temps"].fig.axes[0]
@@ -354,9 +359,78 @@ def build_ui(ob_port, port_lock=None, stop_event=None) -> None:
         plot_ax.axhline(const.ALIM_TPR_ADU[0], color="red", linewidth=1.0, linestyle="--")
         plot_ax.axhline(const.ALIM_TPR_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
-        ui.button("Enable Mech HTR", on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True))
+        with ui.tabs().classes("w-full") as tabs:
+            heater_tab = ui.tab("Heater Control")
+            motor_tab = ui.tab("Motor Control")
+            detec_tab = ui.tab("Detector Control")
 
-        ui.button("Move Motor 1000 steps", on_click=lambda: guarded_tc(tc.mtr_mov_pos, 1000))
+        with ui.tab_panels(tabs, value=heater_tab).classes("w-full"):
+            with ui.tab_panel(heater_tab):
+                with ui.row():
+                    ui.label("Man Heater Controls")
+                    with ui.button_group():
+                        # TODO Replace with check boxes that update based on HK
+                        ui.button("Disable Both", on_click=lambda: guarded_tc(tc.heater_control))
+                        ui.button("Enable Mech", on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True))
+                        ui.button("Enable Det", on_click=lambda: guarded_tc(tc.heater_control, htr_detec_man=True))
+                        ui.button(
+                            "Enable Both",
+                            on_click=lambda: guarded_tc(tc.heater_control, htr_mech_man=True, htr_detec_man=True),
+                        )
+
+            with ui.tab_panel(motor_tab):
+                mtr_steps = ui.number(
+                    label="mech_steps",
+                    value=100,
+                    format="%d",
+                    min=1,
+                    max=10000,
+                    precision=0,
+                    step=10,
+                    on_change=lambda e: mtr_steps_label.set_text(f"MTR Step CMD: {int(e.value)} steps"),
+                )
+                mtr_steps_label = ui.label("MTR Step CMD: 100 steps")
+                ui.button(f"Move Pos", on_click=lambda: guarded_tc(tc.mtr_mov_pos, int(mtr_steps.value)))
+                ui.button(f"Move Neg", on_click=lambda: guarded_tc(tc.mtr_mov_neg, int(mtr_steps.value)))
+                ui.button("HALT", on_click=lambda: guarded_tc(tc.mtr_halt))
+                home_cal = ui.checkbox("HOME_CAL")
+                home_dir = ui.checkbox("HOME_DIR")
+                ui.button(
+                    "Home",
+                    on_click=lambda: guarded_tc(
+                        tc.mtr_homing,
+                        home_cal=home_cal.value,
+                        home_dir=home_dir.value,
+                    ),
+                )
+
+            with ui.tab_panel(detec_tab):
+                ui.button("Request SCI", on_click=lambda: guarded_tc(tc.sci_request, 8, 100))
+                with ui.grid(columns=3):
+                    swir_dac_offset = ui.number(
+                        label="SWIR DAC",
+                        value=2048,
+                        format="%d",
+                        min=0,
+                        max=4095,
+                        precision=0,
+                        step=10,
+                    )
+                    mwir_dac_offset = ui.number(
+                        label="MWIR DAC",
+                        value=2048,
+                        format="%d",
+                        min=0,
+                        max=4095,
+                        precision=0,
+                        step=10,
+                    )
+                    ui.button(
+                        "Set SCI Offset",
+                        on_click=lambda: guarded_tc(
+                            tc.sci_offset, int(swir_dac_offset.value), int(mwir_dac_offset.value)
+                        ),
+                    )
 
         with ui.page_sticky(position="bottom-right", x_offset=20, y_offset=20):
             ui.button("shutdown", on_click=stop_and_shutdown)

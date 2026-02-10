@@ -264,6 +264,9 @@ def parse_tm(response):
     elif response.cmd_type == "SCI_Request":
         ack = SCI(response)
         const.sci_queue.put(ack)
+        info_log.warning(
+            f"SCI Received: SWIR_HIGH:{ack.SWIR_HIGH >> 4}, SWIR_MED:{ack.SWIR_MED >> 4}, SWIR_LOW:{ack.SWIR_LOW >> 4}, MWIR_HIGH:{ack.MWIR_HIGH >> 4}, MWIR_MED:{ack.MWIR_MED >> 4}, MWIR_LOW:{ack.MWIR_LOW >> 4}, HT_SINK_TEMP:{ack.HT_SINK_TEMP >> 4}, SWIR_TEMP:{ack.SWIR_TEMP >> 4}"
+        )
     elif response.cmd_type == "NACK":
         ack = NACK(response)
     else:

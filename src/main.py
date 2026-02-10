@@ -63,17 +63,17 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     return (event_log, info_log, psu_log)
 
 
-def clean_exit(ob_port, psuport, event_log):
+def clean_exit(ob_port, psu_port, event_log):
     event_log.info("Running clean exit")
     const.ACK_LOG_FH.close()
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
     comms.close_comms(ob_port)
-    psu.close_psu_comms(psuport)
+    psu.emergencyShutDown(psu_port)
+    # psu.close_psu_comms(psuport)
 
     #! TODO add emergency shutdown to that powers off the OB
-    #! TODO power off power supply
 
 
 def main() -> None:
@@ -93,19 +93,23 @@ def main() -> None:
     ob_port = comms.open_comms(ob_port)
 
     info_log.info("Initialising PSU Comms")
-    psuport = psu.init_psu_comms(psu_com)
-    psuport = psu.open_psu_comms(psuport, args.nopsu)
-    psu.setChannels(psuport, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I)
-    psu.switchPSU(psuport, 1)  # Switch on PSU
+    psu_port = psu.init_psu_comms(psu_com)
+    psu_port = psu.open_psu_comms(psu_port, args.nopsu)
+    psu.setChannels(psu_port, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I)
+
     stop_event = threading.Event()
+    hk_pause_event = threading.Event()
+    hk_pause_event.set()  # Start with HK polling paused until we know the PSU is on and stable
 
     atexit.register(stop_event.set)
-    atexit.register(clean_exit, ob_port, psuport, event_log)
+    atexit.register(clean_exit, ob_port, psu_port, event_log)
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
     psu_thread = threading.Thread(
-        target=psu.psu_monitor_thread, args=(psuport, stop_event, config.PSU_LOGGING_FREQ), daemon=True
+        target=psu.psu_monitor_thread,
+        args=(psu_port, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event),
+        daemon=True,
     )
     psu_thread.start()
 
@@ -113,6 +117,9 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
+        psu.switchPSU(psu_port, 1)  # Switch on PSU
+        time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
+        hk_pause_event.clear()  # Resume HK polling
 
         # First HK
         abu.read_hk(ob_port)
@@ -120,7 +127,7 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-
+        time.sleep(10)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
@@ -131,10 +138,10 @@ def main() -> None:
     else:
         info_log.info("Running GUI")
         port_lock = threading.Lock()
-        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock), daemon=True)
+        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True)
         hk_thread.start()
 
-        gui.build_ui(ob_port, port_lock, stop_event)
+        gui.build_ui(ob_port, psu_port, port_lock, stop_event)
         ui.run(port=8085, reload=False)
         # TODO What about stop_envent?
 
@@ -150,3 +157,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# TODO Fix display of HK

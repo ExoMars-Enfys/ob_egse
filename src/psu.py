@@ -57,12 +57,30 @@ def psuRead(port, channel, type, output=False):
     return response
 
 
-def psu_monitor_thread(port, stop_event, freq):
+def psu_monitor_thread(port, stop_event, freq, hk_pause_event=None):
     if not port:
         return
 
+    last_status = None
+    on_since = None
+
     while not stop_event.is_set():
         try:
+            # First check the output is enabled
+            status = int(psuRead(port, "1", "OP", False).rstrip())
+            if status == 0:
+                if hk_pause_event is not None:
+                    hk_pause_event.set()
+                on_since = None
+                stop_event.wait(1 / freq)
+            else:
+                if hk_pause_event is not None:
+                    hk_pause_event.clear()
+                if last_status == 0:
+                    on_since = time.monotonic()
+
+            last_status = status
+
             # Read the voltage and current for each channel
             ch1_v = psuRead(port, "1", "V", True).rstrip()
             ch1_i = psuRead(port, "1", "I", True).rstrip()
@@ -73,6 +91,7 @@ def psu_monitor_thread(port, stop_event, freq):
 
             psu_readings = {
                 "TIME": datetime.now(),
+                "STATUS": status,
                 "CH1_V": float(ch1_v[:-1]),  # Remove the trailing 'V' and convert to float
                 "CH1_I": float(ch1_i[:-1]),  # Remove the trailing 'A' and convert to float
                 "CH2_V": float(ch2_v[:-1]),
@@ -85,6 +104,17 @@ def psu_monitor_thread(port, stop_event, freq):
 
             # Log the readings
             psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+
+            # Check status again in case toggled during reads
+            status = int(psuRead(port, "1", "OP", False).rstrip())
+            if status == 0:
+                if hk_pause_event is not None:
+                    hk_pause_event.set()
+                continue
+
+            if on_since is not None and time.monotonic() - on_since < 0.5:
+                continue
+
             if (
                 not (11.2 < float(ch1_v.strip("V")) < 13.2)
                 or not (11.2 < float(ch2_v.strip("V")) < 13.2)
@@ -128,21 +158,21 @@ def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
 
 
 def switchPSU(port, state):
-    # psu_status = int(psuRead(psu_com, "1", "OP",False))
-    # psu_status = not psu_status
     if port:
+        event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
         port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
 
 
 def emergencyShutDown(port):
     if port:
         port.write(f"OPALL 0\r\n".encode("utf-8"))
-        psu_log.error(f"Closing all channels")
+        event_log.info(f"Closing all channels")
+        psu_log.info(f"Closing all channels")
         port.write(f"LOCAL\r\n".encode("utf-8"))
-        psu_log.error(f"Setting to Local control")
+        event_log.info(f"Setting to Local control")
+        psu_log.info(f"Setting to Local control")
         port.flushOutput()
         port.flushInput()
-        port.close()
 
 
 # TODO: Report the link status
