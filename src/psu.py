@@ -1,6 +1,7 @@
 # Std library
 import logging
 import sys
+import threading
 from collections import deque
 
 # Added packages
@@ -16,6 +17,10 @@ import time
 info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
+
+# Thread-safe log request state (avoid using Streamlit session_state in background threads)
+psu_log_request = {"requested": False, "request_id": 0}
+psu_log_lock = threading.Lock()
 
 
 def init_psu_comms(port) -> serial.Serial:
@@ -206,7 +211,7 @@ def update_psu_plot(data_dict, ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i):
         psu_log.error(f"Error updating PSU plot: {e}")
 
 
-def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None, channel_state=None):
+def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None, channel_state=None, log_request=None, log_lock=None):
     if port:
         
         if not ebmode:
@@ -269,6 +274,7 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None,
             ch4_start_time = None
             prev_ch3_on = False
             prev_ch4_on = False
+            last_log_request_id = 0
             while not stop_event.is_set():
                 try:
                     ch1_v = "N/A"
@@ -315,6 +321,43 @@ def psu_monitor_thread(port, stop_event , freq, ebmode = False, psu_lock = None,
                     
                     # Append data to queue for GUI display
                     const.psu_queue.append([ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i, ch4_v, ch4_i])
+
+                    # Handle queued PSU log requests (from GUI)
+                    if isinstance(log_request, dict):
+                        try:
+                            if log_lock:
+                                with log_lock:
+                                    request_id = log_request.get("request_id", 0)
+                                    requested = log_request.get("requested")
+                            else:
+                                request_id = log_request.get("request_id", 0)
+                                requested = log_request.get("requested")
+
+                            if requested and request_id != last_log_request_id:
+                                try:
+                                    from scripts import eb_sft_checks
+                                    eb_sft_checks.sft_logger.info("=" * 60)
+                                    eb_sft_checks.sft_logger.info("PSU STATE LOG")
+                                    eb_sft_checks.sft_logger.info(f"ROV HTR PSU (CH3): {'ON' if ch3_on else 'OFF'}")
+                                    if ch3_on:
+                                        eb_sft_checks.sft_logger.info(f"  CH3 Voltage: {ch3_v}")
+                                        eb_sft_checks.sft_logger.info(f"  CH3 Current: {ch3_i}")
+                                    eb_sft_checks.sft_logger.info(f"EB PSU (CH4): {'ON' if ch4_on else 'OFF'}")
+                                    if ch4_on:
+                                        eb_sft_checks.sft_logger.info(f"  CH4 Voltage: {ch4_v}")
+                                        eb_sft_checks.sft_logger.info(f"  CH4 Current: {ch4_i}")
+                                    eb_sft_checks.sft_logger.info("=" * 60)
+                                except Exception as e:
+                                    psu_log.error(f"Error writing PSU state log: {e}")
+
+                                if log_lock:
+                                    with log_lock:
+                                        log_request["requested"] = False
+                                else:
+                                    log_request["requested"] = False
+                                last_log_request_id = request_id
+                        except Exception as e:
+                            psu_log.error(f"Error handling PSU log request: {e}")
                     
                     def safe_float(value):
                         try:

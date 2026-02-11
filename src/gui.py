@@ -114,6 +114,8 @@ def st_state_initialise() -> None:
         st.session_state.eb_filepath = None
     if "last_tm_index" not in st.session_state:
         st.session_state.last_tm_index = -1
+    if "last_post_index" not in st.session_state:
+        st.session_state.last_post_index = -1
     if "last_log_mtime" not in st.session_state:
         st.session_state.last_log_mtime = 0
     if "log_pause_detected" not in st.session_state:
@@ -124,6 +126,20 @@ def st_state_initialise() -> None:
         st.session_state.rov_htr_state = False
     if "psu_channel_state" not in st.session_state:
         st.session_state.psu_channel_state = {"ch3": False, "ch4": False}
+    if "psu_toggle_time" not in st.session_state:
+        st.session_state.psu_toggle_time = None
+    if "psu_pending_activation" not in st.session_state:
+        st.session_state.psu_pending_activation = False
+    if "warning_dismissed" not in st.session_state:
+        st.session_state.warning_dismissed = False
+    if "psu_log_request" not in st.session_state:
+        st.session_state.psu_log_request = {"requested": False, "request_id": 0}
+    if "psu_log_lock" not in st.session_state:
+        st.session_state.psu_log_lock = threading.Lock()
+    if "previous_warning_state" not in st.session_state:
+        st.session_state.previous_warning_state = False
+    if "previous_warning_reasons" not in st.session_state:
+        st.session_state.previous_warning_reasons = []
 @st.cache_resource
 def port_init(rs485_com, psu_com, nopsu):
     rs485port = comms.initialise_comms(rs485_com)
@@ -140,7 +156,144 @@ def init(ebmode, nopsu, rs485_com, psu_com) -> None:
     main_gui()
     with st.sidebar:
         st.image(Path("./rsrc/Enfys_logo.jpg"), width=150)
+        warning_light_monitor()
         check_for_new_tm()
+
+@st.fragment(run_every="0.5s")
+def warning_light_monitor():
+    """Monitor system health and display warning light for critical conditions."""
+    warning_triggered = False
+    warning_reasons = []
+    
+    # Check PSU voltage and current bounds
+    if st.session_state.psu_queue:
+        latest_psu_data = st.session_state.psu_queue[-1]
+        ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i, ch4_v, ch4_i = latest_psu_data
+        
+        # Helper function to safely convert to float
+        def safe_float(value):
+            try:
+                if isinstance(value, str):
+                    if value == "N/A" or not value or value.isspace():
+                        return None
+                    cleaned = value.strip("VAva")
+                    if cleaned and not cleaned.isspace():
+                        return float(cleaned)
+                    return None
+                return float(value) if value else None
+            except (ValueError, AttributeError):
+                return None
+        
+        ch1_v_val = safe_float(ch1_v)
+        ch1_i_val = safe_float(ch1_i)
+        ch2_v_val = safe_float(ch2_v)
+        ch2_i_val = safe_float(ch2_i)
+        ch3_v_val = safe_float(ch3_v)
+        ch3_i_val = safe_float(ch3_i)
+        ch4_v_val = safe_float(ch4_v)
+        ch4_i_val = safe_float(ch4_i)
+        
+        # Check CH3: ROV HTR (26-30V nominal) - only if enabled
+        if st.session_state.state_rov_htr_psu:
+            if ch3_v_val is not None and not (26.0 <= ch3_v_val <= 30.0):
+                warning_triggered = True
+                warning_reasons.append(f"ROV_HTR Voltage: {ch3_v_val:.2f}V (out of range 26.0-30.0V)")
+            
+            if ch3_i_val is not None and not (0 <= ch3_i_val <= const.ROV_HTR_I):
+                warning_triggered = True
+                warning_reasons.append(f"ROV_HTR Current: {ch3_i_val:.3f}A (exceeds {const.ROV_HTR_I}A)")
+        
+        # Check CH4: EB Power (EB_OVP limit) - only if enabled
+        if st.session_state.state_eb_psu:
+            if ch4_v_val is not None and not (0 <= ch4_v_val <= const.EB_OVP):
+                warning_triggered = True
+                warning_reasons.append(f"EB Voltage: {ch4_v_val:.2f}V (exceeds {const.EB_OVP}V)")
+            
+            if ch4_i_val is not None and not (0 <= ch4_i_val <= const.EB_I):
+                warning_triggered = True
+                warning_reasons.append(f"EB Current: {ch4_i_val:.3f}A (exceeds {const.EB_I}A)")
+    
+    # Check for FDIR warnings in HK packet
+    last_hk = st.session_state.get("last_hk")
+    if last_hk:
+        # Check FDIR_WARNING_FLAGS - if non-zero, system has warnings
+        if last_hk.FDIR_WARNING_FLAGS != 0:
+            warning_triggered = True
+            warning_reasons.append(f"FDIR_WARNING_FLAGS: 0x{last_hk.FDIR_WARNING_FLAGS:08X} (Failure Detection, Isolation, and Recovery flags triggered)")
+        
+        # Check OB error flags - if non-zero, errors detected
+        if last_hk.OB_LAST_ERROR != 0:
+            warning_triggered = True
+            error_code = last_hk.OB_LAST_ERROR
+            warning_reasons.append(f"OB_LAST_ERROR: 0x{error_code:04X} (OB module reported error code {error_code})")
+    
+    # Display warning light
+    col1, col2 = st.columns([1, 5])
+    
+    with col1:
+        if warning_triggered:
+            # Red warning light
+            st.markdown("""
+                <div style="
+                    width: 80px;
+                    height: 80px;
+                    background-color: #ff4444;
+                    border-radius: 50%;
+                    box-shadow: 0 0 20px rgba(255, 68, 68, 0.8), inset 0 0 10px rgba(0, 0, 0, 0.3);
+                    animation: pulse 0.6s infinite;
+                "></div>
+                <style>
+                    @keyframes pulse {
+                        0%, 100% { box-shadow: 0 0 20px rgba(255, 68, 68, 0.8), inset 0 0 10px rgba(0, 0, 0, 0.3); }
+                        50% { box-shadow: 0 0 30px rgba(255, 68, 68, 1), inset 0 0 10px rgba(0, 0, 0, 0.3); }
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+        else:
+            # Green safe light
+            st.markdown("""
+                <div style="
+                    width: 80px;
+                    height: 80px;
+                    background-color: #44ff44;
+                    border-radius: 50%;
+                    box-shadow: 0 0 20px rgba(68, 255, 68, 0.6), inset 0 0 10px rgba(0, 0, 0, 0.3);
+                "></div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        if warning_triggered:
+            # Only show alert if warning state changed (new warning or different warnings)
+            warning_changed = (not st.session_state.previous_warning_state or 
+                             warning_reasons != st.session_state.previous_warning_reasons)
+            
+            if not st.session_state.warning_dismissed:
+                warning_message = "⚠️ **SYSTEM WARNING - CRITICAL CHECK FAILURE**\n\n**Failed Checks:**\n"
+                for i, reason in enumerate(warning_reasons, 1):
+                    warning_message += f"{i}. {reason}\n"
+                warning_message += "\n⚡ Review failures above and take corrective action before proceeding."
+                st.error(warning_message)
+            
+            # Add dismiss button
+            if st.button("Dismiss Warning", key="dismiss_warning_btn"):
+                st.session_state.warning_dismissed = True
+                st.rerun()
+            
+            # Update previous state
+            st.session_state.previous_warning_state = warning_triggered
+            st.session_state.previous_warning_reasons = warning_reasons
+        else:
+            # Clear dismissed state when warnings resolve
+            if st.session_state.warning_dismissed:
+                st.session_state.warning_dismissed = False
+            
+            # Show success toast only if transitioning from warning to OK
+            if st.session_state.previous_warning_state:
+                st.toast("✓ System OK", icon="✅")
+            
+            # Update previous state
+            st.session_state.previous_warning_state = warning_triggered
+            st.session_state.previous_warning_reasons = []
 
 @st.dialog("EGSE Tools Required")
 def show_egse_warning_dialog():
@@ -165,33 +318,11 @@ def  main_gui() -> None:
         if st.session_state.show_egse_script_warning:
             show_egse_script_warning_dialog()
         st.title("Enfys EGSE v3.0")               
-        col1, col2, col3 = st.columns(3)            
+        col1, col2, col3, col4 = st.columns(4)            
         col1.toggle(label="ROV HTR PSU Switch", key="state_rov_htr_psu", on_change=rov_htr_psu_toggle, args=(st.session_state.psuport,))
         col2.toggle(label="EB PSU Switch", key="state_eb_psu", on_change=eb_psu_toggle, args=(st.session_state.psuport,))
-        if st.session_state.state_eb_psu or st.session_state.state_rov_htr_psu:
-            if st.session_state.psu_monitor_thread is None or not st.session_state.psu_monitor_thread.is_alive():
-                st.session_state.stop_event = threading.Event()
-                st.session_state.psu_monitor_thread = threading.Thread(
-                    target=psu.psu_monitor_thread,
-                    args=(
-                        st.session_state.psuport,
-                        st.session_state.stop_event,
-                        const.PSU_LOGGING_FREQ,
-                        True,
-                        st.session_state.psu_lock,
-                        st.session_state.psu_channel_state,
-                    ),
-                    daemon=True,
-                )
-                st.session_state.psu_monitor_thread.start()
-            st.session_state.psu_queue = const.psu_queue
-            eb_psu_display(st.session_state.psuport)
-        else:
-            st.write("PSU is OFF")
-            if st.session_state.stop_event is not None:
-                st.session_state.stop_event.set()
-                if st.session_state.psu_monitor_thread and st.session_state.psu_monitor_thread.is_alive():
-                    st.session_state.psu_monitor_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+        col3.button("Log PSU", on_click=log_psu_state)
+        psu_display_fragment(st.session_state.psuport)
         eb_Fragment()
             
         
@@ -234,20 +365,21 @@ def top_level_status(last_hk) -> None:
     st.divider()
     write_errors(last_hk)
 def write_hk_dashboard(last_hk):
-    dashboard_grid = grid(1,6,1,1,4,1,1,4,1,1,6,gap="small", vertical_align="center")
+    dashboard_grid = grid(1,6,1,1,5,1,1,6,1,1,6,gap="small", vertical_align="center")
     dashboard_grid.write("Voltages")
     dashboard_grid.markdown(f"+12V:\n\n {(last_hk.EB_MEAS_MAIN_12V * 0.000400543):.2f}V", width="content")
     dashboard_grid.markdown(f"-12V:\n\n {(last_hk.EB_MEAS_MAIN_NEG12V * 0.00038147):.2f}V", width="content")
     dashboard_grid.markdown(f"+5V:\n\n {(last_hk.EB_MEAS_5V * 0.000152829):.2f}V", width="content")
     dashboard_grid.markdown(f"+3V3:\n\n {(2 *last_hk.OB_3V3_VOLTAGE /1000):.2f}V", width="content")
     dashboard_grid.markdown(f"+1V5:\n\n {(last_hk.OB_1V5_VOLTAGE / 1000):.2f}V", width="content")
-    dashboard_grid.markdown(f"0V:\n\n {(last_hk.EB_0V_ADC_READING / 1000):.2f}V", width="content")
+    dashboard_grid.markdown(f"TEC I:\n\n {(last_hk.EB_TEC_DRIVE_CURRENT * 0.0000162):.4f}A", width="content")
     dashboard_grid.divider()
     dashboard_grid.write("Temperatures")
     dashboard_grid.markdown(f"Digital:\n\n {(last_hk.OB_DIGITAL_TRP / 100):.2f}°C", width="content")
     dashboard_grid.markdown(f"Detector:\n\n {(last_hk.OB_DETECTOR_TRP / 100):.2f}°C", width="content")
     dashboard_grid.markdown(f"Mechanism:\n\n {(last_hk.OB_MECHANISM_TRP / 100):.2f}°C", width="content")
     dashboard_grid.markdown(f"Motor:\n\n {(last_hk.OB_MOTOR_TRP / 100):.2f}°C", width="content")
+    dashboard_grid.markdown(f"Peltier:\n\n {((last_hk.EB_PELTIER_TEMP * -0.001830011) + 51.27039922):.2f}°C", width="content")
     dashboard_grid.divider()
     dashboard_grid.write("Hk snapshot")
     
@@ -260,6 +392,8 @@ def write_hk_dashboard(last_hk):
     dashboard_grid.markdown(f"OB Power Status:\n\n :{badge_color}-badge[{"ENABLED" if (last_hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01) == 1 else "DISABLED"}]", width="content")  
     dashboard_grid.markdown(f"CMD Count:\n\n {last_hk.OB_COMMAND_COUNT}", width="content")
     dashboard_grid.markdown(f"ABS Steps:\n\n {last_hk.OB_MOTOR_ABS_STEPS}", width="content")
+    homing_complete_badge = ":green-badge[Homing Complete]" if (last_hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01) == 1 else ":gray-badge[Not Complete]"
+    dashboard_grid.markdown(f"Motor Homing:\n\n {homing_complete_badge}", width="content")
     dashboard_grid.divider()
     dashboard_grid.write("Motor Status")
     dashboard_grid.markdown(":green-badge[Calibrated]" if (last_hk.MTR_FLAGS.CAL & 0x01) == 1 else ":gray-badge[Not Calibrated]", width="content")
@@ -327,6 +461,46 @@ def on_pills_change_pwr():
         tc.power_control(st.session_state.rs485port, pwr_value)
 
 # PSU BackEnd Handling -----------------------------------------------------------------------------
+@st.fragment(run_every="0.5s")
+def psu_display_fragment(psu_com):
+    """Fragment that handles PSU display and monitoring without blocking the main page."""
+    
+    
+    if st.session_state.state_eb_psu or st.session_state.state_rov_htr_psu:
+        if st.session_state.psu_monitor_thread is None or not st.session_state.psu_monitor_thread.is_alive():
+            st.session_state.stop_event = threading.Event()
+            st.session_state.psu_monitor_thread = threading.Thread(
+                target=psu.psu_monitor_thread,
+                args=(
+                    st.session_state.psuport,
+                    st.session_state.stop_event,
+                    const.PSU_LOGGING_FREQ,
+                    True,
+                    st.session_state.psu_lock,
+                    st.session_state.psu_channel_state,
+                    psu.psu_log_request,
+                    psu.psu_log_lock,
+                ),
+                daemon=True,
+            )
+            st.session_state.psu_monitor_thread.start()
+        st.session_state.psu_queue = const.psu_queue
+        eb_psu_display(st.session_state.psuport)
+    else:
+        st.write("PSU is OFF")
+        if st.session_state.stop_event is not None:
+            st.session_state.stop_event.set()
+            if st.session_state.psu_monitor_thread and st.session_state.psu_monitor_thread.is_alive():
+                st.session_state.psu_monitor_thread.join(timeout=1.0)
+
+def log_psu_state():
+    """Log the current PSU state to the SFT Check LOG."""
+    # Update module-level log request used by PSU monitor thread
+    with psu.psu_log_lock:
+        if not psu.psu_log_request.get("requested", False):
+            psu.psu_log_request["request_id"] = psu.psu_log_request.get("request_id", 0) + 1
+            psu.psu_log_request["requested"] = True
+
 def eb_psu_toggle(psu_com: serial.Serial):
     if not st.session_state.ebmode:
         return
@@ -337,14 +511,18 @@ def eb_psu_toggle(psu_com: serial.Serial):
         st.session_state.state_eb_psu = False
         return
 
-    st.session_state.psu_channel_state["ch4"] = st.session_state.state_eb_psu
-    with st.session_state.psu_lock:
-        if st.session_state.state_eb_psu:
+    if st.session_state.state_eb_psu:
+        # Turning ON - activate immediately
+        st.session_state.psu_channel_state["ch4"] = True
+        with st.session_state.psu_lock:
             if not psu_com.is_open:
                 psu.open_psu_comms(psu_com, psu_not_required=False)
             psu.setChannels(psu_com, rov_htrs=False, ebmode=True)
             psu.switchPSU(psu_com, True, rov_htrs=False, ebmode=True)
-        else:
+    else:
+        # Turning OFF - do it immediately
+        st.session_state.psu_channel_state["ch4"] = False
+        with st.session_state.psu_lock:
             if psu_com.is_open:
                 psu.switchPSU(psu_com, False, rov_htrs=False, ebmode=True)
             if not st.session_state.state_rov_htr_psu:
@@ -443,7 +621,15 @@ def psu_toggle(psu_com: serial.Serial):
             st.session_state.stop_event = threading.Event()
             st.session_state.psu_monitor_thread = threading.Thread(
                 target=psu.psu_monitor_thread,
-                args=(psu_com, st.session_state.stop_event, st.session_state.shared_data, st.session_state._psu_data_lock, st.session_state.psu_plot_data),
+                args=(
+                    psu_com,
+                    st.session_state.stop_event,
+                    st.session_state.shared_data,
+                    st.session_state._psu_data_lock,
+                    st.session_state.psu_plot_data,
+                    None,
+                    None,
+                ),
                 daemon=True
             )
             st.session_state.psu_monitor_thread.start()
@@ -458,6 +644,10 @@ def psu_toggle(psu_com: serial.Serial):
         psu.close_psu_comms(psu_com)
 @st.fragment(run_every="1s")
 def eb_psu_display(psu_com):
+    # Only render the expander if PSU is actually on
+    if not (st.session_state.state_eb_psu or st.session_state.state_rov_htr_psu):
+        return
+    
     with st.expander("PSU Live Data", expanded=True):
         if st.session_state.ebmode:
             # Extract most recent values from deque (list format: [ch1_v, ch1_i, ch2_v, ch2_i, ch3_v, ch3_i, ch4_v, ch4_i])
@@ -796,12 +986,12 @@ def eb_log_parser(file_path):
                     # Store the parsed data in session state, don't display here
                     st.session_state.last_hk = parsed
                     st.session_state.last_tm_index = tm_index
-            if post_bytes is not None and tm_index != st.session_state.last_tm_index:                 
+            if post_bytes is not None and tm_index != st.session_state.last_post_index:                 
                 parsed = eb.decode_post_hk(post_bytes)
                 if parsed is not None:
                     # Store the parsed data in session state, don't display here
                     st.session_state.last_post = parsed
-                    st.session_state.last_tm_index = tm_index
+                    st.session_state.last_post_index = tm_index
     else:
         st.write("No log file selected")
 def eb_log_filepicker():
@@ -884,8 +1074,8 @@ def display_post_info():
                 ("EB +3V3 (V)", last_hk.EB_MEAS_3V3, (2.8, 3.8), "range", 0.0000763),
                 ("EB TEC_V (V)", last_hk.EB_MEAS_TEC_RAIL, (-0.5, 0.5), "range", 0.0000763),
                 ("EB 0V (V)", last_hk.EB_0V_ADC_READING, (-0.5, 0.5), "range", 0.0000763),
-                ("EB MCU Internal Temp (°C)", last_hk.EB_MCU_INTERNAL_TEMP, (18.0, 43.0), "range", 0.01637198),
-                ("EB Peltier Temp (°C)", last_hk.EB_PELTIER_TEMP, (18.0, 43.0), "range", -0.001830011),
+                ("EB MCU Internal Temp (°C)", last_hk.EB_MCU_INTERNAL_TEMP, (18.0, 43.0), "mcu_temp", None),
+                ("EB Peltier Temp (°C)", last_hk.EB_PELTIER_TEMP, (18.0, 43.0), "peltier_temp", None),
                 ("EB Internal TRP Temp (°C)", last_hk.EB_INTERNAL_TRP_TEMP, (18.0, 43.0), "thermistor", None),
                 ("EB PSU Board Temp (°C)", last_hk.EB_PSU_BOARD_TEMP, (18.0, 43.0), "thermistor", None),
                 ("EB TEC Drive Current (A)", last_hk.EB_TEC_DRIVE_CURRENT, (-0.1, 0.1), "range", 0.0000162),
@@ -957,6 +1147,34 @@ def display_post_info():
                     
                     display_value = f"{converted_value:.4g} {unit}".strip()
                     display_expected = f"{min_val} - {max_val} {unit}".strip()
+                elif check_type == "mcu_temp":
+                    # MCU internal temperature conversion: (ADU * 0.01637198) - 273
+                    converted_value = (value * 0.01637198) - 273
+                    min_val, max_val = expected
+                    within_limits = min_val <= converted_value <= max_val
+                    
+                    # Extract unit from parameter name
+                    if "(" in param_name and ")" in param_name:
+                        unit = param_name[param_name.rfind("(")+1:param_name.rfind(")")]
+                    else:
+                        unit = ""
+                    
+                    display_value = f"{converted_value:.4g} {unit}".strip()
+                    display_expected = f"{min_val} - {max_val} {unit}".strip()
+                elif check_type == "peltier_temp":
+                    # EB Peltier temperature conversion: (ADU * -0.001830011) + 51.27039922
+                    converted_value = (value * -0.001830011) + 51.27039922
+                    min_val, max_val = expected
+                    within_limits = min_val <= converted_value <= max_val
+                    
+                    # Extract unit from parameter name
+                    if "(" in param_name and ")" in param_name:
+                        unit = param_name[param_name.rfind("(")+1:param_name.rfind(")")]
+                    else:
+                        unit = ""
+                    
+                    display_value = f"{converted_value:.4g} {unit}".strip()
+                    display_expected = f"{min_val} - {max_val} {unit}".strip()
                 else:
                     within_limits = False
                     display_value = str(value)
@@ -1007,9 +1225,9 @@ def display_post_info():
         
         # Display POST packet checks (from SAFE mode CSV)
         st.divider()
+        st.subheader("📦 POST Packet Parameters")
         last_post = st.session_state.get("last_post")
         if last_post:
-            st.subheader("📦 POST Packet Parameters")
             
             post_checks = [
                 ("POST Warning Flags", last_post.POST_WARNING_FLAGS, 0, "=="),
@@ -1166,6 +1384,10 @@ def resume_cmdtool():
         try:
             app = Application(backend='uia').connect(handle=window)
             main_window = app.window(handle=window)
+            
+            # Bring window to foreground
+            main_window.set_focus()
+            time.sleep(0.3)
             
             # Get all descendants
             descendants = main_window.descendants()
