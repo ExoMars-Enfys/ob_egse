@@ -17,7 +17,7 @@ hk = [
     ("MTR_REL_STEPS", ">s16"),
     ("MTR_CURRENT", "u8"),
     ("MTR_GUARD", "u8"),
-    ("MTR_RECVAL", "u8"),
+    ("MTR_CHOP", "u8"),
     ("UNUSED3", "u4"),
     ("MTR_SPEED", "u4"),
     ("UNUSED4", ">u88"),

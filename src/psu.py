@@ -1,6 +1,7 @@
 # Std library
 from datetime import datetime
 import logging
+from contextlib import nullcontext
 
 # Added packages
 import serial
@@ -13,10 +14,22 @@ info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
 
+_psu_lock = None
+
+
+def set_psu_lock(lock) -> None:
+    global _psu_lock
+    _psu_lock = lock
+
+
+def _psu_lock_ctx():
+    return _psu_lock if _psu_lock is not None else nullcontext()
+
 
 def init_psu_comms(psu_com: str) -> serial.Serial:
     psuport = serial.Serial(port=None, timeout=1.0)
     psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
+
     return psuport
 
 
@@ -38,19 +51,20 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
 
 def close_psu_comms(port: serial.Serial) -> None:
     if port:
-        port.write(f"LOCAL\r\n".encode("utf-8"))
-        time.sleep(0.5)
-        port.close()
+        with _psu_lock_ctx():
+            port.write(f"LOCAL\r\n".encode("utf-8"))
+            time.sleep(0.5)
+            port.close()
     return
 
 
 def psuRead(port, channel, type, output=False):
     if output == False:
         port.write(f"{type}{channel}?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        response = port.readline().decode("utf-8")
     else:
         port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        response = port.readline().decode("utf-8")
 
     port.flushOutput()
     port.flushInput()
@@ -65,14 +79,23 @@ def psu_monitor_thread(port, stop_event, freq, hk_pause_event=None):
     on_since = None
 
     while not stop_event.is_set():
+        lock = _psu_lock
+        if lock is not None and not lock.acquire(blocking=False):
+            psu_log.debug("PSU monitor skipped sample (lock busy)")
+            stop_event.wait(1 / freq)
+            continue
+
+        loop_start = time.monotonic()
+        read_elapsed = None
+        skip_checks = False
         try:
             # First check the output is enabled
+            read_start = time.monotonic()
             status = int(psuRead(port, "1", "OP", False).rstrip())
             if status == 0:
                 if hk_pause_event is not None:
                     hk_pause_event.set()
                 on_since = None
-                stop_event.wait(1 / freq)
             else:
                 if hk_pause_event is not None:
                     hk_pause_event.clear()
@@ -88,6 +111,7 @@ def psu_monitor_thread(port, stop_event, freq, hk_pause_event=None):
             ch2_i = psuRead(port, "2", "I", True).rstrip()
             ch3_v = psuRead(port, "3", "V", True).rstrip()
             ch3_i = psuRead(port, "3", "I", True).rstrip()
+            read_elapsed = time.monotonic() - read_start
 
             psu_readings = {
                 "TIME": datetime.now(),
@@ -110,69 +134,89 @@ def psu_monitor_thread(port, stop_event, freq, hk_pause_event=None):
             if status == 0:
                 if hk_pause_event is not None:
                     hk_pause_event.set()
-                continue
+                skip_checks = True
 
             if on_since is not None and time.monotonic() - on_since < 0.5:
-                continue
+                skip_checks = True
 
-            if (
-                not (11.2 < float(ch1_v.strip("V")) < 13.2)
-                or not (11.2 < float(ch2_v.strip("V")) < 13.2)
-                or not (4.8 < float(ch3_v.strip("V")) < 5.5)
-            ):
-                psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                emergencyShutDown(port)
+            if not skip_checks:
+                if (
+                    not (11.2 < float(ch1_v.strip("V")) < 13.2)
+                    or not (11.2 < float(ch2_v.strip("V")) < 13.2)
+                    or not (4.8 < float(ch3_v.strip("V")) < 5.5)
+                ):
+                    psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
+                    emergencyShutDown(port)
 
-            if (float(ch1_i.strip("A")) >= 150) or (float(ch2_i.strip("A")) >= 90) or (float(ch3_i.strip("A")) >= 150):
-                psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                emergencyShutDown(port)
+                if (
+                    (float(ch1_i.strip("A")) >= 150)
+                    or (float(ch2_i.strip("A")) >= 90)
+                    or (float(ch3_i.strip("A")) >= 150)
+                ):
+                    psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
+                    emergencyShutDown(port)
 
         except Exception as e:
             psu_log.error(f"Error in PSU monitor thread: {e}")
+        finally:
+            if lock is not None:
+                lock.release()
+
+        loop_elapsed = time.monotonic() - loop_start
+        psu_log.debug(
+            "PSU timing: read={:.3f}s loop={:.3f}s wait={:.3f}s".format(
+                read_elapsed if read_elapsed is not None else -1.0,
+                loop_elapsed,
+                max(0.0, (1 / freq) - loop_elapsed),
+            )
+        )
 
         stop_event.wait(1 / freq)
 
 
 def setChannels(port, ch1_ovp, ch1_i, ch2_ovp, ch2_i, ch3_ovp, ch3_i):
     if port:
-        # Set the voltage and current limits for each channel
-        psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-        port.write(f"V1 12\r\n".encode("utf-8"))
-        port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
-        port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
+        with _psu_lock_ctx():
+            # Set the voltage and current limits for each channel
+            psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
+            port.write(f"V1 12\r\n".encode("utf-8"))
+            port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
+            port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
-        psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-        port.write(f"V2 12\r\n".encode("utf-8"))
-        port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
-        port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
+            port.write(f"V2 12\r\n".encode("utf-8"))
+            port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
+            port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
 
-        psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-        port.write(f"V3 5\r\n".encode("utf-8"))
-        port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
-        port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+            port.write(f"V3 5\r\n".encode("utf-8"))
+            port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
+            port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
-        psu_log.info("PSU Channels set successfully")
-        psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
-        port.flushOutput()
-        port.flushInput()
+            psu_log.info("PSU Channels set successfully")
+            psu_log.info("  CH1_V \t   CH1_I \t  CH2_V \t  CH2_I \t  CH3_V \t   CH3_I")
+            port.flushOutput()
+            port.flushInput()
 
 
 def switchPSU(port, state):
     if port:
-        event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
-        port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
+        with _psu_lock_ctx():
+            event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
+            port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
 
 
 def emergencyShutDown(port):
     if port:
-        port.write(f"OPALL 0\r\n".encode("utf-8"))
-        event_log.info(f"Closing all channels")
-        psu_log.info(f"Closing all channels")
-        port.write(f"LOCAL\r\n".encode("utf-8"))
-        event_log.info(f"Setting to Local control")
-        psu_log.info(f"Setting to Local control")
-        port.flushOutput()
-        port.flushInput()
+        with _psu_lock_ctx():
+            port.write(f"OPALL 0\r\n".encode("utf-8"))
+            event_log.info(f"Closing all channels")
+            psu_log.info(f"Closing all channels")
+            port.write(f"LOCAL\r\n".encode("utf-8"))
+            event_log.info(f"Setting to Local control")
+            psu_log.info(f"Setting to Local control")
+            port.flushOutput()
+            port.flushInput()
 
 
 # TODO: Report the link status

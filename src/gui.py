@@ -88,6 +88,7 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
                 hk.DETEC_TRP = hk.DETEC_TRP >> 4
                 hk.MECH_TRP = hk.MECH_TRP >> 4
                 hk.MOTOR_TRP = hk.MOTOR_TRP >> 4
+                hk.HK_MECH_CUR = hk.HK_MECH_CUR >> 4
 
                 labels["plot_3v3"].push([hk.TIME], [[hk.HK_V_3V3]], y_limits=(3.0, 3.6))
 
@@ -96,11 +97,14 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
                 apply_temp_visibility()
                 labels["plot_temps"].push([hk.TIME], [[hk.DIGITAL_TRP], [hk.DETEC_TRP], [hk.MECH_TRP], [hk.MOTOR_TRP]])
 
+                labels["plot_mtr_curr"].push([hk.TIME], [[hk.HK_MECH_CUR]])
+
                 status["pwr"] = hk.PWR_STAT
 
                 labels["cmd_cnt"].set_text(f"{hk.CMD_CNT}")
                 labels["3v3"].set_text(f"{hk.HK_V_3V3} V")
                 labels["1v5"].set_text(f"{hk.HK_V_1V5} V")
+                labels["HK_MTR_CURR"].set_text(f"Motor Current [ADU]: {hk.HK_MECH_CUR}")
                 labels["MECH_PWR"].set_background_color("green" if (hk.PWR_STAT & 0x01) else "red")
                 labels["DET_PWR"].set_background_color("green" if (hk.PWR_STAT & 0x02) else "red")
                 labels["MECH_HTR_STAT"].set_text_color("green" if hk.THRM_STATUS.HMS else "red")
@@ -116,6 +120,18 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
                 labels["DET_HTR_AUTO"].set_icon("check_circle_outline" if hk.THRM_STATUS.DA else "highlight_off")
                 labels["HTR_SCI"].set_background_color("green" if hk.THRM_STATUS.S else "grey")
                 labels["HTR_SCI"].set_icon("check_circle_outline" if hk.THRM_STATUS.S else "highlight_off")
+
+                labels["MTR_CURRENT"].set_text(f"Current: {hk.MTR_CURRENT}")
+                labels["MTR_GUARD"].set_text(f"Guard: {hk.MTR_GUARD}")
+                labels["MTR_SPEED"].set_text(f"MTR Speed: {hk.MTR_SPEED}")
+                labels["MTR_CHOP"].set_text(f"Chop: {hk.MTR_CHOP}")
+
+                labels["FLAG_CAL"].set_background_color("green" if hk.MTR_FLAGS.CAL else "grey")
+                labels["FLAG_DIR"].set_background_color("green" if hk.MTR_FLAGS.DIR else "grey")
+                labels["FLAG_OUT"].set_background_color("green" if hk.MTR_FLAGS.OUTER else "grey")
+                labels["FLAG_BAS"].set_background_color("green" if hk.MTR_FLAGS.BASE else "grey")
+                labels["FLAG_MOV"].set_background_color("green" if hk.MTR_FLAGS.MOVING else "grey")
+                labels["FLAG_HOM"].set_background_color("green" if hk.MTR_FLAGS.HOMING else "grey")
 
                 labels["ERR_IPI"].set_background_color("red" if hk.ERRORS.IPI else "grey")
                 labels["ERR_IOS"].set_background_color("red" if hk.ERRORS.IOS else "grey")
@@ -359,6 +375,14 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
         plot_ax.axhline(const.ALIM_TPR_ADU[0], color="red", linewidth=1.0, linestyle="--")
         plot_ax.axhline(const.ALIM_TPR_ADU[1], color="red", linewidth=1.0, linestyle="--")
 
+        labels["HK_MTR_CURR"] = ui.label("Motor Current [ADU]: --")
+        labels["plot_mtr_curr"] = ui.line_plot(n=1, limit=40, figsize=(9, 2), update_every=1)
+        plot_ax = labels["plot_mtr_curr"].fig.axes[0]
+        plot_ax.set_title("Motor Current (ADU)")
+        plot_ax.lines[0].set_marker("o")
+        plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        plot_ax.grid(True, color="#cfcfcf", alpha=0.6, linewidth=0.6)
+
         with ui.tabs().classes("w-full") as tabs:
             heater_tab = ui.tab("Heater Control")
             motor_tab = ui.tab("Motor Control")
@@ -379,30 +403,64 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
                         )
 
             with ui.tab_panel(motor_tab):
-                mtr_steps = ui.number(
-                    label="mech_steps",
-                    value=100,
-                    format="%d",
-                    min=1,
-                    max=10000,
-                    precision=0,
-                    step=10,
-                    on_change=lambda e: mtr_steps_label.set_text(f"MTR Step CMD: {int(e.value)} steps"),
-                )
-                mtr_steps_label = ui.label("MTR Step CMD: 100 steps")
-                ui.button(f"Move Pos", on_click=lambda: guarded_tc(tc.mtr_mov_pos, int(mtr_steps.value)))
-                ui.button(f"Move Neg", on_click=lambda: guarded_tc(tc.mtr_mov_neg, int(mtr_steps.value)))
-                ui.button("HALT", on_click=lambda: guarded_tc(tc.mtr_halt))
-                home_cal = ui.checkbox("HOME_CAL")
-                home_dir = ui.checkbox("HOME_DIR")
-                ui.button(
-                    "Home",
-                    on_click=lambda: guarded_tc(
-                        tc.mtr_homing,
-                        home_cal=home_cal.value,
-                        home_dir=home_dir.value,
-                    ),
-                )
+                with ui.grid(columns=6).classes("w-full gap-x-4 gap-y-1 p-0"):
+                    labels["FLAG_CAL"] = ui.chip("CAL", color="grey").classes("m-0 w-full")
+                    labels["FLAG_DIR"] = ui.chip("DIR", color="grey").classes("m-0 w-full")
+                    labels["FLAG_OUT"] = ui.chip("OUT", color="grey").classes("m-0 w-full")
+                    labels["FLAG_BAS"] = ui.chip("BAS", color="grey").classes("m-0 w-full")
+                    labels["FLAG_MOV"] = ui.chip("MOV", color="grey").classes("m-0 w-full")
+                    labels["FLAG_HOM"] = ui.chip("HOM", color="grey").classes("m-0 w-full")
+                with ui.grid(columns=5):
+                    mtr_steps = ui.number(
+                        label="mech_steps",
+                        value=100,
+                        format="%d",
+                        min=1,
+                        max=10000,
+                        precision=0,
+                        step=10,
+                    )
+                    ui.button(f"Move Pos", on_click=lambda: guarded_tc(tc.mtr_mov_pos, int(mtr_steps.value)))
+                    ui.button(f"Move Neg", on_click=lambda: guarded_tc(tc.mtr_mov_neg, int(mtr_steps.value)))
+                    ui.button("HALT", on_click=lambda: guarded_tc(tc.mtr_halt))
+                with ui.grid(columns=5):
+                    ui.label("MTR Current")
+                    ui.element("div").classes("w-full")
+                    ui.label("MTR_Chop")
+                    ui.label("MTR_Speed")
+                    ui.element("div").classes("w-full")
+
+                    current_slider = ui.slider(min=0, max=255, value=0x40, step=1).props("label-always")
+                    guard_select = ui.select([0, 1, 2, 3], value=0, label="Guard")
+                    chop_slider = ui.slider(min=0, max=127, value=0x3C, step=1).props("label-always")
+                    speed_knob = ui.knob(min=0, max=15, value=8, step=1, show_value=True)
+                    ui.button(
+                        "Set MTR Params",
+                        on_click=lambda: guarded_tc(
+                            tc.set_mtr_param,
+                            int(current_slider.value),
+                            guard_select.value,
+                            int(chop_slider.value),
+                            speed_knob.value,
+                        ),
+                    )
+
+                    labels["MTR_CURRENT"] = ui.label("--")
+                    labels["MTR_GUARD"] = ui.label("--")
+                    labels["MTR_CHOP"] = ui.label("--")
+                    labels["MTR_SPEED"] = ui.label("--")
+
+                with ui.grid(columns=3):
+                    home_cal = ui.checkbox("HOME_CAL")
+                    home_dir = ui.checkbox("HOME_DIR")
+                    ui.button(
+                        "Home",
+                        on_click=lambda: guarded_tc(
+                            tc.mtr_homing,
+                            home_cal.value,
+                            home_dir.value,
+                        ),
+                    )
 
             with ui.tab_panel(detec_tab):
                 ui.button("Request SCI", on_click=lambda: guarded_tc(tc.sci_request, 8, 100))
@@ -444,7 +502,7 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
         update_hk_display()
 
 
-# TODO! Show status of PSU connection
+# TODO! Fix issue with starting stopping threads when using PSU
 # TODO! Create a monitoring thread
-# TODO! Add a mechanism interface
+# TODO! Add remaining commands and telemetry to GUI
 # TODO! Add a sci acquisition interface

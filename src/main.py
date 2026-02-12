@@ -95,6 +95,8 @@ def main() -> None:
     info_log.info("Initialising PSU Comms")
     psu_port = psu.init_psu_comms(psu_com)
     psu_port = psu.open_psu_comms(psu_port, args.nopsu)
+    psu_lock = threading.Lock()
+    psu.set_psu_lock(psu_lock)
     psu.setChannels(psu_port, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I)
 
     stop_event = threading.Event()
