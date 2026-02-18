@@ -18,8 +18,14 @@ def read_pkt(file_path, latest_only: bool = False):
     last_post_hk = None
     last_index = None
 
-    indices = [tm_indices[-1]] if (latest_only and tm_indices) else tm_indices
-    for tm_index in reversed(indices) if latest_only else indices:
+    if latest_only:
+        hk_found = False
+        post_found = False
+        indices = reversed(tm_indices)
+    else:
+        indices = tm_indices
+
+    for tm_index in indices:
         if tm_index + 1 >= len(all_lines):
             continue
         byte_string = all_lines[tm_index + 1]
@@ -27,7 +33,10 @@ def read_pkt(file_path, latest_only: bool = False):
             continue
         byte_array = bytes(int(x, 16) for x in byte_string.split())
         tm_type_id = (byte_array[5] >> 2) & 0x3F
+
         if tm_type_id in (0x1, 0x2):
+            if latest_only and hk_found:
+                continue
             hk = parse_eb_hk(byte_array)
             hk = decode_warning_flags(hk)
             hk = decode_error_flags(hk)
@@ -37,15 +46,21 @@ def read_pkt(file_path, latest_only: bool = False):
             const.hk_queue.put(hk)
             last_hk = hk
             last_index = tm_index
+            if latest_only:
+                hk_found = True
         elif tm_type_id == 0x3:
+            if latest_only and post_found:
+                continue
             post_hk = decode_post_hk(byte_array)
             post_hk.TIME = datetime.now()
             const.eb_post_queue.put(post_hk)
             last_post_hk = post_hk
+            if latest_only:
+                post_found = True
         else:
             continue
 
-        if latest_only:
+        if latest_only and hk_found and post_found:
             break
 
     return last_hk, last_post_hk, last_index
