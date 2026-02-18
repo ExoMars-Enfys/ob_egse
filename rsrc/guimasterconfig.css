@@ -1,0 +1,260 @@
+:root {
+    --theme-default: dark;
+    --logo-light-src: "/rsrc/Enfys_logo.png";
+    --logo-dark-src: "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png";
+
+    --dark-primary-bg: #595959;
+    --dark-secondary-bg: #2d2d2d;
+    --dark-heading-color: #ffffff;
+    --dark-text-color: #ffffff;
+    --dark-accent_color: #2b6d34;
+    --dark-plot-bg: #595959;
+    --dark-plot-grid: #6e6e6e;
+    --dark-plot-axis: #ffffff;
+    --dark-plot-legend: #ffffff;
+    --dark-plot-spine: #ffffff;
+    --dark-plot-tick: #ffffff;
+
+    --light-primary-bg: #f4f5f7;
+    --light-secondary-bg: #e6e9ef;
+    --light-heading-color: #1f2a3a;
+    --light-text-color: #1f2a3a;
+    --light-accent_color: #2b6d34;
+    --light-plot-bg: #f4f5f7;
+    --light-plot-grid: #c9ced6;
+    --light-plot-axis: #1f2a3a;
+    --light-plot-legend: #1f2a3a;
+    --light-plot-spine: #1f2a3a;
+    --light-plot-tick: #1f2a3a;
+
+    --primary-bg: var(--dark-primary-bg);
+    --secondary-bg: var(--dark-secondary-bg);
+    --heading-color: var(--dark-heading-color);
+    --text-color: var(--dark-text-color);
+    --accent_color: var(--dark-accent_color);
+    --plot-bg: var(--dark-plot-bg);
+    --plot-grid: var(--dark-plot-grid);
+    --plot-axis: var(--dark-plot-axis);
+    --plot-legend: var(--dark-plot-legend);
+    --plot-spine: var(--dark-plot-spine);
+    --plot-tick: var(--dark-plot-tick);
+
+    --q-primary: var(--accent_color);
+    --q-secondary: var(--secondary-bg);
+    --q-positive: var(--accent_color);
+    --q-negative: #b64545;
+}
+
+body.theme-dark {
+    --primary-bg: var(--dark-primary-bg);
+    --secondary-bg: var(--dark-secondary-bg);
+    --heading-color: var(--dark-heading-color);
+    --text-color: var(--dark-text-color);
+    --accent_color: var(--dark-accent_color);
+    --plot-bg: var(--dark-plot-bg);
+    --plot-grid: var(--dark-plot-grid);
+    --plot-axis: var(--dark-plot-axis);
+    --plot-legend: var(--dark-plot-legend);
+    --plot-spine: var(--dark-plot-spine);
+    --plot-tick: var(--dark-plot-tick);
+    --q-primary: var(--accent_color);
+    --q-secondary: var(--secondary-bg);
+    --q-positive: var(--accent_color);
+}
+
+body.theme-light {
+    --primary-bg: var(--light-primary-bg);
+    --secondary-bg: var(--light-secondary-bg);
+    --heading-color: var(--light-heading-color);
+    --text-color: var(--light-text-color);
+    --accent_color: var(--light-accent_color);
+    --plot-bg: var(--light-plot-bg);
+    --plot-grid: var(--light-plot-grid);
+    --plot-axis: var(--light-plot-axis);
+    --plot-legend: var(--light-plot-legend);
+    --plot-spine: var(--light-plot-spine);
+    --plot-tick: var(--light-plot-tick);
+    --q-primary: var(--accent_color);
+    --q-secondary: var(--secondary-bg);
+    --q-positive: var(--accent_color);
+}
+
+body,
+.nicegui-content,
+.q-page,
+.q-layout {
+    background-color: var(--primary-bg);
+    color: var(--text-color);
+}
+
+.q-drawer,
+.q-footer,
+.q-header {
+    background-color: var(--secondary-bg);
+    color: var(--text-color);
+}
+
+.q-card,
+.q-card__section {
+    background-color: var(--primary-bg);
+}
+
+.q-markdown,
+.q-item,
+.q-field,
+.q-input,
+.q-toggle,
+.q-checkbox,
+.q-radio,
+.q-tab,
+.q-item__label,
+.q-field__label,
+.q-field__native,
+.q-field__input,
+.q-tab__label {
+    color: var(--text-color);
+}
+
+.q-tabs,
+.q-tabs__content,
+.q-tab-panels,
+.q-tab-panel {
+    background-color: var(--primary-bg);
+}
+
+.q-tab {
+    color: var(--text-color);
+    background-color: transparent;
+}
+
+.q-tab--active,
+.q-tab.q-tab--active {
+    color: var(--accent_color);
+}
+
+.q-tab__indicator {
+    background-color: var(--accent_color);
+}
+
+.q-markdown h1,
+.q-markdown h2,
+.q-markdown h3,
+.q-markdown h4,
+.q-markdown h5,
+.q-markdown h6 {
+    color: var(--heading-color);
+}
+
+.q-btn,
+.q-btn--standard,
+.q-btn--unelevated,
+.q-btn.bg-primary {
+    background-color: var(--accent_color);
+    color: #ffffff;
+}
+
+.bg-accent_color,
+.q-btn.bg-accent_color,
+.q-btn--standard.bg-accent_color,
+.q-btn--unelevated.bg-accent_color {
+    background-color: var(--accent_color) !important;
+}
+
+.text-accent_color,
+.q-btn.text-accent_color {
+    color: var(--accent_color) !important;
+}
+
+.bg-primary,
+.q-btn.bg-primary,
+.q-btn--standard.bg-primary,
+.q-btn--unelevated.bg-primary {
+    background-color: var(--accent_color) !important;
+}
+
+.text-primary,
+.q-btn.text-primary {
+    color: var(--accent_color) !important;
+}
+
+.q-btn .q-icon {
+    color: #ffffff;
+}
+
+.q-btn.flat,
+.q-btn--flat,
+.q-btn--outline {
+    background-color: transparent;
+    color: var(--accent_color);
+}
+
+.q-chip[class*="bg-grey"] .q-icon,
+.q-chip[class*="bg-gray"] .q-icon {
+    display: none;
+}
+
+.q-field__control,
+.q-field__native {
+    background-color: var(--primary-bg);
+    color: var(--text-color);
+}
+
+.q-menu,
+.q-list {
+    background-color: var(--primary-bg);
+    color: var(--text-color);
+}
+
+.status-light {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.status-light-lg {
+    width: 44px;
+    height: 44px;
+}
+
+.status-light.ok {
+    background-color: #2ecc71;
+    box-shadow: 0 0 0 rgba(46, 204, 113, 0.6);
+    animation: pulse-green 1.6s infinite;
+}
+
+.status-light.alarm {
+    background-color: #e74c3c;
+    box-shadow: 0 0 12px rgba(231, 76, 60, 0.8);
+    animation: pulse-red 1.1s infinite;
+}
+
+@keyframes pulse-green {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(46, 204, 113, 0.6);
+    }
+    70% {
+        transform: scale(1.1);
+        box-shadow: 0 0 20px rgba(46, 204, 113, 0.0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(46, 204, 113, 0.0);
+    }
+}
+
+@keyframes pulse-red {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(231, 76, 60, 0.8);
+    }
+    60% {
+        transform: scale(1.2);
+        box-shadow: 0 0 28px rgba(231, 76, 60, 0.0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(231, 76, 60, 0.0);
+    }
+}

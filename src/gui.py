@@ -273,7 +273,7 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
 
         with ui.right_drawer(fixed=True).style("background-color: #ebf1fa").props("width=350 bordered") as right_drawer:
             with ui.grid(columns=2):
-                ui.button("Toggle PSU", on_click=lambda: psu.switchPSU(psu_port, not (status["psu"])))
+                ui.button("Toggle PSU", on_click=lambda: psu.switchPSU(psu_port, ebmode = False, state = not (status["psu"])))
 
                 labels["PSU_STATUS"] = ui.label(f"PSU OFF")
                 with ui.card().tight():

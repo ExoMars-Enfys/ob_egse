@@ -22,6 +22,7 @@ SCI_LOG_FH = None
 
 # HK queue
 hk_queue = Queue(maxsize=100)
+eb_post_queue = Queue(maxsize=100)
 psu_queue = Queue(maxsize=100)
 sci_queue = Queue(maxsize=30)
 

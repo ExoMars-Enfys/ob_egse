@@ -10,6 +10,7 @@ dependencies = [
  "crc8>=0.2.1",
  "nicegui",
  "pyserial>=3.5",
+ "pywinauto>=0.6.9",
  "streamlit>=1.50.0",
  "streamlit-extras>=0.7.8",
 ]

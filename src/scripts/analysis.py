@@ -10,6 +10,16 @@ sys.path.append(str(Path(__file__).parent.parent))
 import tmstruct
 info_log = logging.getLogger("info_log")
 
+
+def _create_dialog_root() -> tk.Tk:
+    root = tk.Tk()
+    root.withdraw()
+    root.lift()
+    root.attributes("-topmost", True)
+    root.focus_force()
+    root.update_idletasks()
+    return root
+
 def calculate_cumulative_steps(abs_steps, rel_steps, cal_flag):
     if not rel_steps:
         return []
@@ -71,10 +81,15 @@ def analysis(path,prefix):
         file_path = path / (prefix + "_HK.LOG")
     else:
     # Open file dialog
-        root = tk.Tk()
-        root.withdraw()
-        file_path = filedialog.askopenfilename(title="Select HK LOG file", 
-                                            filetypes=[("Log files", "*HK*.LOG")])
+        root = _create_dialog_root()
+        try:
+            file_path = filedialog.askopenfilename(
+                title="Select HK LOG file",
+                filetypes=[("Log files", "*HK*.LOG")],
+                parent=root,
+            )
+        finally:
+            root.destroy()
     
     if not file_path:
         print("No file selected")

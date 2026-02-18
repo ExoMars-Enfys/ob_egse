@@ -14,6 +14,7 @@ import constants as const
 import config
 import egse_logger
 import gui
+import ebgui
 import psu
 import scripts.sequences as sq
 import scripts.error_checks as ec
@@ -35,6 +36,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
+    parser.add_argument("-eb", "--ebmode", action="store_true")
     return parser
 
 
@@ -69,8 +71,10 @@ def clean_exit(ob_port, psu_port, event_log):
     const.CMD_LOG_FH.close()
     const.HK_LOG_FH.close()
     const.SCI_LOG_FH.close()
-    comms.close_comms(ob_port)
-    psu.emergencyShutDown(psu_port)
+    if ob_port is not None:
+        comms.close_comms(ob_port)
+    if psu_port is not None:
+        psu.emergencyShutDown(psu_port)
     # psu.close_psu_comms(psuport)
 
     #! TODO add emergency shutdown to that powers off the OB
@@ -83,32 +87,37 @@ def main() -> None:
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
-    (event_log, info_log, psu_log) = setup_logs()
-
-    rs485_com = "COM" + str(args.com)
-    psu_com = "COM" + str(args.psuport)
-
-    info_log.info("Initialising RS-485 Comms")
-    ob_port = comms.initialise_comms(rs485_com)
-    ob_port = comms.open_comms(ob_port)
-
-    info_log.info("Initialising PSU Comms")
-    psu_port = psu.init_psu_comms(psu_com)
-    psu_port = psu.open_psu_comms(psu_port, args.nopsu)
-    psu.setChannels(psu_port, config.CH1_OVP, config.CH1_I, config.CH2_OVP, config.CH2_I, config.CH3_OVP, config.CH3_I)
+    (event_log, info_log, psu_log) = setup_logs()   
+    
+    psu_port = None
+    if not args.nopsu:
+        psu_com = "COM" + str(args.psuport)
+        info_log.info("Initialising PSU Comms")
+        psu_port = psu.init_psu_comms(psu_com)
+        psu_port = psu.open_psu_comms(psu_port, args.nopsu)
+        psu.setChannels(psu_port, args.ebmode)
 
     stop_event = threading.Event()
     hk_pause_event = threading.Event()
     hk_pause_event.set()  # Start with HK polling paused until we know the PSU is on and stable
 
-    atexit.register(stop_event.set)
-    atexit.register(clean_exit, ob_port, psu_port, event_log)
+    if not args.ebmode:
+        rs485_com = "COM" + str(args.com)
+
+        info_log.info("Initialising RS-485 Comms")
+        ob_port = comms.initialise_comms(rs485_com)
+        ob_port = comms.open_comms(ob_port)
+        atexit.register(stop_event.set)
+        atexit.register(clean_exit, ob_port, psu_port, event_log)
+    else : 
+        atexit.register(stop_event.set)
+        atexit.register(clean_exit, ob_port = None, psu_port = psu_port, event_log = event_log)
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
     psu_thread = threading.Thread(
         target=psu.psu_monitor_thread,
-        args=(psu_port, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event),
+        args=(psu_port, args.ebmode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event),
         daemon=True,
     )
     psu_thread.start()
@@ -117,7 +126,7 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
-        psu.switchPSU(psu_port, 1)  # Switch on PSU
+        psu.switchPSU(psu_port, ebmode = args.ebmode, state = 1)  # Switch on PSU
         time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         hk_pause_event.clear()  # Resume HK polling
 
@@ -138,9 +147,13 @@ def main() -> None:
     else:
         info_log.info("Running GUI")
         port_lock = threading.Lock()
+
+    if args.ebmode:
+        ebgui.build_ui(psu_port,  port_lock, stop_event)
+        ui.run(port=8085, reload=False)
+    else:
         hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True)
         hk_thread.start()
-
         gui.build_ui(ob_port, psu_port, port_lock, stop_event)
         ui.run(port=8085, reload=False)
         # TODO What about stop_envent?
