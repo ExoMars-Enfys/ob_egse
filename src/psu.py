@@ -1,7 +1,6 @@
 # Std library
 from datetime import datetime
 import logging
-from contextlib import nullcontext
 
 # Added packages
 import serial
@@ -14,17 +13,6 @@ import time
 info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
-
-_psu_lock = None
-
-
-def set_psu_lock(lock) -> None:
-    global _psu_lock
-    _psu_lock = lock
-
-
-def _psu_lock_ctx():
-    return _psu_lock if _psu_lock is not None else nullcontext()
 
 
 def init_psu_comms(psu_com: str) -> serial.Serial:
@@ -51,22 +39,23 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
 
 def close_psu_comms(port: serial.Serial) -> None:
     if port:
-        with _psu_lock_ctx():
-            port.write(f"LOCAL\r\n".encode("utf-8"))
-            time.sleep(0.5)
-            port.close()
+        port.write(f"LOCAL\r\n".encode("utf-8"))
+        time.sleep(0.5)
+        port.close()
     return
 
 
 def psuRead(port, channel, type, output=False):
-    if not output:
+    if output == False:
         port.write(f"{type}{channel}?\r\n".encode("utf-8"))
         response = port.readline().decode("utf-8")
     else:
         port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
         response = port.readline().decode("utf-8")
 
-    return response.strip()
+    port.flushOutput()
+    port.flushInput()
+    return response
 
 
 def _parse_psu_reading(raw_value: str) -> float:
@@ -91,15 +80,6 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
     on_since = None
 
     while not stop_event.is_set():
-        lock = _psu_lock
-        lock_acquired = False
-        if lock is not None:
-            lock_acquired = lock.acquire(blocking=False)
-            if not lock_acquired:
-                psu_log.debug("PSU monitor skipped sample (lock busy)")
-                stop_event.wait(1 / freq)
-                continue
-
         try:
             if ebmode:
                 ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
@@ -157,7 +137,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
                         hk_pause_event.set()
                     continue
 
-                if on_since is not None and time.monotonic() - on_since < 1:
+                if on_since is not None and time.monotonic() - on_since < 0.5:
                     continue
 
                 if rov_htr_status and not (26 < rov_htr_v_val < 30):
@@ -244,98 +224,91 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
 
         except Exception as e:
             psu_log.error(f"Error in PSU monitor thread: {e}")
-        finally:
-            if lock is not None and lock_acquired:
-                lock.release()
 
         stop_event.wait(1 / freq)
 
 
 def setChannels(port, ebmode):
     if port:
-        with _psu_lock_ctx():
-            if not ebmode:
-                ch1_ovp = config.CH1_OVP
-                ch1_i = config.CH1_I
-                ch2_ovp = config.CH2_OVP
-                ch2_i = config.CH2_I
-                ch3_ovp = config.CH3_OVP
-                ch3_i = config.CH3_I
-                # Set the voltage and current limits for each channel
-                psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-                port.write(f"V1 12\r\n".encode("utf-8"))
-                port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
-                port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
+        if not ebmode:
+            ch1_ovp = config.CH1_OVP
+            ch1_i = config.CH1_I
+            ch2_ovp = config.CH2_OVP
+            ch2_i = config.CH2_I
+            ch3_ovp = config.CH3_OVP
+            ch3_i = config.CH3_I
+            # Set the voltage and current limits for each channel
+            psu_log.info(f"Setting PSU Channels: CH1 V: {12}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
+            port.write(f"V1 12\r\n".encode("utf-8"))
+            port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
+            port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
-                psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-                port.write(f"V2 12\r\n".encode("utf-8"))
-                port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
-                port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH2 V: {12}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
+            port.write(f"V2 12\r\n".encode("utf-8"))
+            port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
+            port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
 
-                psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-                port.write(f"V3 5\r\n".encode("utf-8"))
-                port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
-                port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH3 V: {5}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+            port.write(f"V3 5\r\n".encode("utf-8"))
+            port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
+            port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
-                psu_log.info("PSU Channels set successfully")
-                psu_log.info(f"  CH1_V  12V\t   CH1_I {ch1_i}\t  CH2_V -12V\t  CH2_I {ch2_i}\t  CH3_V 5V\t   CH3_I {ch3_i}")
-                port.flushOutput()
-                port.flushInput()
+            psu_log.info("PSU Channels set successfully")
+            psu_log.info(f"  CH1_V  12V\t   CH1_I {ch1_i}\t  CH2_V -12V\t  CH2_I {ch2_i}\t  CH3_V 5V\t   CH3_I {ch3_i}")
+            port.flushOutput()
+            port.flushInput()
 
-            else:
-                ch3_ovp = config.ROV_HTR_OVP
-                ch3_i = config.ROV_HTR_I
-                ch4_ovp = config.EB_OVP
-                ch4_i = config.EB_I
+        else:
+            ch3_ovp = config.ROV_HTR_OVP
+            ch3_i = config.ROV_HTR_I
+            ch4_ovp = config.EB_OVP
+            ch4_i = config.EB_I
 
-                psu_log.info("EB Mode: Setting PSU Channels")
-                psu_log.info(f"Setting PSU Channels: CH3 V: {28}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-                port.write(f"V3 28\r\n".encode("utf-8"))
-                port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
-                port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info("EB Mode: Setting PSU Channels")
+            psu_log.info(f"Setting PSU Channels: CH3 V: {28}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+            port.write(f"V3 28\r\n".encode("utf-8"))
+            port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
+            port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
-                psu_log.info(f"Setting PSU Channels: CH4 V: {28}V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
-                port.write(f"V4 28\r\n".encode("utf-8"))
-                port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
-                port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH4 V: {28}V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
+            port.write(f"V4 28\r\n".encode("utf-8"))
+            port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
+            port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
 
-                psu_log.info("PSU Channels set successfully for EB Mode")
-                psu_log.info(f"  CH3_V  28V\t   CH3_I {ch3_i}\t  CH4_V 28V\t  CH4_I {ch4_i}")
-                port.flushOutput()
-                port.flushInput()
+            psu_log.info("PSU Channels set successfully for EB Mode")
+            psu_log.info(f"  CH3_V  28V\t   CH3_I {ch3_i}\t  CH4_V 28V\t  CH4_I {ch4_i}")
+            port.flushOutput()
+            port.flushInput()
 
 
 def switchPSU(port, ebmode, state):
     if port:
-        with _psu_lock_ctx():
-            if not ebmode:
-                event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
-                port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
-            else:
-                event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
-                port.write(f"OP3 {int(state)}\r\n".encode("utf-8"))
-                port.write(f"OP4 {int(state)}\r\n".encode("utf-8"))
+        if not ebmode:
+            event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
+            port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
+        else:
+            event_log.info(f"Switching PSU {'ON' if state else 'OFF'}")
+            port.write(f"OP3 {int(state)}\r\n".encode("utf-8"))
+            port.write(f"OP4 {int(state)}\r\n".encode("utf-8"))
 
 
 def switch_psu_channel(port, channel, state):
     if port:
-        with _psu_lock_ctx():
-            event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
-            port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
+        event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
+        port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
 
 
 def emergencyShutDown(port):
     if port:
-        with _psu_lock_ctx():
-            port.write(f"OPALL 0\r\n".encode("utf-8"))
-            port.write(f"OP4 0\r\n".encode("utf-8"))
-            event_log.info(f"Closing all channels")
-            psu_log.info(f"Closing all channels")
-            port.write(f"LOCAL\r\n".encode("utf-8"))
-            event_log.info(f"Setting to Local control")
-            psu_log.info(f"Setting to Local control")
-            port.flushOutput()
-            port.flushInput()
+        port.write(f"OPALL 0\r\n".encode("utf-8"))
+        port.write(f"OP4 0\r\n".encode("utf-8"))
+        event_log.info(f"Closing all channels")
+        psu_log.info(f"Closing all channels")
+        port.write(f"LOCAL\r\n".encode("utf-8"))
+        event_log.info(f"Setting to Local control")
+        psu_log.info(f"Setting to Local control")
+        port.flushOutput()
+        port.flushInput()
 
 
 # TODO: Report the link status

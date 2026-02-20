@@ -100,8 +100,6 @@ def main() -> None:
     stop_event = threading.Event()
     hk_pause_event = threading.Event()
     hk_pause_event.set()  # Start with HK polling paused until we know the PSU is on and stable
-    port_lock = threading.Lock()
-    psu.set_psu_lock(port_lock)
 
     if not args.ebmode:
         rs485_com = "COM" + str(args.com)
@@ -148,6 +146,7 @@ def main() -> None:
 
     else:
         info_log.info("Running GUI")
+        port_lock = threading.Lock()
 
     if args.ebmode:
         ebgui.build_ui(psu_port,  port_lock, stop_event)
