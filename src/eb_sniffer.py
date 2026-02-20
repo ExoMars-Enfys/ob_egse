@@ -9,6 +9,27 @@ from datetime import datetime
 import constants as const
 info_log = logging.getLogger("info_log")
 
+
+def _read_block_length(packet_data: bytes) -> int | None:
+    if len(packet_data) < 14:
+        return None
+    return int.from_bytes(packet_data[12:14], "big")
+
+
+def _trim_packet_by_block_length(packet_data: bytes) -> bytes:
+    block_length = _read_block_length(packet_data)
+    if block_length is None:
+        return packet_data
+    expected_len = 14 + block_length
+    if expected_len <= len(packet_data):
+        return packet_data[:expected_len]
+    info_log.warning(
+        "SCI packet shorter than block length. Got %d bytes, expected %d.",
+        len(packet_data),
+        expected_len,
+    )
+    return packet_data
+
 def read_pkt(file_path, latest_only: bool = False):    
     with open(file_path, "r", encoding="utf-8") as handle:
         all_lines = [line.strip() for line in handle]
@@ -21,6 +42,9 @@ def read_pkt(file_path, latest_only: bool = False):
     if latest_only:
         hk_found = False
         post_found = False
+        dump_found = False
+        csc_found = False
+        ncsc_found = False
         indices = reversed(tm_indices)
     else:
         indices = tm_indices
@@ -57,13 +81,44 @@ def read_pkt(file_path, latest_only: bool = False):
             last_post_hk = post_hk
             if latest_only:
                 post_found = True
+        elif tm_type_id == 0x4:
+            if latest_only and dump_found:
+                continue
+            dump_data = decode_dump_data(byte_array)
+            dump_data = decode_sci_data_packet(dump_data)
+            dump_data.TIME = datetime.now()
+            const.eb_post_queue.put(dump_data)
+            last_dump = dump_data
+            if latest_only:
+                dump_found = True
+        elif tm_type_id == 0x5:
+            if latest_only and csc_found:
+                continue
+            cscience_data = decode_cscience_data(byte_array)
+            cscience_data = decode_sci_data_packet(cscience_data)
+            cscience_data.TIME = datetime.now()
+            const.eb_post_queue.put(cscience_data)
+            last_cscience_data = cscience_data
+            if latest_only:
+                csc_found = True
+
+        elif tm_type_id == 0x6:
+            if latest_only and ncsc_found:
+                continue
+            ncscience_data = decode_ncscience_data(byte_array)
+            ncscience_data = decode_sci_data_packet(ncscience_data)
+            ncscience_data.TIME = datetime.now()
+            const.eb_post_queue.put(ncscience_data)
+            last_ncscience_data = ncscience_data
+            if latest_only:
+                ncsc_found = True
         else:
             continue
 
-        if latest_only and hk_found and post_found:
+        if latest_only and hk_found and post_found and dump_found and csc_found and ncsc_found:
             break
 
-    return last_hk, last_post_hk, last_index
+    return last_hk, last_post_hk, last_dump, last_cscience_data, last_ncscience_data, last_index
 
 
 def parse_eb_hk(packet_data):
@@ -185,6 +240,130 @@ def decode_ob_trps(adu):
     res = (adu / (4095 - adu))*1000
     temp = (0.2559552953839863*res) - 255.7247996594076
     return temp
+
+def decode_dump_data(packet_data, struct = tmstruct.dump_data):
+    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+            "".join(i[1] for i in struct),
+            [i[0] for i in struct],
+            packet_data,
+        ))
+        # Convert dict to SimpleNamespace to allow dot notation access
+    param = SimpleNamespace(**param_dict)
+    return param
+
+def decode_cscience_data(packet_data, struct = tmstruct.eb_sci_header):
+    packet_data = _trim_packet_by_block_length(packet_data)
+    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+            "".join(i[1] for i in struct),
+            [i[0] for i in struct],
+            packet_data,
+        ))
+        # Convert dict to SimpleNamespace to allow dot notation access
+    sci = SimpleNamespace(**param_dict)
+    header_bits = bitstruct.calcsize("".join(i[1] for i in struct))
+    header_bytes = header_bits // 8
+    sci.SCI_DATA = packet_data[header_bytes:]
+    return sci
+
+def decode_ncscience_data(packet_data, struct = tmstruct.eb_sci_header):
+    packet_data = _trim_packet_by_block_length(packet_data)
+    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+            "".join(i[1] for i in struct),
+            [i[0] for i in struct],
+            packet_data,
+        ))
+        # Convert dict to SimpleNamespace to allow dot notation access
+    sci = SimpleNamespace(**param_dict)
+    header_bits = bitstruct.calcsize("".join(i[1] for i in struct))
+    header_bytes = header_bits // 8
+    sci.SCI_DATA = packet_data[header_bytes:]
+    return sci
+
+def decode_sci_data_packet(param):
+    sci_bits = bitstruct.calcsize("".join(i[1] for i in tmstruct.sci_data))
+    sci_bytes_len = sci_bits // 8
+    sci_points = decode_sci_data_points(param)
+    if not sci_points:
+        if hasattr(param, "SCI_DATA"):
+            raw_data = param.SCI_DATA
+        elif hasattr(param, "DUMP_DATA"):
+            raw_data = param.DUMP_DATA
+        else:
+            raw_data = b""
+        sci = SimpleNamespace()
+        sci.SCI_DATA = raw_data
+        sci.SCI_POINT_COUNT = 0
+        sci.SCI_POINTS = []
+        if hasattr(param, "BLOCK_LENGTH"):
+            sci.BLOCK_LENGTH = param.BLOCK_LENGTH
+        return sci
+
+    sci = sci_points[0]
+    sci.SCI_POINTS = sci_points
+    sci.SCI_POINT_COUNT = len(sci_points)
+    if hasattr(param, "SCI_DATA"):
+        sci.SCI_DATA = param.SCI_DATA
+    elif hasattr(param, "DUMP_DATA"):
+        sci.SCI_DATA = param.DUMP_DATA
+    else:
+        sci.SCI_DATA = b""
+    if hasattr(param, "BLOCK_LENGTH"):
+        sci.BLOCK_LENGTH = param.BLOCK_LENGTH
+    return sci
+
+
+def decode_sci_data_points(param) -> list[SimpleNamespace]:
+    sci_bits = bitstruct.calcsize("".join(i[1] for i in tmstruct.sci_data))
+    sci_bytes_len = sci_bits // 8
+
+    if hasattr(param, "SCI_DATA"):
+        raw_data = param.SCI_DATA
+    elif hasattr(param, "DUMP_DATA"):
+        raw_data = param.DUMP_DATA
+    else:
+        info_log.warning("No SCI_DATA or DUMP_DATA field found for SCI decode.")
+        return []
+
+    if isinstance(raw_data, int):
+        if raw_data < 0:
+            return []
+        byte_len = max(1, (raw_data.bit_length() + 7) // 8)
+        sci_payload = raw_data.to_bytes(byte_len, "big", signed=False)
+    else:
+        sci_payload = bytes(raw_data)
+
+    if len(sci_payload) < sci_bytes_len:
+        info_log.warning(
+            "SCI_DATA shorter than one point. Got %d bytes, expected at least %d.",
+            len(sci_payload),
+            sci_bytes_len,
+        )
+        return []
+
+    point_count = len(sci_payload) // sci_bytes_len
+    remainder = len(sci_payload) % sci_bytes_len
+    if remainder:
+        info_log.warning(
+            "SCI_DATA has %d trailing bytes beyond %d-byte points; ignoring remainder.",
+            remainder,
+            sci_bytes_len,
+        )
+
+    points: list[SimpleNamespace] = []
+    for point_index in range(point_count):
+        start = point_index * sci_bytes_len
+        end = start + sci_bytes_len
+        point_bytes = sci_payload[start:end]
+        sci_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+            "".join(i[1] for i in tmstruct.sci_data),
+            [i[0] for i in tmstruct.sci_data],
+            point_bytes,
+        ))
+        point = SimpleNamespace(**sci_dict)
+        point.POINT_INDEX = point_index
+        points.append(point)
+
+    return points
 
 def thermistor_adu_to_temp(adu: int) -> float:
     """Convert ADU reading to temperature in Celsius using B parameter equation.

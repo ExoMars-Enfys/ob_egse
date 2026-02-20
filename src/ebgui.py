@@ -2003,7 +2003,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 ui.checkbox(key, value=True, on_change=lambda event, k=key: set_temp_visibility(k, event.value))
 
         labels["plot_temps"] = ui.line_plot(n=4, limit=40, figsize=(20, 2.5), update_every=1).with_legend(
-            ["DIG", "DET", "MECH", "MOT"], loc="upper right", ncol=1
+            ["DIG", "DET", "MECH", "MOT"], loc="upper left", ncol=1
         )
         plot_ax = labels["plot_temps"].fig.axes[0]
         plot_ax.set_title("Temperatures")
