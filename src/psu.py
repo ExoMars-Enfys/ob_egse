@@ -48,10 +48,10 @@ def close_psu_comms(port: serial.Serial) -> None:
 def psuRead(port, channel, type, output=False):
     if output == False:
         port.write(f"{type}{channel}?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        response = port.readline().decode("utf-8")
     else:
         port.write(f"{type}{channel}O?\r\n".encode("utf-8"))
-        response = port.read(8).decode("utf-8")
+        response = port.readline().decode("utf-8")
 
     port.flushOutput()
     port.flushInput()
@@ -70,7 +70,7 @@ def _parse_psu_reading(raw_value: str) -> float:
         return 0.0
 
 
-def psu_monitor_thread(port,ebmode, stop_event, freq, hk_pause_event=None):
+def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
     if not port:
         return
 
@@ -156,7 +156,7 @@ def psu_monitor_thread(port,ebmode, stop_event, freq, hk_pause_event=None):
                     psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
                     emergencyShutDown(port)
 
-            else:    
+            else:
                 # First check the output is enabled
                 status = int(psuRead(port, "1", "OP", False).rstrip())
                 if status == 0:
@@ -214,7 +214,11 @@ def psu_monitor_thread(port,ebmode, stop_event, freq, hk_pause_event=None):
                     psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
                     emergencyShutDown(port)
 
-                if (float(ch1_i.strip("A")) >= 150) or (float(ch2_i.strip("A")) >= 90) or (float(ch3_i.strip("A")) >= 150):
+                if (
+                    (float(ch1_i.strip("A")) >= 150)
+                    or (float(ch2_i.strip("A")) >= 90)
+                    or (float(ch3_i.strip("A")) >= 150)
+                ):
                     psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
                     emergencyShutDown(port)
 
@@ -222,6 +226,7 @@ def psu_monitor_thread(port,ebmode, stop_event, freq, hk_pause_event=None):
             psu_log.error(f"Error in PSU monitor thread: {e}")
 
         stop_event.wait(1 / freq)
+
 
 def setChannels(port, ebmode):
     if port:
@@ -269,7 +274,6 @@ def setChannels(port, ebmode):
             port.write(f"V4 28\r\n".encode("utf-8"))
             port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
             port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
-
 
             psu_log.info("PSU Channels set successfully for EB Mode")
             psu_log.info(f"  CH3_V  28V\t   CH3_I {ch3_i}\t  CH4_V 28V\t  CH4_I {ch4_i}")
