@@ -174,6 +174,7 @@ def analysis(
     # Create plots
     _create_eb_plot(ts_data, packets, output_dir)
     _create_ob_plot(ts_data, packets, output_dir)
+    _create_ob_abs_steps_plot(ts_data, output_dir)
     if psu_data["times"]:
         _create_psu_plot(ts_data, psu_data, output_dir)
 
@@ -190,6 +191,12 @@ def analysis(
         _create_ob_plot(
             zoom_ts_data,
             zoom_packets,
+            output_dir,
+            file_suffix="_error128_zoom",
+            title_suffix=" - Error 128 Zoom",
+        )
+        _create_ob_abs_steps_plot(
+            zoom_ts_data,
             output_dir,
             file_suffix="_error128_zoom",
             title_suffix=" - Error 128 Zoom",
@@ -493,19 +500,45 @@ def _read_psu_log(psu_log_path: Path) -> dict:
     compact_entry_regex = re.compile(
         r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+-\s+"
         r"(?P<ch>CH[34])\s+"
-        r"(?P<v>[-+]?\d*\.?\d+)V\s+"
-        r"(?P<i>[-+]?\d*\.?\d+)A"
+        r"(?P<v>[-+]?\d*\.?\d+)(?:V)?\s+"
+        r"(?P<i>[-+]?\d*\.?\d+)(?:A)?"
     )
 
     labelled_entry_regex = re.compile(
         r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+-\s+"
-        r"(?P<ch>CH[34])\s+Voltage:\s*(?P<v>[-+]?\d*\.?\d+)V\s+"
-        r"CH[34]\s+Current:\s*(?P<i>[-+]?\d*\.?\d+)A"
+        r"(?P<ch>CH[34])\s+Voltage:\s*(?P<v>[-+]?\d*\.?\d+)(?:V)?\s+"
+        r"CH[34]\s+Current:\s*(?P<i>[-+]?\d*\.?\d+)(?:A)?"
+    )
+
+    dual_channel_entry_regex = re.compile(
+        r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+-\s+"
+        r"CH3\s+Voltage:\s*(?P<ch3_v>[-+]?\d*\.?\d+)(?:V)?\s+"
+        r"CH3\s+Current:\s*(?P<ch3_i>[-+]?\d*\.?\d+)(?:A)?\s+"
+        r"CH4\s+Voltage:\s*(?P<ch4_v>[-+]?\d*\.?\d+)(?:V)?\s+"
+        r"CH4\s+Current:\s*(?P<ch4_i>[-+]?\d*\.?\d+)(?:A)?"
     )
 
     with open(psu_log_path, "r", encoding="utf-8") as handle:
         for line in handle:
             stripped_line = line.strip()
+            dual_match = dual_channel_entry_regex.search(stripped_line)
+            if dual_match:
+                try:
+                    time_val = datetime.strptime(dual_match.group("ts"), "%Y-%m-%d %H:%M:%S,%f")
+                    ch3_v = float(dual_match.group("ch3_v"))
+                    ch3_i = float(dual_match.group("ch3_i"))
+                    ch4_v = float(dual_match.group("ch4_v"))
+                    ch4_i = float(dual_match.group("ch4_i"))
+                except ValueError:
+                    continue
+
+                psu_data["times"].append(time_val)
+                psu_data["ch3_v"].append(ch3_v)
+                psu_data["ch3_i"].append(ch3_i)
+                psu_data["ch4_v"].append(ch4_v)
+                psu_data["ch4_i"].append(ch4_i)
+                continue
+
             match = compact_entry_regex.search(stripped_line)
             if not match:
                 match = labelled_entry_regex.search(stripped_line)
@@ -560,6 +593,7 @@ def _build_timeseries(packets: list) -> dict:
         "ob_det_trp": [],
         "ob_mech_trp": [],
         "ob_mot_trp": [],
+        "ob_motor_abs_steps": [],
         "state_changes": [],  # List of (time, state_code, state_name)
         "error_flags": [],  # List of (time, error_flags_bits, error_code)
         "hk_packets": [],  # List of HK packet objects for click handler
@@ -618,6 +652,7 @@ def _build_timeseries(packets: list) -> dict:
 
         ob_mot_trp = eb_sniffer.decode_ob_trps(pkt.OB_MOTOR_TRP)
         ts_data["ob_mot_trp"].append(sanitize_temp(ob_mot_trp))
+        ts_data["ob_motor_abs_steps"].append(float(getattr(pkt, "OB_MOTOR_ABS_STEPS", np.nan)))
 
         # Track state changes
         current_state = pkt.CURRENT_OPERATING_STATE
@@ -1170,6 +1205,67 @@ def _create_psu_plot(
 
     fig.subplots_adjust(top=0.86, bottom=0.14, left=0.08, right=0.98)
     fig.savefig(output_dir / f"psu_system_analysis{file_suffix}.png", dpi=150, bbox_inches="tight")
+
+
+def _create_ob_abs_steps_plot(
+    ts_data: dict,
+    output_dir: Path,
+    file_suffix: str = "",
+    title_suffix: str = "",
+) -> None:
+    """Create OB absolute motor steps plot over time."""
+    if not ts_data["times"]:
+        print("No data to plot for OB motor ABS steps")
+        return
+
+    times = np.array(ts_data["times"])
+    abs_steps = np.array(ts_data.get("ob_motor_abs_steps", []), dtype=float)
+    if abs_steps.size == 0 or np.all(np.isnan(abs_steps)):
+        print("No OB motor absolute steps found in HK data")
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+    fig.suptitle(f"OB Motor Absolute Steps{title_suffix}", fontsize=16, fontweight="bold")
+
+    ax.plot(
+        times,
+        abs_steps,
+        label="OB_MOTOR_ABS_STEPS",
+        linewidth=2.0,
+        marker=".",
+        markersize=3,
+    )
+    ax.set_ylabel("Absolute Steps", fontsize=12, fontweight="bold")
+    ax.set_xlabel("Time", fontsize=12, fontweight="bold")
+    ax.set_title("OB Motor Absolute Steps vs Time", fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=10, borderaxespad=0)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+
+    for time_val, state_code, _state_name in ts_data["state_changes"]:
+        color = _get_state_color(state_code)
+        ax.axvline(time_val, color=color, linestyle="--", alpha=0.5, linewidth=1.5)
+
+    for time_val, error_flags_bits, error_code in ts_data["error_flags"]:
+        if error_flags_bits is None:
+            continue
+        ax.axvline(time_val, color="red", linestyle=":", alpha=0.5, linewidth=1.8)
+        y_pos = ax.get_ylim()[1] * 0.97
+        ax.text(
+            time_val,
+            y_pos,
+            str(error_code),
+            rotation=90,
+            fontsize=7,
+            color="red",
+            alpha=0.6,
+            verticalalignment="bottom",
+            horizontalalignment="right",
+        )
+
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+    fig.subplots_adjust(top=0.88, bottom=0.18, left=0.08, right=0.98)
+    fig.savefig(output_dir / f"ob_motor_abs_steps{file_suffix}.png", dpi=150, bbox_inches="tight")
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

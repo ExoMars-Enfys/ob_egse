@@ -37,6 +37,9 @@ def read_pkt(file_path, latest_only: bool = False):
     tm_indices = [i for (i, line) in enumerate(all_lines) if line.startswith("Telemetry Data:")]
     last_hk = None
     last_post_hk = None
+    last_dump = None
+    last_cscience_data = None
+    last_ncscience_data = None
     last_index = None
 
     if latest_only:
@@ -96,8 +99,10 @@ def read_pkt(file_path, latest_only: bool = False):
                 continue
             cscience_data = decode_cscience_data(byte_array)
             cscience_data = decode_sci_data_packet(cscience_data)
+            cscience_data.TM_TYPE_ID = tm_type_id
+            cscience_data.SCI_PACKET_CRITICALITY = "Critical"
             cscience_data.TIME = datetime.now()
-            const.eb_post_queue.put(cscience_data)
+            const.sci_queue.put(cscience_data)
             last_cscience_data = cscience_data
             if latest_only:
                 csc_found = True
@@ -107,8 +112,10 @@ def read_pkt(file_path, latest_only: bool = False):
                 continue
             ncscience_data = decode_ncscience_data(byte_array)
             ncscience_data = decode_sci_data_packet(ncscience_data)
+            ncscience_data.TM_TYPE_ID = tm_type_id
+            ncscience_data.SCI_PACKET_CRITICALITY = "Non-Critical"
             ncscience_data.TIME = datetime.now()
-            const.eb_post_queue.put(ncscience_data)
+            const.sci_queue.put(ncscience_data)
             last_ncscience_data = ncscience_data
             if latest_only:
                 ncsc_found = True
@@ -283,6 +290,10 @@ def decode_sci_data_packet(param):
     sci_bits = bitstruct.calcsize("".join(i[1] for i in tmstruct.sci_data))
     sci_bytes_len = sci_bits // 8
     sci_points = decode_sci_data_points(param)
+    base_fields: dict[str, Any] = {}
+    if hasattr(param, "__dict__"):
+        base_fields = dict(param.__dict__)
+
     if not sci_points:
         if hasattr(param, "SCI_DATA"):
             raw_data = param.SCI_DATA
@@ -290,15 +301,15 @@ def decode_sci_data_packet(param):
             raw_data = param.DUMP_DATA
         else:
             raw_data = b""
-        sci = SimpleNamespace()
+        sci = SimpleNamespace(**base_fields)
         sci.SCI_DATA = raw_data
         sci.SCI_POINT_COUNT = 0
         sci.SCI_POINTS = []
-        if hasattr(param, "BLOCK_LENGTH"):
-            sci.BLOCK_LENGTH = param.BLOCK_LENGTH
         return sci
 
-    sci = sci_points[0]
+    point_fields = dict(sci_points[0].__dict__)
+    merged_fields = {**base_fields, **point_fields}
+    sci = SimpleNamespace(**merged_fields)
     sci.SCI_POINTS = sci_points
     sci.SCI_POINT_COUNT = len(sci_points)
     if hasattr(param, "SCI_DATA"):
@@ -307,8 +318,6 @@ def decode_sci_data_packet(param):
         sci.SCI_DATA = param.DUMP_DATA
     else:
         sci.SCI_DATA = b""
-    if hasattr(param, "BLOCK_LENGTH"):
-        sci.BLOCK_LENGTH = param.BLOCK_LENGTH
     return sci
 
 
@@ -512,4 +521,4 @@ def hk_checker(pkt):
 
 if __name__ == '__main__':
     file_path = "C:\\wdir\\IFM\\EB\\RS422if_log\\RS422if_2026-01-22_10-09-12.log"
-    last_hk, last_post_hk, tm_index = read_pkt(file_path, latest_only=True)
+    last_hk, last_post_hk, last_dump, last_cscience_data, last_ncscience_data, tm_index = read_pkt(file_path, latest_only=True)

@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any
 from nicegui import app, ui
 from matplotlib import dates as mdates
 from matplotlib.ticker import FuncFormatter
@@ -14,6 +15,7 @@ import constants as const
 import eb_interface
 import eb_sniffer
 import psu
+import sci_plot
 import tc
 import tmstruct
 
@@ -69,6 +71,12 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     status: dict[str, int] = {"pwr": 0, "psu": 0}
     last_hk = {"value": None}
     last_post = {"value": None}
+    last_sci = {"value": None}
+    sci_packets: list[Any] = []
+    sci_packet_identities: set[tuple[Any, ...]] = set()
+    max_sci_packets = 12
+    sci_packet_state = {"index": 0}
+    sci_view_state = {"index": 0}
     hk_summary_manual_only = True
     logo_images: list[ui.image] = []
     temp_series_order = ["DIG", "DET", "MECH", "MOT"]
@@ -764,6 +772,219 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
     log_search_state = {"enabled": False}
 
+    sci_header_fields = [
+        "PACKET_NUMBER",
+        "SOL_NO",
+        "MEASUREMENT_TYPE_ID",
+        "MEASUREMENT_RUN_NO",
+        "START_TIME_S",
+        "START_TIME_MS",
+        "END_TIME_S",
+        "END_TIME_MS",
+        "SWIR_OFFSET",
+        "MWIR_OFFSET",
+        "HEATSINK_START_TEMP",
+        "HEATSINK_END_TEMP",
+        "SWIR_START_TEMP",
+        "SWIR_END_TEMP",
+        "MWIR_START_TEMP",
+        "MWIR_END_TEMP",
+        "START_MTR_ABS_STEPS",
+        "SAMPLE_DELAY",
+        "FPGA_SAMPLES",
+        "ACQUISITION_MODE",
+        "AVERAGING_NUMBER",
+        "SCI_POINT_COUNT",
+    ]
+
+    sci_point_fields = [
+        "ABS_STEPS",
+        "SWIR_HIGH",
+        "SWIR_MED",
+        "SWIR_LOW",
+        "MWIR_HIGH",
+        "MWIR_MED",
+        "MWIR_LOW",
+    ]
+
+    def _format_measurement_config(value: Any) -> str:
+        try:
+            mode = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+
+        mode_map = {
+            0b00: "Standard Scan",
+            0b01: "Limited Scan",
+            0b10: "Fixed Scan",
+        }
+        if mode in mode_map:
+            return f"0b{mode:02b}: {mode_map[mode]}"
+        return str(mode)
+
+    def _format_acquisition_mode(value: Any) -> str:
+        try:
+            mode = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+
+        mode_map = {
+            0b00: "Standard Scan",
+            0b01: "Limited Scan",
+            0b10: "Fixed Scan",
+        }
+        if mode in mode_map:
+            return f"0b{mode:02b}: {mode_map[mode]}"
+        return str(mode)
+
+    def _format_sci_temp_value(value: Any) -> str:
+        try:
+            return str(int(value) >> 4)
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _format_sci_packet_number(value: Any) -> str:
+        try:
+            return str(int(value))
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _sci_packet_sort_key(packet: Any) -> int:
+        try:
+            return int(getattr(packet, "PACKET_NUMBER", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _sci_packet_identity(packet: Any) -> tuple[Any, ...]:
+        packet_number = getattr(packet, "PACKET_NUMBER", None)
+        criticality = getattr(packet, "SCI_PACKET_CRITICALITY", None)
+        point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
+
+        first_abs_step = None
+        last_abs_step = None
+        sci_points = getattr(packet, "SCI_POINTS", None)
+        if sci_points:
+            first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
+            last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
+        elif hasattr(packet, "ABS_STEPS"):
+            first_abs_step = getattr(packet, "ABS_STEPS", None)
+            last_abs_step = first_abs_step
+
+        return (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+
+    def _set_sci_packet(packet_index: int) -> None:
+        if not sci_packets:
+            last_sci["value"] = None
+            sci_packet_state["index"] = 0
+            sci_view_state["index"] = 0
+            _update_sci_panel()
+            return
+
+        sci_packet_state["index"] = packet_index % len(sci_packets)
+        last_sci["value"] = sci_packets[sci_packet_state["index"]]
+        sci_view_state["index"] = 0
+        _update_sci_panel()
+
+    def _shift_sci_packet(delta: int) -> None:
+        if not sci_packets:
+            return
+        _set_sci_packet(sci_packet_state["index"] + delta)
+
+    def _update_sci_panel() -> None:
+        if "sci_status" not in labels:
+            return
+
+        sci = last_sci["value"]
+        if sci is None:
+            labels["sci_status"].set_text("⏳ Waiting for science packet...")
+            labels["sci_packet_type"].set_text("---")
+            labels["sci_packet_index"].set_text("Packet 0 / 0")
+            labels["sci_point_index"].set_text("Point 0 / 0")
+            for field_name in sci_header_fields:
+                labels[f"sci_hdr_{field_name}"].set_text("---")
+            for field_name in sci_point_fields:
+                labels[f"sci_point_{field_name}"].set_text("---")
+            return
+
+        packet_type = getattr(sci, "SCI_PACKET_CRITICALITY", "---")
+        packet_count = len(sci_packets)
+        if packet_count <= 0:
+            labels["sci_packet_index"].set_text("Packet 0 / 0")
+        else:
+            labels["sci_packet_index"].set_text(f"Packet {sci_packet_state['index'] + 1} / {packet_count}")
+        labels["sci_packet_type"].set_text(str(packet_type))
+        labels["sci_status"].set_text(f"✅ Science packet received ({packet_type})")
+        for field_name in sci_header_fields:
+            value = getattr(sci, field_name, "---")
+            if field_name == "MEASUREMENT_TYPE_ID":
+                labels[f"sci_hdr_{field_name}"].set_text(_format_measurement_config(value))
+            elif field_name == "ACQUISITION_MODE":
+                labels[f"sci_hdr_{field_name}"].set_text(_format_acquisition_mode(value))
+            elif field_name == "PACKET_NUMBER":
+                labels[f"sci_hdr_{field_name}"].set_text(_format_sci_packet_number(value))
+            elif "TEMP" in field_name:
+                labels[f"sci_hdr_{field_name}"].set_text(_format_sci_temp_value(value))
+            else:
+                labels[f"sci_hdr_{field_name}"].set_text(str(value))
+
+        point_count = int(getattr(sci, "SCI_POINT_COUNT", 0) or 0)
+        if point_count <= 0:
+            sci_view_state["index"] = 0
+            labels["sci_point_index"].set_text("Point 0 / 0")
+            for field_name in sci_point_fields:
+                labels[f"sci_point_{field_name}"].set_text("---")
+            return
+
+        if sci_view_state["index"] < 0:
+            sci_view_state["index"] = 0
+        if sci_view_state["index"] >= point_count:
+            sci_view_state["index"] = point_count - 1
+
+        point_index = sci_view_state["index"]
+        labels["sci_point_index"].set_text(f"Point {point_index + 1} / {point_count}")
+        point = sci.SCI_POINTS[point_index]
+        for field_name in sci_point_fields:
+            labels[f"sci_point_{field_name}"].set_text(str(getattr(point, field_name, "---")))
+
+    def _shift_sci_point(delta: int) -> None:
+        sci = last_sci["value"]
+        if sci is None:
+            return
+
+        point_count = int(getattr(sci, "SCI_POINT_COUNT", 0) or 0)
+        if point_count <= 0:
+            return
+
+        sci_view_state["index"] = (sci_view_state["index"] + delta) % point_count
+        _update_sci_panel()
+
+    def _plot_sci_buffer() -> None:
+        sci = last_sci["value"]
+        if sci is None:
+            ui.notify("No science packet selected to plot", type="warning")
+            return
+
+        packet_number = getattr(sci, "PACKET_NUMBER", "?")
+        image_urls = sci_plot.render_sci_packets_data_urls(
+            sci_packets=[sci],
+            title_prefix=f"SCI Packet {packet_number}",
+        )
+        if not image_urls:
+            ui.notify("Selected packet has no science data points to plot", type="warning")
+            return
+
+        with ui.dialog() as plot_dialog:
+            with ui.card().classes("w-[95vw] max-w-6xl max-h-[90vh] overflow-auto"):
+                with ui.row(align_items="center").classes("w-full justify-between"):
+                    ui.label("Science Plot (ABS steps vs intensity)").classes("text-lg font-bold")
+                    ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
+                ui.separator()
+                for image_url in image_urls:
+                    ui.image(image_url).props("contain").classes("w-full")
+
+        plot_dialog.open()
+        ui.notify("Plotted selected packet (ABS steps vs intensity)", type="positive")
+
     def update_hk_display() -> None:
         def set_label_color(label: ui.label, color: str) -> None:
             label.style(f"color: {color}")
@@ -792,6 +1013,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             return (min_val, max_val)
 
         def poll_latest_hk() -> None:
+            nonlocal sci_packet_identities
             # Only read new log data if log search is enabled; always process queued packets
             if log_search_state["enabled"]:
                 rs422_log = eb_interface.locate_latest_rs422_log()
@@ -1312,6 +1534,32 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["post_status"].set_text("❌ POST TEST FAILED")
                     labels["post_status"].style("color: red; font-weight: bold;")
 
+            if not const.sci_queue.empty():
+                new_sci_packets = 0
+                while not const.sci_queue.empty():
+                    latest_sci = const.sci_queue.get()
+                    if not hasattr(latest_sci, "TIME"):
+                        latest_sci.TIME = datetime.now()
+                    sci_identity = _sci_packet_identity(latest_sci)
+                    if sci_identity in sci_packet_identities:
+                        continue
+                    sci_packets.append(latest_sci)
+                    sci_packet_identities.add(sci_identity)
+                    new_sci_packets += 1
+
+                sci_packets.sort(key=_sci_packet_sort_key)
+
+                if len(sci_packets) > max_sci_packets:
+                    del sci_packets[:-max_sci_packets]
+
+                sci_packet_identities = {
+                    _sci_packet_identity(packet)
+                    for packet in sci_packets
+                }
+
+                if new_sci_packets > 0:
+                    _set_sci_packet(len(sci_packets) - 1)
+
             if not const.psu_queue.empty():
                 psu_times: list[datetime] = []
                 rov_currents_ma: list[float] = []
@@ -1750,7 +1998,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                         on_click=toggle_temperature_units,
                     ).props(pill_btn_props).style(pill_btn_style)
 
-        with ui.left_drawer(fixed=True).style("background-color: var(--secondary-bg)").props("width=350 bordered") as left_drawer:
+        with ui.left_drawer(fixed=True).style("background-color: var(--secondary-bg)").props("width=400 bordered") as left_drawer:
             with ui.row(align_items="center").classes("w-full justify-between"):
                 ui.markdown("**MENU**").classes("text-xs")
                 ui.button(icon="close", on_click=lambda: left_drawer.toggle()).props("color=accent_color dense flat")
@@ -1765,6 +2013,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 with ui.tabs().props("dense align=justify").classes("w-full text-xs") as tabs:
                     response_tab = ui.tab("Response HK").classes("text-xs")
                     post_tab = ui.tab("POST HK").classes("text-xs")
+                    sci_tab = ui.tab("SCI").classes("text-xs")
                 with ui.tab_panels(tabs, value=response_tab).classes("w-full overflow-x-hidden"):
                     with ui.tab_panel(response_tab).classes("w-full overflow-x-hidden text-xs"):
                         ui.button("Check HK Packet", on_click=check_hk_manually, icon="verified").props("color=accent_color")
@@ -1904,6 +2153,46 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                             ui.label("Measurement Table CRC")
                             labels["post_meas_table_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
                             ui.label("0x9D9B")
+
+                    with ui.tab_panel(sci_tab).classes("w-full overflow-x-hidden text-xs"):
+                        labels["sci_status"] = ui.label("⏳ Waiting for science packet...").classes("text-lg")
+                        with ui.row(align_items="center").classes("w-full justify-between gap-2"):
+                            ui.button(icon="skip_previous", on_click=lambda: _set_sci_packet(0)).props("dense flat color=accent_color").tooltip("First packet")
+                            ui.button(icon="chevron_left", on_click=lambda: _shift_sci_packet(-1)).props("dense flat color=accent_color")
+                            labels["sci_packet_index"] = ui.label("Packet 0 / 0").classes("font-bold")
+                            ui.button(icon="chevron_right", on_click=lambda: _shift_sci_packet(1)).props("dense flat color=accent_color")
+                            ui.button(icon="skip_next", on_click=lambda: _set_sci_packet(len(sci_packets) - 1)).props("dense flat color=accent_color").tooltip("Last packet")
+                        with ui.row(align_items="center").classes("w-full gap-2"):
+                            ui.label("Packet Type:").classes("font-bold")
+                            labels["sci_packet_type"] = ui.label("---")
+                        ui.separator()
+                        ui.markdown("**EB SCI Header**")
+                        with ui.grid(columns=2).classes("w-full gap-x-8 gap-y-2"):
+                            ui.label("Field").classes("font-bold")
+                            ui.label("Value").classes("font-bold")
+                            for field_name in sci_header_fields:
+                                ui.label(field_name).classes("text-right")
+                                labels[f"sci_hdr_{field_name}"] = ui.label("---").classes("text-left")
+
+                        ui.separator()
+                        with ui.expansion("Science Data Point").classes("w-full"):
+                            with ui.row(align_items="center").classes("w-full justify-between gap-2"):
+                                ui.button(icon="skip_previous", on_click=lambda: (sci_view_state.update({"index": 0}), _update_sci_panel())).props("dense flat color=accent_color").tooltip("First")
+                                ui.button(icon="chevron_left", on_click=lambda: _shift_sci_point(-1)).props("dense flat color=accent_color")
+                                labels["sci_point_index"] = ui.label("Point 0 / 0").classes("font-bold")
+                                ui.button(icon="chevron_right", on_click=lambda: _shift_sci_point(1)).props("dense flat color=accent_color")
+                                ui.button(icon="skip_next", on_click=lambda: (sci_view_state.update({"index": max(0, (last_sci["value"].SCI_POINT_COUNT - 1) if last_sci["value"] else 0)}), _update_sci_panel())).props("dense flat color=accent_color").tooltip("Last")
+
+                            with ui.grid(columns=2).classes("w-full gap-x-8 gap-y-2"):
+                                ui.label("Data").classes("font-bold")
+                                ui.label("Value").classes("font-bold")
+                                for field_name in sci_point_fields:
+                                    ui.label(field_name).classes("text-right")
+                                    labels[f"sci_point_{field_name}"] = ui.label("---").classes("text-left")
+
+                        ui.separator()
+                        with ui.row(align_items="center").classes("w-full justify-center"):
+                            ui.button("Plot Science Data", icon="show_chart", on_click=_plot_sci_buffer).props("color=accent_color rounded").classes("rounded-full px-6")
 
         with ui.row(align_items="center").classes("w-full justify-start"):
             ui.button(icon="menu", on_click=lambda: left_drawer.toggle()).props("color=accent_color dense")

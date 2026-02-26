@@ -137,7 +137,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
                         hk_pause_event.set()
                     continue
 
-                if on_since is not None and time.monotonic() - on_since < 0.5:
+                if on_since is not None and time.monotonic() - on_since < 1:
                     continue
 
                 if rov_htr_status and not (26 < rov_htr_v_val < 30):
