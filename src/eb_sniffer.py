@@ -90,7 +90,6 @@ def read_pkt(file_path, latest_only: bool = False):
             dump_data = decode_dump_data(byte_array)
             dump_data = decode_sci_data_packet(dump_data)
             dump_data.TIME = datetime.now()
-            const.eb_post_queue.put(dump_data)
             last_dump = dump_data
             if latest_only:
                 dump_found = True

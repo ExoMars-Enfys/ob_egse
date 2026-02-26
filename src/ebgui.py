@@ -73,6 +73,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     last_post = {"value": None}
     last_sci = {"value": None}
     packet_counts = {"hk": 0, "post": 0, "sci": 0}
+    last_post_identity = {"value": None}
     sci_packets: list[Any] = []
     sci_packet_identities: set[tuple[Any, ...]] = set()
     max_sci_packets = 12
@@ -103,7 +104,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     temperature_units = {"value": "Metric"}  # "Metric" or "ADU"
     lock_ctx = port_lock if port_lock is not None else nullcontext()
 
-    def set_chip_state(chip: ui.chip, text: str, state: str) -> None:
+    def set_chip_state(chip: Any, text: str, state: str) -> None:
         chip.set_text(text)
         if state == "ok":
             chip.set_background_color("green")
@@ -118,7 +119,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             chip.set_background_color("grey")
             chip.set_icon("")
 
-    def set_chip_color(chip: ui.chip, text: str, color: str, icon: str = "fiber_manual_record") -> None:
+    def set_chip_color(chip: Any, text: str, color: str, icon: str = "fiber_manual_record") -> None:
         chip.set_text(text)
         chip.set_background_color(color)
         chip.set_icon(icon)
@@ -279,6 +280,11 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
         if temperature_units["value"] == "ADU":
             return f"{value_adu}"
         return f"{value_volts:.{precision}f} V"
+
+    def _temperature_limit_state(value_celsius: float, value_adu: int) -> str:
+        if temperature_units["value"] == "ADU":
+            return eval_limit_state(value_adu, wlim=const.WLIM_TPR_ADU, alim=const.ALIM_TPR_ADU)
+        return eval_limit_state(value_celsius, wlim=const.WLIM_TPR, alim=const.ALIM_TPR)
 
     def _format_alarm_details(kind: str, hk) -> list[str]:
         if hk is None:
@@ -685,21 +691,29 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             labels["hk_eb_0v"].set_background_color("green" if -0.5 <= eb_0v <= 0.5 else "red")
             labels["hk_eb_0v"].set_icon("check_circle" if -0.5 <= eb_0v <= 0.5 else "error")
 
-            labels["hk_eb_mcu_temp"].set_text(_format_temperature(eb_mcu_temp, eb_mcu_temp_adu))
-            labels["hk_eb_mcu_temp"].set_background_color("green" if 18.0 <= eb_mcu_temp <= 43.0 else "red")
-            labels["hk_eb_mcu_temp"].set_icon("check_circle" if 18.0 <= eb_mcu_temp <= 43.0 else "error")
+            set_chip_state(
+                labels["hk_eb_mcu_temp"],
+                _format_temperature(eb_mcu_temp, eb_mcu_temp_adu),
+                _temperature_limit_state(eb_mcu_temp, eb_mcu_temp_adu),
+            )
 
-            labels["hk_eb_peltier_temp"].set_text(_format_temperature(eb_peltier_temp, eb_peltier_temp_adu))
-            labels["hk_eb_peltier_temp"].set_background_color("green" if 18.0 <= eb_peltier_temp <= 43.0 else "red")
-            labels["hk_eb_peltier_temp"].set_icon("check_circle" if 18.0 <= eb_peltier_temp <= 43.0 else "error")
+            set_chip_state(
+                labels["hk_eb_peltier_temp"],
+                _format_temperature(eb_peltier_temp, eb_peltier_temp_adu),
+                _temperature_limit_state(eb_peltier_temp, eb_peltier_temp_adu),
+            )
 
-            labels["hk_eb_internal_trp"].set_text(_format_temperature(eb_internal_trp, eb_internal_trp_adu))
-            labels["hk_eb_internal_trp"].set_background_color("green" if 18.0 <= eb_internal_trp <= 43.0 else "red")
-            labels["hk_eb_internal_trp"].set_icon("check_circle" if 18.0 <= eb_internal_trp <= 43.0 else "error")
+            set_chip_state(
+                labels["hk_eb_internal_trp"],
+                _format_temperature(eb_internal_trp, eb_internal_trp_adu),
+                _temperature_limit_state(eb_internal_trp, eb_internal_trp_adu),
+            )
 
-            labels["hk_eb_psu_board_temp"].set_text(_format_temperature(eb_psu_board_temp, eb_psu_board_temp_adu))
-            labels["hk_eb_psu_board_temp"].set_background_color("green" if 18.0 <= eb_psu_board_temp <= 43.0 else "red")
-            labels["hk_eb_psu_board_temp"].set_icon("check_circle" if 18.0 <= eb_psu_board_temp <= 43.0 else "error")
+            set_chip_state(
+                labels["hk_eb_psu_board_temp"],
+                _format_temperature(eb_psu_board_temp, eb_psu_board_temp_adu),
+                _temperature_limit_state(eb_psu_board_temp, eb_psu_board_temp_adu),
+            )
 
             labels["hk_eb_tec_drive_i"].set_text(f"{eb_tec_i:.4f} A")
             labels["hk_eb_tec_drive_i"].set_background_color("green" if -0.1 <= eb_tec_i <= 0.1 else "red")
@@ -895,6 +909,21 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             last_abs_step = first_abs_step
 
         return (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+
+    def _post_packet_identity(post: Any) -> tuple[Any, ...]:
+        return (
+            getattr(post, "POST_WARNING_FLAGS", None),
+            getattr(post, "POST_ERROR_FLAGS", None),
+            getattr(post, "NUM_BAD_FLASH_BLOCKS", None),
+            getattr(post, "NUM_BAD_SRAM_BLOCKS", None),
+            getattr(post, "ASW_IMAGE_1_CRC", None),
+            getattr(post, "ASW_IMAGE_2_CRC", None),
+            getattr(post, "ASW_IMAGE_3_CRC", None),
+            getattr(post, "ASW_IMAGE_4_CRC", None),
+            getattr(post, "ASW_IMAGE_5_CRC", None),
+            getattr(post, "BSW_IMAGE_CRC", None),
+            getattr(post, "MEASUREMENT_TABLE_CRC", None),
+        )
 
     def _set_sci_packet(packet_index: int) -> None:
         if not sci_packets:
@@ -1201,21 +1230,29 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["hk_eb_0v"].set_background_color("green" if -0.5 <= eb_0v <= 0.5 else "red")
                     labels["hk_eb_0v"].set_icon("check_circle" if -0.5 <= eb_0v <= 0.5 else "error")
 
-                    labels["hk_eb_mcu_temp"].set_text(_format_temperature(eb_mcu_temp, eb_mcu_temp_adu))
-                    labels["hk_eb_mcu_temp"].set_background_color("green" if 18.0 <= eb_mcu_temp <= 43.0 else "red")
-                    labels["hk_eb_mcu_temp"].set_icon("check_circle" if 18.0 <= eb_mcu_temp <= 43.0 else "error")
+                    set_chip_state(
+                        labels["hk_eb_mcu_temp"],
+                        _format_temperature(eb_mcu_temp, eb_mcu_temp_adu),
+                        _temperature_limit_state(eb_mcu_temp, eb_mcu_temp_adu),
+                    )
 
-                    labels["hk_eb_peltier_temp"].set_text(_format_temperature(eb_peltier_temp, eb_peltier_temp_adu))
-                    labels["hk_eb_peltier_temp"].set_background_color("green" if 18.0 <= eb_peltier_temp <= 43.0 else "red")
-                    labels["hk_eb_peltier_temp"].set_icon("check_circle" if 18.0 <= eb_peltier_temp <= 43.0 else "error")
+                    set_chip_state(
+                        labels["hk_eb_peltier_temp"],
+                        _format_temperature(eb_peltier_temp, eb_peltier_temp_adu),
+                        _temperature_limit_state(eb_peltier_temp, eb_peltier_temp_adu),
+                    )
 
-                    labels["hk_eb_internal_trp"].set_text(_format_temperature(eb_internal_trp, eb_internal_trp_adu))
-                    labels["hk_eb_internal_trp"].set_background_color("green" if 18.0 <= eb_internal_trp <= 43.0 else "red")
-                    labels["hk_eb_internal_trp"].set_icon("check_circle" if 18.0 <= eb_internal_trp <= 43.0 else "error")
+                    set_chip_state(
+                        labels["hk_eb_internal_trp"],
+                        _format_temperature(eb_internal_trp, eb_internal_trp_adu),
+                        _temperature_limit_state(eb_internal_trp, eb_internal_trp_adu),
+                    )
 
-                    labels["hk_eb_psu_board_temp"].set_text(_format_temperature(eb_psu_board_temp, eb_psu_board_temp_adu))
-                    labels["hk_eb_psu_board_temp"].set_background_color("green" if 18.0 <= eb_psu_board_temp <= 43.0 else "red")
-                    labels["hk_eb_psu_board_temp"].set_icon("check_circle" if 18.0 <= eb_psu_board_temp <= 43.0 else "error")
+                    set_chip_state(
+                        labels["hk_eb_psu_board_temp"],
+                        _format_temperature(eb_psu_board_temp, eb_psu_board_temp_adu),
+                        _temperature_limit_state(eb_psu_board_temp, eb_psu_board_temp_adu),
+                    )
 
                     labels["hk_eb_tec_drive_i"].set_text(f"{eb_tec_i:.4f} A")
                     labels["hk_eb_tec_drive_i"].set_background_color("green" if -0.1 <= eb_tec_i <= 0.1 else "red")
@@ -1289,17 +1326,17 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 set_chip_state(
                     labels["eb_mcu_temp"],
                     _format_temperature(eb_mcu_temp, eb_mcu_temp_adu),
-                    eval_limit_state(eb_mcu_temp, ok_range=(18.0, 43.0)),
+                    _temperature_limit_state(eb_mcu_temp, eb_mcu_temp_adu),
                 )
                 set_chip_state(
                     labels["eb_internal_temp"],
                     _format_temperature(eb_internal_trp, eb_internal_trp_adu),
-                    eval_limit_state(eb_internal_trp, ok_range=(18.0, 43.0)),
+                    _temperature_limit_state(eb_internal_trp, eb_internal_trp_adu),
                 )
                 set_chip_state(
                     labels["eb_psu_temp"],
                     _format_temperature(eb_psu_board_temp, eb_psu_board_temp_adu),
-                    eval_limit_state(eb_psu_board_temp, ok_range=(18.0, 43.0)),
+                    _temperature_limit_state(eb_psu_board_temp, eb_psu_board_temp_adu),
                 )
 
                 set_chip_state(
@@ -1536,99 +1573,129 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
             if not const.eb_post_queue.empty():
                 post = const.eb_post_queue.get()
-                packet_counts["post"] += 1
-                last_post["value"] = post
-
-                # Update POST summary chips
-                set_chip_state(
-                    labels["post_warning_flags"],
-                    f"{post.POST_WARNING_FLAGS}",
-                    "ok" if post.POST_WARNING_FLAGS == 0 else "alarm",
+                required_post_fields = (
+                    "POST_WARNING_FLAGS",
+                    "POST_ERROR_FLAGS",
+                    "NUM_BAD_FLASH_BLOCKS",
+                    "NUM_BAD_SRAM_BLOCKS",
+                    "ASW_IMAGE_1_CRC",
+                    "ASW_IMAGE_2_CRC",
+                    "ASW_IMAGE_3_CRC",
+                    "ASW_IMAGE_4_CRC",
+                    "ASW_IMAGE_5_CRC",
+                    "BSW_IMAGE_CRC",
+                    "MEASUREMENT_TABLE_CRC",
                 )
-                set_chip_state(
-                    labels["post_error_flags"],
-                    f"{post.POST_ERROR_FLAGS}",
-                    "ok" if post.POST_ERROR_FLAGS == 0 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_bad_flash"],
-                    f"{post.NUM_BAD_FLASH_BLOCKS}",
-                    "ok" if post.NUM_BAD_FLASH_BLOCKS == 0 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_bad_sram"],
-                    f"{post.NUM_BAD_SRAM_BLOCKS}",
-                    "ok" if post.NUM_BAD_SRAM_BLOCKS == 0 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_asw1_crc"],
-                    f"0x{post.ASW_IMAGE_1_CRC:04X}",
-                    "ok" if post.ASW_IMAGE_1_CRC == 0xBAF7 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_asw2_crc"],
-                    f"0x{post.ASW_IMAGE_2_CRC:04X}",
-                    "ok" if post.ASW_IMAGE_2_CRC == 0x5C55 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_asw3_crc"],
-                    f"0x{post.ASW_IMAGE_3_CRC:04X}",
-                    "ok" if post.ASW_IMAGE_3_CRC == 0x01CB else "alarm",
-                )
-                set_chip_state(
-                    labels["post_asw4_crc"],
-                    f"0x{post.ASW_IMAGE_4_CRC:04X}",
-                    "ok" if post.ASW_IMAGE_4_CRC == 0x5318 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_asw5_crc"],
-                    f"0x{post.ASW_IMAGE_5_CRC:04X}",
-                    "ok" if post.ASW_IMAGE_5_CRC == 0xDCAE else "alarm",
-                )
-                set_chip_state(
-                    labels["post_bsw_crc"],
-                    f"0x{post.BSW_IMAGE_CRC:04X}",
-                    "ok" if post.BSW_IMAGE_CRC == 0xD2D7 else "alarm",
-                )
-                set_chip_state(
-                    labels["post_meas_table_crc"],
-                    f"0x{post.MEASUREMENT_TABLE_CRC:04X}",
-                    "ok" if post.MEASUREMENT_TABLE_CRC == 0x9D9B else "alarm",
-                )
-
-                # Update overall POST status
-                all_post_passed = (
-                    post.POST_WARNING_FLAGS == 0 and
-                    post.POST_ERROR_FLAGS == 0 and
-                    post.NUM_BAD_FLASH_BLOCKS == 0 and
-                    post.NUM_BAD_SRAM_BLOCKS == 0 and
-                    post.ASW_IMAGE_1_CRC == 0xBAF7 and
-                    post.ASW_IMAGE_2_CRC == 0x5C55 and
-                    post.ASW_IMAGE_3_CRC == 0x01CB and
-                    post.ASW_IMAGE_4_CRC == 0x5318 and
-                    post.ASW_IMAGE_5_CRC == 0xDCAE and
-                    post.BSW_IMAGE_CRC == 0xD2D7 and
-                    post.MEASUREMENT_TABLE_CRC == 0x9D9B
-                )
-                if all_post_passed:
-                    labels["post_status"].set_text("✅ POST TEST PASSED")
-                    labels["post_status"].style("color: green; font-weight: bold;")
+                if not all(hasattr(post, field_name) for field_name in required_post_fields):
+                    logger.debug("Ignoring non-POST packet in POST queue")
                 else:
-                    labels["post_status"].set_text("❌ POST TEST FAILED")
-                    labels["post_status"].style("color: red; font-weight: bold;")
+                    post_identity = _post_packet_identity(post)
+                    if post_identity == last_post_identity["value"]:
+                        logger.debug("Ignoring duplicate POST packet in POST queue")
+                    else:
+                        last_post_identity["value"] = post_identity
+                        packet_counts["post"] += 1
+                        last_post["value"] = post
+
+                        # Update POST summary chips
+                        set_chip_state(
+                            labels["post_warning_flags"],
+                            f"{post.POST_WARNING_FLAGS}",
+                            "ok" if post.POST_WARNING_FLAGS == 0 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_error_flags"],
+                            f"{post.POST_ERROR_FLAGS}",
+                            "ok" if post.POST_ERROR_FLAGS == 0 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_bad_flash"],
+                            f"{post.NUM_BAD_FLASH_BLOCKS}",
+                            "ok" if post.NUM_BAD_FLASH_BLOCKS == 0 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_bad_sram"],
+                            f"{post.NUM_BAD_SRAM_BLOCKS}",
+                            "ok" if post.NUM_BAD_SRAM_BLOCKS == 0 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_asw1_crc"],
+                            f"0x{post.ASW_IMAGE_1_CRC:04X}",
+                            "ok" if post.ASW_IMAGE_1_CRC == 0xBAF7 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_asw2_crc"],
+                            f"0x{post.ASW_IMAGE_2_CRC:04X}",
+                            "ok" if post.ASW_IMAGE_2_CRC == 0x5C55 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_asw3_crc"],
+                            f"0x{post.ASW_IMAGE_3_CRC:04X}",
+                            "ok" if post.ASW_IMAGE_3_CRC == 0x01CB else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_asw4_crc"],
+                            f"0x{post.ASW_IMAGE_4_CRC:04X}",
+                            "ok" if post.ASW_IMAGE_4_CRC == 0x5318 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_asw5_crc"],
+                            f"0x{post.ASW_IMAGE_5_CRC:04X}",
+                            "ok" if post.ASW_IMAGE_5_CRC == 0xDCAE else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_bsw_crc"],
+                            f"0x{post.BSW_IMAGE_CRC:04X}",
+                            "ok" if post.BSW_IMAGE_CRC == 0xD2D7 else "alarm",
+                        )
+                        set_chip_state(
+                            labels["post_meas_table_crc"],
+                            f"0x{post.MEASUREMENT_TABLE_CRC:04X}",
+                            "ok" if post.MEASUREMENT_TABLE_CRC == 0x9D9B else "alarm",
+                        )
+
+                        # Update overall POST status
+                        all_post_passed = (
+                            post.POST_WARNING_FLAGS == 0 and
+                            post.POST_ERROR_FLAGS == 0 and
+                            post.NUM_BAD_FLASH_BLOCKS == 0 and
+                            post.NUM_BAD_SRAM_BLOCKS == 0 and
+                            post.ASW_IMAGE_1_CRC == 0xBAF7 and
+                            post.ASW_IMAGE_2_CRC == 0x5C55 and
+                            post.ASW_IMAGE_3_CRC == 0x01CB and
+                            post.ASW_IMAGE_4_CRC == 0x5318 and
+                            post.ASW_IMAGE_5_CRC == 0xDCAE and
+                            post.BSW_IMAGE_CRC == 0xD2D7 and
+                            post.MEASUREMENT_TABLE_CRC == 0x9D9B
+                        )
+                        if all_post_passed:
+                            labels["post_status"].set_text("✅ POST TEST PASSED")
+                            labels["post_status"].style("color: green; font-weight: bold;")
+                        else:
+                            labels["post_status"].set_text("❌ POST TEST FAILED")
+                            labels["post_status"].style("color: red; font-weight: bold;")
 
             if not const.sci_queue.empty():
                 new_sci_packets = 0
+                required_sci_fields = (
+                    "PACKET_NUMBER",
+                    "SCI_POINT_COUNT",
+                    "SCI_PACKET_CRITICALITY",
+                )
                 while not const.sci_queue.empty():
                     latest_sci = const.sci_queue.get()
-                    packet_counts["sci"] += 1
+                    if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
+                        logger.debug("Ignoring non-SCI packet in SCI queue")
+                        continue
                     if not hasattr(latest_sci, "TIME"):
                         latest_sci.TIME = datetime.now()
                     sci_identity = _sci_packet_identity(latest_sci)
                     if sci_identity in sci_packet_identities:
+                        logger.debug("Ignoring duplicate science packet in SCI queue")
                         continue
                     sci_packets.append(latest_sci)
                     sci_packet_identities.add(sci_identity)
+                    packet_counts["sci"] += 1
                     new_sci_packets += 1
 
                 sci_packets.sort(key=_sci_packet_sort_key)
