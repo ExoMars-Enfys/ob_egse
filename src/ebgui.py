@@ -72,6 +72,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     last_hk = {"value": None}
     last_post = {"value": None}
     last_sci = {"value": None}
+    packet_counts = {"hk": 0, "post": 0, "sci": 0}
     sci_packets: list[Any] = []
     sci_packet_identities: set[tuple[Any, ...]] = set()
     max_sci_packets = 12
@@ -88,6 +89,8 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     alarm_last_signature: dict[str, str | None] = {"ob": None, "eb": None}
     alarm_last_active: dict[str, bool] = {"ob": False, "eb": False}
     alarm_acknowledged_signatures: dict[str, set[str]] = {"ob": set(), "eb": set()}
+    alarm_acknowledged_tcs_rejected: dict[str, int] = {"ob": 0, "eb": 0}
+    alarm_last_tcs_rejected_seen: dict[str, int] = {"ob": 0, "eb": 0}
     alarm_history_max = 50
     snapshot_state: dict[str, datetime | None] = {"last_post_logged_time": None}
     last_psu_readings: dict[str, float | int | None] = {
@@ -402,21 +405,42 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     def _record_alarm(kind: str, hk, is_active: bool) -> None:
         details = _format_alarm_details(kind, hk)
         signature = "|".join(details)
+
+        tcs_rejected_value = 0
+        if kind == "eb" and hk is not None and hasattr(hk, "TCS_REJECTED"):
+            tcs_rejected_value = int(hk.TCS_REJECTED)
+
+        def _is_detail_acknowledged(detail: str, tcs_value: int) -> bool:
+            if kind == "eb" and detail == "TCS Rejected":
+                return tcs_value > 0 and tcs_value <= alarm_acknowledged_tcs_rejected[kind]
+            return detail in alarm_acknowledged_signatures[kind]
+
+        def _any_acknowledged(current_details: list[str], tcs_value: int) -> bool:
+            return any(_is_detail_acknowledged(detail, tcs_value) for detail in current_details)
         
         # Check if any detail is already acknowledged (suppressed)
-        any_acknowledged = any(detail in alarm_acknowledged_signatures[kind] for detail in details)
+        any_acknowledged = _any_acknowledged(details, tcs_rejected_value)
+        tcs_rejected_increased = (
+            kind == "eb" and tcs_rejected_value > alarm_last_tcs_rejected_seen[kind]
+        )
         
-        if is_active and any_acknowledged:
+        if is_active and any_acknowledged and not tcs_rejected_increased:
             alarm_last_active[kind] = True
             alarm_last_signature[kind] = signature
             return
         if is_active:
-            if not alarm_last_active[kind] or signature != alarm_last_signature[kind]:
+            if tcs_rejected_increased or not alarm_last_active[kind] or signature != alarm_last_signature[kind]:
                 # New alarm: move current to pending (don't archive yet)
                 if alarm_current[kind] is not None:
                     alarm_pending[kind] = alarm_current[kind]
-                alarm_current[kind] = {"time": datetime.now(), "details": details}
+                alarm_current[kind] = {
+                    "time": datetime.now(),
+                    "details": details,
+                    "tcs_rejected": tcs_rejected_value,
+                }
                 alarm_last_signature[kind] = signature
+            if kind == "eb":
+                alarm_last_tcs_rejected_seen[kind] = tcs_rejected_value
             alarm_last_active[kind] = True
         else:
             # Alarm cleared: archive pending and current to history
@@ -1014,6 +1038,44 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
         def poll_latest_hk() -> None:
             nonlocal sci_packet_identities
+
+            def update_hk_age_chip() -> None:
+                if "time_since_last_hk" not in labels:
+                    return
+
+                def set_hk_age_text(text: str) -> None:
+                    labels["time_since_last_hk"].set_text(text)
+                    labels["time_since_last_hk"].set_background_color("grey")
+                    labels["time_since_last_hk"].set_icon("schedule")
+
+                hk_latest = last_hk["value"]
+                if hk_latest is None:
+                    set_hk_age_text("---")
+                    return
+
+                hk_time = getattr(hk_latest, "TIME", None)
+                if not isinstance(hk_time, datetime):
+                    set_hk_age_text("---")
+                    return
+
+                elapsed_s = max(0.0, (datetime.now() - hk_time).total_seconds())
+                if elapsed_s < 60.0:
+                    age_text = f"{elapsed_s:.1f}s"
+                else:
+                    total_seconds = int(elapsed_s)
+                    minutes = total_seconds // 60
+                    seconds = total_seconds % 60
+                    age_text = f"{minutes:02d}:{seconds:02d}"
+                set_hk_age_text(age_text)
+
+            def update_packet_counter_chips() -> None:
+                if "hk_packets_received" in labels:
+                    labels["hk_packets_received"].set_text(str(packet_counts["hk"]))
+                if "post_packets_received" in labels:
+                    labels["post_packets_received"].set_text(str(packet_counts["post"]))
+                if "sci_packets_received" in labels:
+                    labels["sci_packets_received"].set_text(str(packet_counts["sci"]))
+
             # Only read new log data if log search is enabled; always process queued packets
             if log_search_state["enabled"]:
                 rs422_log = eb_interface.locate_latest_rs422_log()
@@ -1025,6 +1087,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
             if not const.hk_queue.empty():
                 hk = const.hk_queue.get()
+                packet_counts["hk"] += 1
 
                 if not hasattr(hk, "TIME"):
                     hk.TIME = datetime.now()
@@ -1053,7 +1116,16 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 ob_details = _format_alarm_details("ob", hk) if ob_alarm else []
                 eb_details = _format_alarm_details("eb", hk) if eb_alarm else []
                 ob_any_acknowledged = any(detail in alarm_acknowledged_signatures["ob"] for detail in ob_details)
-                eb_any_acknowledged = any(detail in alarm_acknowledged_signatures["eb"] for detail in eb_details)
+                eb_tcs_rejected_value = int(getattr(hk, "TCS_REJECTED", 0))
+                eb_any_acknowledged = any(
+                    (
+                        detail == "TCS Rejected"
+                        and eb_tcs_rejected_value > 0
+                        and eb_tcs_rejected_value <= alarm_acknowledged_tcs_rejected["eb"]
+                    )
+                    or (detail in alarm_acknowledged_signatures["eb"])
+                    for detail in eb_details
+                )
                 ob_display_alarm = ob_alarm and not ob_any_acknowledged
                 eb_display_alarm = eb_alarm and not eb_any_acknowledged
                 if "ob_warning_light" in labels:
@@ -1249,6 +1321,16 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["eb_tec_dac_out"],
                     f"{hk.EB_TEC_DAC_OUTPUT}",
                     "unknown",
+                )
+                tec_at_setpoint = bool(getattr(hk.INSTR_STATUS_FLAGS, "TEC_AT_SETPOINT", 0) & 0x01)
+                labels["tec_at_setpoint"].set_text("YES" if tec_at_setpoint else "NO")
+                labels["tec_at_setpoint"].set_background_color("green" if tec_at_setpoint else "grey")
+                labels["tec_at_setpoint"].set_icon("check_circle_outline" if tec_at_setpoint else "highlight_off")
+
+                set_chip_state(
+                    labels["tcs_rejected_top"],
+                    f"{hk.TCS_REJECTED}",
+                    "ok" if hk.TCS_REJECTED == 0 else "alarm",
                 )
 
                 
@@ -1454,6 +1536,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
             if not const.eb_post_queue.empty():
                 post = const.eb_post_queue.get()
+                packet_counts["post"] += 1
                 last_post["value"] = post
 
                 # Update POST summary chips
@@ -1538,6 +1621,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 new_sci_packets = 0
                 while not const.sci_queue.empty():
                     latest_sci = const.sci_queue.get()
+                    packet_counts["sci"] += 1
                     if not hasattr(latest_sci, "TIME"):
                         latest_sci.TIME = datetime.now()
                     sci_identity = _sci_packet_identity(latest_sci)
@@ -1594,6 +1678,9 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                         psu_times,
                         [eb_currents_ma],
                     )
+
+            update_hk_age_chip()
+            update_packet_counter_chips()
 
         ui.timer(0.2, poll_latest_hk)
 
@@ -1787,6 +1874,22 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ):
                         ui.label("EB").classes("text-xs")
                         labels["eb_warning_light"] = ui.element("div").classes("status-light status-light-lg ok")
+            with ui.grid(columns=5).classes("w-full gap-2"):
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**TCs Rejected**")
+                    labels["tcs_rejected_top"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**HK Time**")
+                    labels["time_since_last_hk"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**HK Packets**")
+                    labels["hk_packets_received"] = ui.chip("0", color="grey", icon="numbers").props("dense")
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**POST Packets**")
+                    labels["post_packets_received"] = ui.chip("0", color="grey", icon="numbers").props("dense")
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**SCI Packets**")
+                    labels["sci_packets_received"] = ui.chip("0", color="grey", icon="numbers").props("dense")
             ui.markdown("**EB STATUS**").classes("gap-0")
             with ui.grid(columns=5).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
@@ -1855,7 +1958,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ui.markdown("**PSU TEMP**")
                     labels["eb_psu_temp"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
-            with ui.grid(columns=4).classes("w-full gap-2"):
+            with ui.grid(columns=5).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**TEC_SETPOINT**")
                     labels["tec_setpoint"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
@@ -1871,6 +1974,10 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**TEC DAC OUT**")
                     labels["eb_tec_dac_out"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
+
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**TEC at Set**")
+                    labels["tec_at_setpoint"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
 
             ui.separator()
@@ -2366,9 +2473,16 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 return
             checked_details = alarm_dialog_state.get("checked_details", set())
             current_details = current.get("details", [])
+            current_tcs_rejected = current.get("tcs_rejected", 0)
             for i, detail in enumerate(current_details):
                 if i in checked_details:
-                    alarm_acknowledged_signatures[kind].add(detail)
+                    if detail == "TCS Rejected" and kind == "eb":
+                        if isinstance(current_tcs_rejected, int):
+                            alarm_acknowledged_tcs_rejected[kind] = max(
+                                alarm_acknowledged_tcs_rejected[kind], current_tcs_rejected
+                            )
+                    else:
+                        alarm_acknowledged_signatures[kind].add(detail)
             current.setdefault("cleared_at", datetime.now())
             alarm_history[kind].append(current)
             if len(alarm_history[kind]) > alarm_history_max:
@@ -2382,7 +2496,18 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 alarm_last_active[kind] = True
                 # Immediately update light for the promoted pending alarm
                 pending_details = alarm_current[kind].get("details", [])
-                pending_any_acknowledged = any(detail in alarm_acknowledged_signatures[kind] for detail in (pending_details if isinstance(pending_details, list) else []))
+                pending_tcs_rejected = alarm_current[kind].get("tcs_rejected", 0)
+                pending_any_acknowledged = any(
+                    (
+                        detail == "TCS Rejected"
+                        and kind == "eb"
+                        and isinstance(pending_tcs_rejected, int)
+                        and pending_tcs_rejected > 0
+                        and pending_tcs_rejected <= alarm_acknowledged_tcs_rejected[kind]
+                    )
+                    or (detail in alarm_acknowledged_signatures[kind])
+                    for detail in (pending_details if isinstance(pending_details, list) else [])
+                )
                 pending_display = not pending_any_acknowledged
                 if kind == "ob" and "ob_warning_light" in labels:
                     set_status_light(labels["ob_warning_light"], ok=not pending_display)
@@ -2439,6 +2564,9 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             
             # Display ignored parameters
             ignored_sigs = alarm_acknowledged_signatures.get(kind, set())
+            if kind == "eb" and alarm_acknowledged_tcs_rejected[kind] > 0:
+                ignored_sigs = set(ignored_sigs)
+                ignored_sigs.add(f"TCS Rejected (acknowledged up to {alarm_acknowledged_tcs_rejected[kind]})")
             if ignored_sigs:
                 ignored_content = "<br>".join(f"• {_escape_html(sig)}" for sig in sorted(ignored_sigs))
                 alarm_ignored.set_content(ignored_content)
