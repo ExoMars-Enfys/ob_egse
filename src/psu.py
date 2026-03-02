@@ -18,6 +18,7 @@ psu_log = logging.getLogger("psu_log")
 def init_psu_comms(psu_com: str) -> serial.Serial:
     psuport = serial.Serial(port=None, timeout=1.0)
     psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
+    print(f"Initialized PSU COM port: {psu_com}")
     return psuport
 
 
@@ -33,6 +34,15 @@ def open_psu_comms(port: serial.Serial, psu_not_required) -> None:
 
     port.flushOutput()  # Port Flushing to clear port
     port.flushInput()
+
+    port.write(f"*IDN?\r\n".encode("utf-8"))
+    response = port.readline().decode("utf-8")
+    info_log.info(f"Connected to PSU *IDN? Response: {response}")
+
+    if "THURLBY THANDAR, MX100QP" not in response:
+        info_log.error(f"PSU COM Port available but did not respond with expected IDN. Response: {response}")
+        info_log.error("Please check the PSU is connected and powered on, and that the correct COM port is selected.")
+        raise SystemExit
 
     return port
 
