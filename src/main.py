@@ -87,12 +87,12 @@ def main() -> None:
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
-    (event_log, info_log, psu_log) = setup_logs()   
-    
+    (event_log, info_log, psu_log) = setup_logs()
+
     psu_port = None
     if not args.nopsu:
         psu_com = "COM" + str(args.psuport)
-        info_log.info("Initialising PSU Comms")
+        info_log.info("Initialising PSU Comms on Port " + psu_com)
         psu_port = psu.init_psu_comms(psu_com)
         psu_port = psu.open_psu_comms(psu_port, args.nopsu)
         psu.setChannels(psu_port, args.ebmode)
@@ -104,14 +104,14 @@ def main() -> None:
     if not args.ebmode:
         rs485_com = "COM" + str(args.com)
 
-        info_log.info("Initialising RS-485 Comms")
+        info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
         ob_port = comms.initialise_comms(rs485_com)
         ob_port = comms.open_comms(ob_port)
         atexit.register(stop_event.set)
         atexit.register(clean_exit, ob_port, psu_port, event_log)
-    else : 
+    else:
         atexit.register(stop_event.set)
-        atexit.register(clean_exit, ob_port = None, psu_port = psu_port, event_log = event_log)
+        atexit.register(clean_exit, ob_port=None, psu_port=psu_port, event_log=event_log)
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
@@ -120,14 +120,15 @@ def main() -> None:
         args=(psu_port, args.ebmode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event),
         daemon=True,
     )
-    psu_thread.start()
 
     hk_thread = None
+    port_lock = threading.Lock()
 
     if args.script:
         info_log.info("Running Script")
-        psu.switchPSU(psu_port, ebmode = args.ebmode, state = 1)  # Switch on PSU
+        psu.switchPSU(psu_port, ebmode=args.ebmode, state=1)  # Switch on PSU
         time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
+        psu_thread.start()
         hk_pause_event.clear()  # Resume HK polling
 
         # First HK
@@ -146,17 +147,18 @@ def main() -> None:
 
     else:
         info_log.info("Running GUI")
-        port_lock = threading.Lock()
 
-    if args.ebmode:
-        ebgui.build_ui(psu_port,  port_lock, stop_event)
-        ui.run(port=8085, reload=False)
-    else:
-        hk_thread = threading.Thread(target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True)
-        hk_thread.start()
-        gui.build_ui(ob_port, psu_port, port_lock, stop_event)
-        ui.run(port=8085, reload=False)
-        # TODO What about stop_envent?
+        if args.ebmode:
+            ebgui.build_ui(psu_port, port_lock, stop_event)
+            ui.run(port=8085, reload=False)
+        else:
+            hk_thread = threading.Thread(
+                target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True
+            )
+            hk_thread.start()
+            gui.build_ui(ob_port, psu_port, port_lock, stop_event)
+            ui.run(port=8085, reload=False)
+            # TODO What about stop_envent?
 
     event_log.info("Shutting down")
     event_log.info("Waiting for PSU monitor thread to finish")
