@@ -62,7 +62,7 @@ def mech_heater_test(port):
     return
 
 
-def check_hk(port):
+def parse_hk(port):
     resp = tc.hk_request(port)
     event_log.info(
         f" MOD_ID :{resp.MOD_ID}"
@@ -72,34 +72,36 @@ def check_hk(port):
         + f"\n ERROR_BYTE : {resp.ERROR_BYTE}"
         + f"\n UNUSED2 :{resp.UNUSED2}"
         + f"\n ERROR_MTR :{resp.ERROR_MTR}"
-        + f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}"
-        + f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}"
+        + f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK_BYTE}"
+        + f"\n MTR_FLAGS_BYTE : {resp.MTR_FLAGS_BYTE}"
         + f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}"
         + f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}"
-        + f"\n MTR_CURRENT :{resp.MTR_CURRENT}"
-        + f"\n MTR_GUARD : {resp.MTR_GUARD}"
-        + f"\n MTR_RECVAL : {resp.MTR_RECVAL}"
         + f"\n UNUSED3 : {resp.UNUSED3}"
-        + f"\n MTR_SPEED :{resp.MTR_SPEED}"
-        + f"\n UNUSED4 : {resp.PWR_STAT}"
+        + f"\n MTR_CURRENT : {resp.MTR_CURRENT}"
+        + f"\n UNUSED4 : {resp.UNUSED4}"
+        + f"\n MTR_GUARD_SELECT : {resp.MTR_GUARD_SELECT}"
+        + f"\n MTR_CHOP : {resp.MTR_CHOP} "
+        + f"\n UNUSED5 : {resp.UNUSED5}"
+        + f"\n MTR_SPEED : {resp.MTR_SPEED}"
+        + f"\n UNUSED6 : {resp.UNUSED6}"
         + f"\n PWR_STAT : {resp.PWR_STAT}"
-        + f"\n THRM_STATUS_BYTE :{resp.THRM_STATUS_BYTE}"
+        + f"\n THRM_STATUS_BYTE : {resp.THRM_STATUS_BYTE}"
         + f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}"
         + f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}"
-        + f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}"
+        + f"\n THRM_DET_OFF_SP : {resp.THRM_DET_OFF_SP}"
         + f"\n THRM_DET_ON_SP : {resp.THRM_DET_ON_SP}"
         + f"\n SWIR_OFFSET : {resp.SWIR_OFFSET}"
         + f"\n MWIR_OFFSET : {resp.MWIR_OFFSET}"
         + f"\n HK_V_3V3 : {resp.HK_V_3V3}"
-        + f"\n HK_V_1V5 :{resp.HK_V_1V5}"
+        + f"\n HK_V_1V5 : {resp.HK_V_1V5}"
         + f"\n DIGITAL_TRP : {resp.DIGITAL_TRP}"
-        + f"\n DETEC_TRP :{resp.DETEC_TRP}"
+        + f"\n DETEC_TRP : {resp.DETEC_TRP}"
         + f"\n MECH_TRP : {resp.MECH_TRP}"
         + f"\n MOTOR_TRP : {resp.MOTOR_TRP}"
-        + f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}"
+        + f"\n HK_MECH_CUR : {resp.HK_MECH_CUR}"
         + f"\n UNUSED_ADC : {resp.UNUSED_ADC}"
         + f"\n HK_SAMPLES : {resp.HK_SAMPLES}"
-        + f"\n UNUSED5 :{resp.UNUSED5}"
+        + f"\n UNUSED7 : {resp.UNUSED7}"
         + f"\n CRC8 : {resp.CRC8}"
     )
     event_log.info(
@@ -114,12 +116,11 @@ def check_hk(port):
     event_log.info(
         f"MTR Flags :"
         + f"\n CAL : {resp.MTR_FLAGS.CAL}"
-        + f"\n HOLD : {resp.MTR_FLAGS.HOLD}"
         + f"\n DIR : {resp.MTR_FLAGS.DIR}"
         + f"\n OUTER : {resp.MTR_FLAGS.OUTER}"
         + f"\n BASE : {resp.MTR_FLAGS.BASE}"
         + f"\n MOVING : {resp.MTR_FLAGS.MOVING}"
-        + f"\n HOMED : {resp.MTR_FLAGS.HOMED}"
+        + f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
     )
     event_log.info(
         f"MTR ERR Flags :"
