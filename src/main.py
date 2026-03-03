@@ -124,7 +124,7 @@ def main() -> None:
         hk_pause_event.clear()  # Resume HK polling
 
         # First HK
-        abu.read_hk(ob_port)
+        sq.parse_hk(ob_port)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
@@ -134,7 +134,7 @@ def main() -> None:
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        abu.read_hk(ob_port)
+        sq.parse_hk(ob_port)
         stop_event.set()
 
     else:
