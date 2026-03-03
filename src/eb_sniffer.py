@@ -134,6 +134,7 @@ def parse_eb_hk(packet_data):
     parsed = decode_thrm_status_byte(parsed)
     parsed = decode_mtr_flags_byte(parsed)
     parsed = decode_instrument_status_flags(parsed)
+    parsed = decode_ongoing_process_flags(parsed)
     return parsed
 
 def decode_bytes(raw_bytes, struct = tmstruct.eb_hk):
@@ -194,6 +195,13 @@ def decode_instrument_status_flags(param):
         (param.INSTRUMENT_STATUS_FLAGS.to_bytes(2, 'big')),
     ))
     param.INSTR_STATUS_FLAGS = SimpleNamespace(**instr_status_dict)
+    return param
+
+def decode_ongoing_process_flags(param):
+    raw_flags = int(getattr(param, "ONGOING_PROCESS_FLAGS", 0)) & 0xFFFF
+    process_flags = {f"BIT_{bit}": (raw_flags >> bit) & 0x01 for bit in range(16)}
+    process_flags["ANY"] = 1 if raw_flags != 0 else 0
+    param.ONGOING_PROCESS_FLAGS_BITS = SimpleNamespace(**process_flags)
     return param
 
 def decode_warning_flags(param):

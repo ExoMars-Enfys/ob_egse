@@ -1480,6 +1480,11 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 labels["HOME"].set_background_color("green" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "grey")
                 labels["HOME"].set_icon("check_circle_outline" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "highlight_off")
 
+                parked = not bool(hk.INSTR_STATUS_FLAGS.MECHANISM_PARKED & 0x01)
+                labels["PARKED"].set_text("YES" if parked else "NO")
+                labels["PARKED"].set_background_color("orange" if parked else "grey")
+                labels["PARKED"].set_icon("directions_car" if parked else "highlight_off")
+
                 labels["OB_WARM"].set_text("YES" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "NO")
                 labels["OB_WARM"].set_background_color("green" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "grey")
                 labels["OB_WARM"].set_icon("check_circle_outline" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "highlight_off")
@@ -1775,8 +1780,8 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             eb_interface.stop_egse_tools(logger)
 
         def select_log_handler() -> None:
-            log_search_state["enabled"] = True
-            eb_interface.select_rs422_log(logger)
+            selected = eb_interface.select_rs422_log(logger)
+            log_search_state["enabled"] = selected
 
         def _log_psu_snapshot() -> None:
             status_value = last_psu_readings["status"]
@@ -2074,7 +2079,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ui.markdown("**MTR**")
                     labels["MTR"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
-            with ui.grid(columns=6).classes("w-full gap-2"):
+            with ui.grid(columns=4).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**CMD CNT**")
                     labels["cmd_cnt"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
@@ -2086,7 +2091,12 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**HOME**")
                     labels["HOME"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
-                
+
+                with ui.column().classes("items-center w-full gap-0"):
+                    ui.markdown("**PARKING ONGOING**")
+                    labels["parked"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
+
+            with ui.grid(columns=3).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**OB WARM**")
                     labels["OB_WARM"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
