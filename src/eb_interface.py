@@ -265,20 +265,14 @@ def locate_latest_egse_log() -> Path | None:
 
 
 def locate_latest_rs422_log() -> Path | None:
-    """Locate the newest RS422if log file under the selected EGSE folder."""
-    if rs422_log_path:
-        candidate = Path(rs422_log_path)
-        if candidate.exists():
-            return candidate
-    base = Path(egse_tools_path) / "RS422if_log"
-    if not base.exists():
+    """Return only the RS422if log file selected by the user."""
+    if not rs422_log_path:
         return None
 
-    log_files = list(base.glob("RS422if_*.log")) + list(base.glob("RS422if_*.LOG"))
-    if not log_files:
-        return None
-
-    return max(log_files, key=lambda path: path.stat().st_mtime)
+    candidate = Path(rs422_log_path)
+    if candidate.exists():
+        return candidate
+    return None
 
 
 def rs422_log_changed(log_path: Path | None) -> bool:
@@ -390,7 +384,7 @@ def select_egse_folder(logger) -> None:
             root.destroy()
 
 
-def select_rs422_log(logger) -> None:
+def select_rs422_log(logger) -> bool:
     """Open file picker to select an RS422if log file."""
     global rs422_log_path
 
@@ -407,11 +401,14 @@ def select_rs422_log(logger) -> None:
         if file_path:
             rs422_log_path = file_path
             logger.info(f"RS422if log set to: {rs422_log_path}")
+            return True
     except Exception as exc:
         logger.error(f"[ERROR] Error selecting RS422if log file: {exc}")
     finally:
         if root is not None:
             root.destroy()
+
+    return False
 
 
 def start_egse_tools(logger) -> None:
