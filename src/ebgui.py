@@ -2093,8 +2093,8 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["HOME"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
 
                 with ui.column().classes("items-center w-full gap-0"):
-                    ui.markdown("**PARKING ONGOING**")
-                    labels["parked"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
+                    ui.markdown("**PARKED**")
+                    labels["PARKED"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
 
             with ui.grid(columns=3).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
