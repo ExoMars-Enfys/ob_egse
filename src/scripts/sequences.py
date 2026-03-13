@@ -4,7 +4,7 @@ import time
 import constants as const
 import send_cmd
 import tc
-from send_cmd import cmd_repeat as repeat
+from send_cmd import send_cmd as repeat
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
