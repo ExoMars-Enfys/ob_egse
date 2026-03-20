@@ -10,6 +10,7 @@ def get_loggers(
     prefix: str,
     debug_level: int = logging.INFO,
 ) -> tuple[logging.Logger, logging.Logger, logging.Logger]:
+    """Initializes and returns the event_log, info_log, and psu_log loggers."""
     # ----Handlers---------------------------------------------------------------------------------------
     cl_formatter = logging.Formatter("{levelname} - {message}", style="{")  # Logging format for console loggers
     fh_formatter = logging.Formatter("%(asctime)s - %(message)s")  # Setting the logging format for file loggers
@@ -52,6 +53,7 @@ def get_loggers(
     info_log.setLevel(logging.INFO)
     info_log.addHandler(info_fh)
     info_log.addHandler(cl_hdlr)
+
     error_fh_info = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
     error_fh_info.setFormatter(fh_formatter)
     error_fh_info.setLevel(logging.ERROR)

@@ -1,0 +1,19 @@
+import crc8
+from binascii import unhexlify
+
+
+def crc8Calculate(cmdInput):
+    """Append CRC8 to a hex command string and return bytes ready to send."""
+    cmdInput = unhexlify(cmdInput)
+    hash = crc8.crc8()
+    hash.update(cmdInput)
+    crc8Frame = hash.digest()
+    HashedInput = cmdInput + crc8Frame
+    return HashedInput
+
+
+def crc8InjectErr(cmdInput):
+    """Append an invalid trailing byte to inject a deliberate CRC mismatch."""
+    cmdInput += "05"
+    cmdInput = unhexlify(cmdInput)
+    return cmdInput

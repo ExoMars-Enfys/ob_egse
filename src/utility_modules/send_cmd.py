@@ -1,19 +1,18 @@
-"""
-This module is used for generally sending commands. These are one step higher level than the TC
-module which is mainly used to handle generation of the bytes over the RS-485. This module
-implements simple logic to verify that it has properly executed and will generally attempt one
-command retry.
-"""
-
+# Std library
 import logging
+# Added packages
+import sys
 from contextlib import nullcontext
-
-import tc
-
+# Local modules
+#core
+from core_modules import config as config
+#utilities
+from utility_modules import comms as comms
+from utility_modules import tc as tc
 info_log = logging.getLogger("info_log")
 
-
 def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs):
+    """Retry a TC once after clearing errors when the first attempt fails."""
     resp = cmd_func(port, *args)
 
     if resp != "ERROR":
@@ -32,6 +31,7 @@ def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs
     return resp
 
 
+#!TODO - Chat with Barry for the poll_hk function to see what is needed there
 def poll_hk(port, stop_event, port_lock=None, pause_event=None):
     if not port:
         return

@@ -5,12 +5,12 @@ import logging
 import serial.rs485
 
 # Local modules
-import config
+from core_modules import config as config
 
 info_log = logging.getLogger("info_log")
 
-
 def initialise_comms(com_port: str) -> serial.rs485.RS485:
+    """Initialise an unopened RS485 port with project communication settings."""
     port = serial.rs485.RS485(
         port=None,  # create a blank class ready to open
         baudrate=115200,
@@ -31,20 +31,22 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
     port.port = com_port  # Assign com_port afterwards to prevent opening immediately
     return port
 
-
 def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
+    """Open an initialised RS485 port and clear stale input/output buffers."""
     try:
         port.open()
     except serial.SerialException:
         info_log.error(f"No device found on COM Port {port}, try another")
         # raise SystemExit
 
-    port.flushOutput()  # Port Flushing to clear port
-    port.flushInput()
+    port.reset_output_buffer()  # Clear stale bytes before first transactions
+    port.reset_input_buffer()
 
     return port
 
-
 def close_comms(port: serial.rs485.RS485) -> None:
+    """Clear buffers and close an open RS485 port."""
+    port.reset_output_buffer()  # Clear buffers before closing
+    port.reset_input_buffer()
     port.close()
     return
