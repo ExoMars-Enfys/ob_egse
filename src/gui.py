@@ -122,7 +122,7 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
                 labels["HTR_SCI"].set_icon("check_circle_outline" if hk.THRM_STATUS.S else "highlight_off")
 
                 labels["MTR_CURRENT"].set_text(f"Current: {hk.MTR_CURRENT}")
-                labels["MTR_GUARD"].set_text(f"Guard: {hk.MTR_GUARD}")
+                labels["MTR_GUARD"].set_text(f"Guard: {hk.MTR_GUARD_SELECT}")
                 labels["MTR_SPEED"].set_text(f"MTR Speed: {hk.MTR_SPEED}")
                 labels["MTR_CHOP"].set_text(f"Chop: {hk.MTR_CHOP}")
 

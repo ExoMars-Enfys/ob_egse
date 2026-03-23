@@ -129,7 +129,25 @@ def parse_hk(port):
         + f"\n ABS : {resp.MTR_ERRORS.ABS}"
         + f"\n DSE : {resp.MTR_ERRORS.DSE}"
     )
-    # event_log.info(f" THRM STATUS :" + f"\n DET_Status : {resp.THRM_STATUS_BYTE.HDS & 0x03}")
+    event_log.info(
+        f"MTR ERR MSK Flags :"
+        + f"\n IG_B : {resp.MTR_ERR_MSK.IG_B}"
+        + f"\n IG_O : {resp.MTR_ERR_MSK.IG_O}"
+        + f"\n M_CD : {resp.MTR_ERR_MSK.M_CD}"
+        + f"\n M_AB : {resp.MTR_ERR_MSK.M_AB}"
+        + f"\n M_ABS : {resp.MTR_ERR_MSK.M_ABS}"
+        + f"\n M_DSE : {resp.MTR_ERR_MSK.M_DSE}"
+    )
+    event_log.info(
+        f"Thermal Status Flags :"
+        + f"\n HDS : {resp.THRM_STATUS_BYTE.HDS}"
+        + f"\n HMS : {resp.THRM_STATUS_BYTE.HMS}"
+        + f"\n SCI_TOG: {resp.THRM_STATUS_BYTE.S}"
+        + f"\n DM: {resp.THRM_STATUS_BYTE.DM}"
+        + f"\n DA: {resp.THRM_STATUS_BYTE.DA}"
+        + f"\n MM: {resp.THRM_STATUS_BYTE.MM}"
+        + f"\n MA: {resp.THRM_STATUS_BYTE.MA}"
+    )
 
 
 def check_sci(port, sci_adc_samp, sci_adc_skip):
