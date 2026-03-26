@@ -2,23 +2,27 @@
 import bitstruct
 import logging
 import math
+
 # Added packages
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
 # Local modules
-#core
+# core
 from core_modules import config as config
 from core_modules import constants as const
-from core_modules import tmstruct as tmstruct 
-#utilities
+from core_modules import tmstruct as tmstruct
+
+# utilities
 from utility_modules import comms as comms
 from utility_modules import tc as tc
 from utility_modules import tm as tm
+
 info_log = logging.getLogger("info_log")
 
-#Packet Intake
+
+# Packet Intake
 def read_pkt(file_path, latest_only: bool = False):
     """Reads packet from EB RS422_if.log files."""
     with open(file_path, "r", encoding="utf-8") as handle:
@@ -43,7 +47,7 @@ def read_pkt(file_path, latest_only: bool = False):
     else:
         indices = tm_indices
 
-    #Iterate through TM Indices and process packets based on TM_TYPE_ID
+    # Iterate through TM Indices and process packets based on TM_TYPE_ID
     for tm_index in indices:
         if tm_index + 1 >= len(all_lines):
             continue
@@ -53,7 +57,7 @@ def read_pkt(file_path, latest_only: bool = False):
         byte_array = bytes(int(x, 16) for x in byte_string.split())
         tm_type_id = (byte_array[5] >> 2) & 0x3F
 
-        #Proccess HK packets (Regular and Response packets)
+        # Proccess HK packets (Regular and Response packets)
         if tm_type_id in (0x1, 0x2):
             if latest_only and hk_found:
                 continue
@@ -65,7 +69,7 @@ def read_pkt(file_path, latest_only: bool = False):
             if latest_only:
                 hk_found = True
 
-        #Proccess POST HK packets
+        # Proccess POST HK packets
         elif tm_type_id == 0x3:
             if latest_only and post_found:
                 continue
@@ -76,7 +80,7 @@ def read_pkt(file_path, latest_only: bool = False):
             if latest_only:
                 post_found = True
 
-        #Proccess Dump packets
+        # Proccess Dump packets
         elif tm_type_id == 0x4:
             if latest_only and dump_found:
                 continue
@@ -87,7 +91,7 @@ def read_pkt(file_path, latest_only: bool = False):
             if latest_only:
                 dump_found = True
 
-        #Proccess Science packets (Critical)
+        # Proccess Science packets (Critical)
         elif tm_type_id == 0x5:
             if latest_only and csc_found:
                 continue
@@ -101,7 +105,7 @@ def read_pkt(file_path, latest_only: bool = False):
             if latest_only:
                 csc_found = True
 
-        #Proccess Science packets (Non-Critical)
+        # Proccess Science packets (Non-Critical)
         elif tm_type_id == 0x6:
             if latest_only and ncsc_found:
                 continue
@@ -122,11 +126,13 @@ def read_pkt(file_path, latest_only: bool = False):
 
     return last_hk, last_post_hk, last_dump, last_cscience_data, last_ncscience_data, last_index
 
+
 def read_block_length(packet_data: bytes) -> int | None:
     """Read the block length from bytes 12-13 of the packet data. Returns None if packet is too short."""
     if len(packet_data) < 14:
         return None
     return int.from_bytes(packet_data[12:14], "big")
+
 
 def trim_sci_packet_by_block_length(packet_data: bytes) -> bytes:
     """Trims Science packet to header + block length if block length is present and packet is long enough. Otherwise returns original packet data."""
@@ -143,51 +149,65 @@ def trim_sci_packet_by_block_length(packet_data: bytes) -> bytes:
     )
     return packet_data
 
-#Housekeeping Handling and Parsing
-#HK Regular and Response packets
+
+# Housekeeping Handling and Parsing
+# HK Regular and Response packets
 def parse_eb_hk(packet_data):
     """Parse EB Housekeeping packet data and decode all relevant fields, using the defined dictionaries from TMStruct"""
-    def decode_bytes(raw_bytes, struct = tmstruct.eb_hk):
+
+    def decode_bytes(raw_bytes, struct=tmstruct.eb_hk):
         """Parses raw HK bytestring using the defined dictionary from TMStruct for eb_hk"""
-        param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in struct),
-            [i[0] for i in struct],
-            raw_bytes,
-        ))
+        param_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in struct),
+                [i[0] for i in struct],
+                raw_bytes,
+            ),
+        )
         # Convert dict to SimpleNamespace to allow dot notation access
         param = SimpleNamespace(**param_dict)
         return param
-    
+
     def decode_errors(param):
         """Parses OB error bytestring using the defined dictionary from TMStruct for error_struct"""
-        error_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.error_struct),
-            [i[0] for i in tmstruct.error_struct],
-            bytes([param.OB_LAST_ERROR]),
-        ))
+        error_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.error_struct),
+                [i[0] for i in tmstruct.error_struct],
+                bytes([param.OB_LAST_ERROR]),
+            ),
+        )
         # Convert error dict to SimpleNamespace and assign to param
         param.ERRORS = SimpleNamespace(**error_dict)
         return param
-    
+
     def decode_mtr_error_byte(param):
         """Parses OB motor error bytestring using the defined dictionary from TMStruct for mtr_error_struct"""
-        mtr_error_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-        "".join(i[1] for i in tmstruct.mtr_error_struct),
-        [i[0] for i in tmstruct.mtr_error_struct],
-        bytes([param.OB_MOTOR_ERROR]),
-        ))
+        mtr_error_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.mtr_error_struct),
+                [i[0] for i in tmstruct.mtr_error_struct],
+                bytes([param.OB_MOTOR_ERROR]),
+            ),
+        )
         param.MTR_ERRORS = SimpleNamespace(**mtr_error_dict)
         return param
-    
+
     def decode_thrm_status_byte(param):
         """Parses OB thermal status bytestring using the defined dictionary from TMStruct for thrm_status_struct"""
         ## Decode bit maps
         # Thermal Status
-        thrm_status_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.thrm_status_struct),
-            [i[0] for i in tmstruct.thrm_status_struct],
-            bytes([param.OB_THERMAL_STATUS]),
-        ))
+        thrm_status_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.thrm_status_struct),
+                [i[0] for i in tmstruct.thrm_status_struct],
+                bytes([param.OB_THERMAL_STATUS]),
+            ),
+        )
         param.THRM_STATUS = SimpleNamespace(**thrm_status_dict)
         return param
 
@@ -195,24 +215,30 @@ def parse_eb_hk(packet_data):
         """Parses OB motor status flag bytestring using the defined dictionary from TMStruct for mtr_flag_struct"""
         ## Decode bit maps
         # Motor Status Flags
-        mtr_flag_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.mtr_flag_struct),
-            [i[0] for i in tmstruct.mtr_flag_struct],
-            bytes([param.OB_MOTOR_STATUS_FLAGS]),
-        ))
+        mtr_flag_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.mtr_flag_struct),
+                [i[0] for i in tmstruct.mtr_flag_struct],
+                bytes([param.OB_MOTOR_STATUS_FLAGS]),
+            ),
+        )
         param.MTR_FLAGS = SimpleNamespace(**mtr_flag_dict)
         return param
 
     def decode_instrument_status_flags(param):
         """Parses OB instrument status flag bytestring using the defined dictionary from TMStruct for eb_instrument_status_flags"""
-        instr_status_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.eb_instrument_status_flags),
-            [i[0] for i in tmstruct.eb_instrument_status_flags],
-            (param.INSTRUMENT_STATUS_FLAGS.to_bytes(2, 'big')),
-        ))
+        instr_status_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.eb_instrument_status_flags),
+                [i[0] for i in tmstruct.eb_instrument_status_flags],
+                (param.INSTRUMENT_STATUS_FLAGS.to_bytes(2, "big")),
+            ),
+        )
         param.INSTR_STATUS_FLAGS = SimpleNamespace(**instr_status_dict)
         return param
-    
+
     def decode_ongoing_process_flags(param):
         """Parses OB ongoing process flag bytestring using the defined dictionary from TMStruct for eb_ongoing_process_flags"""
         raw_flags = int(getattr(param, "ONGOING_PROCESS_FLAGS", 0)) & 0xFFFF
@@ -222,42 +248,54 @@ def parse_eb_hk(packet_data):
         return param
 
     def decode_warning_flags(param):
-        """"Parses OB warning flag bytestring using the defined dictionary from TMStruct for eb_warning_flags"""
-        warning_flags_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.eb_warning_flags),
-            [i[0] for i in tmstruct.eb_warning_flags],
-            (param.WARNING_FLAGS.to_bytes(2, 'big')),
-        ))
+        """ "Parses OB warning flag bytestring using the defined dictionary from TMStruct for eb_warning_flags"""
+        warning_flags_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.eb_warning_flags),
+                [i[0] for i in tmstruct.eb_warning_flags],
+                (param.WARNING_FLAGS.to_bytes(2, "big")),
+            ),
+        )
         param.WARNING_FLAGS_BITS = SimpleNamespace(**warning_flags_dict)
         return param
 
     def decode_error_flags(param):
         """Parses OB error flag bytestring using the defined dictionary from TMStruct for eb_warning_flags"""
-        error_flags_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.eb_warning_flags),
-            [i[0] for i in tmstruct.eb_warning_flags],
-            (param.ERROR_FLAGS.to_bytes(2, 'big')),
-        ))
+        error_flags_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.eb_warning_flags),
+                [i[0] for i in tmstruct.eb_warning_flags],
+                (param.ERROR_FLAGS.to_bytes(2, "big")),
+            ),
+        )
         param.ERROR_FLAGS_BITS = SimpleNamespace(**error_flags_dict)
         return param
 
     def decode_fdir_warnings(param):
         """Parses OB FDIR warning flag bytestring using the defined dictionary from TMStruct for eb_fdir_flags"""
-        fdir_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.eb_fdir_flags),
-            [i[0] for i in tmstruct.eb_fdir_flags],
-            (param.FDIR_WARNING_FLAGS.to_bytes(4, 'big')),
-        ))
+        fdir_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.eb_fdir_flags),
+                [i[0] for i in tmstruct.eb_fdir_flags],
+                (param.FDIR_WARNING_FLAGS.to_bytes(4, "big")),
+            ),
+        )
         param.FDIR_WARNING_FLAGS_BITS = SimpleNamespace(**fdir_dict)
         return param
-    
+
     def decode_fdir_alarms(param):
         """Parses OB FDIR alarm flag bytestring using the defined dictionary from TMStruct for eb_fdir_flags"""
-        fdir_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.eb_fdir_flags),
-            [i[0] for i in tmstruct.eb_fdir_flags],
-            (param.FDIR_ALARM_FLAGS.to_bytes(4, 'big')),
-        ))
+        fdir_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.eb_fdir_flags),
+                [i[0] for i in tmstruct.eb_fdir_flags],
+                (param.FDIR_ALARM_FLAGS.to_bytes(4, "big")),
+            ),
+        )
         param.FDIR_ALARM_FLAGS_BITS = SimpleNamespace(**fdir_dict)
         return param
 
@@ -274,61 +312,78 @@ def parse_eb_hk(packet_data):
     parsed = decode_fdir_alarms(parsed)
     return parsed
 
-#POST HK packets
-def decode_post_hk(packet_data, struct = tmstruct.post_hk):
-    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+
+# POST HK packets
+def decode_post_hk(packet_data, struct=tmstruct.post_hk):
+    param_dict = cast(
+        dict[str, Any],
+        bitstruct.unpack_dict(
             "".join(i[1] for i in struct),
             [i[0] for i in struct],
             packet_data,
-        ))
-        # Convert dict to SimpleNamespace to allow dot notation access
+        ),
+    )
+    # Convert dict to SimpleNamespace to allow dot notation access
     param = SimpleNamespace(**param_dict)
     return param
 
-#Dump Data SCI packets
-def decode_dump_data(packet_data, struct = tmstruct.dump_data):
+
+# Dump Data SCI packets
+def decode_dump_data(packet_data, struct=tmstruct.dump_data):
     """Decodes Dump Data SCI packet using the defined dictionary from TMStruct for dump_data"""
-    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+    param_dict = cast(
+        dict[str, Any],
+        bitstruct.unpack_dict(
             "".join(i[1] for i in struct),
             [i[0] for i in struct],
             packet_data,
-        ))
-        # Convert dict to SimpleNamespace to allow dot notation access
+        ),
+    )
+    # Convert dict to SimpleNamespace to allow dot notation access
     param = SimpleNamespace(**param_dict)
     return param
 
-#Science Data SCI packets (Critical and Non-Critical)
-def decode_cscience_data(packet_data, struct = tmstruct.eb_sci_header):
+
+# Science Data SCI packets (Critical and Non-Critical)
+def decode_cscience_data(packet_data, struct=tmstruct.eb_sci_header):
     """Decodes Critical Science Data SCI packet using the defined dictionary from TMStruct for eb_sci_header, and trims packet to header + block length if block length is present."""
     packet_data = trim_sci_packet_by_block_length(packet_data)
-    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+    param_dict = cast(
+        dict[str, Any],
+        bitstruct.unpack_dict(
             "".join(i[1] for i in struct),
             [i[0] for i in struct],
             packet_data,
-        ))
-        # Convert dict to SimpleNamespace to allow dot notation access
+        ),
+    )
+    # Convert dict to SimpleNamespace to allow dot notation access
     sci = SimpleNamespace(**param_dict)
     header_bits = bitstruct.calcsize("".join(i[1] for i in struct))
     header_bytes = header_bits // 8
     sci.SCI_DATA = packet_data[header_bytes:]
     return sci
 
-def decode_ncscience_data(packet_data, struct = tmstruct.eb_sci_header):
+
+def decode_ncscience_data(packet_data, struct=tmstruct.eb_sci_header):
     """Decodes Non-Critical Science Data SCI packet using the defined dictionary from TMStruct for eb_sci_header, and trims packet to header + block length if block length is present."""
     packet_data = trim_sci_packet_by_block_length(packet_data)
-    param_dict = cast(dict[str, Any], bitstruct.unpack_dict(
+    param_dict = cast(
+        dict[str, Any],
+        bitstruct.unpack_dict(
             "".join(i[1] for i in struct),
             [i[0] for i in struct],
             packet_data,
-        ))
-        # Convert dict to SimpleNamespace to allow dot notation access
+        ),
+    )
+    # Convert dict to SimpleNamespace to allow dot notation access
     sci = SimpleNamespace(**param_dict)
     header_bits = bitstruct.calcsize("".join(i[1] for i in struct))
     header_bytes = header_bits // 8
     sci.SCI_DATA = packet_data[header_bytes:]
     return sci
 
-#SCI Data Point Handling
+
+# SCI Data Point Handling
 def decode_sci_data_points(param) -> list[SimpleNamespace]:
     """Decodes SCI data points from a decoded SCI packet, returning a list of SimpleNamespace objects."""
     sci_bits = bitstruct.calcsize("".join(i[1] for i in tmstruct.sci_data))
@@ -372,16 +427,20 @@ def decode_sci_data_points(param) -> list[SimpleNamespace]:
         start = point_index * sci_bytes_len
         end = start + sci_bytes_len
         point_bytes = sci_payload[start:end]
-        sci_dict = cast(dict[str, Any], bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.sci_data),
-            [i[0] for i in tmstruct.sci_data],
-            point_bytes,
-        ))
+        sci_dict = cast(
+            dict[str, Any],
+            bitstruct.unpack_dict(
+                "".join(i[1] for i in tmstruct.sci_data),
+                [i[0] for i in tmstruct.sci_data],
+                point_bytes,
+            ),
+        )
         point = SimpleNamespace(**sci_dict)
         point.POINT_INDEX = point_index
         points.append(point)
 
     return points
+
 
 def merge_sci_data_packet(param):
     """Decodes SCI data points from a decoded SCI packet, and merges decoded SCI data point fields with base packet fields."""
@@ -416,36 +475,38 @@ def merge_sci_data_packet(param):
         sci.SCI_DATA = b""
     return sci
 
-#Utility functions for ADU to temp conversion of specific fields
-#OB
+
+# Utility functions for ADU to temp conversion of specific fields
+# OB
 def decode_ob_trps(adu):
     """Convert a thermistor ADU value to temperature in Celsius using the linear conversion defined by the HKREF voltage divider circuitry and an estimation formula using a PT1000 table."""
-    res = (adu / (4095 - adu))*1000
-    temp = (0.2559552953839863*res) - 255.7247996594076
+    res = (adu / (4095 - adu)) * 1000
+    temp = (0.2559552953839863 * res) - 255.7247996594076
     return temp
 
-#EB
+
+# EB
 def decode_eb_trps(adu: int) -> float:
     """Convert a thermistor ADU value to temperature in Celsius using the B-parameter equation."""
     # Constants
     T0 = 298  # K
     R0 = 5000  # Ω
     B = 3891
-    
+
     # Calculate resistance: R = 1000 * (2^16 / (2^16 - ADU) - 1)
     if adu >= 2**16 or adu < 0:
-        return float('nan')  # Avoid division by zero or invalid values
-    
+        return float("nan")  # Avoid division by zero or invalid values
+
     R = 1000 * ((2**16 / (2**16 - adu)) - 1)
-    
+
     # Check for invalid resistance values
     if R <= 0:
-        return float('nan')
-    
+        return float("nan")
+
     # B parameter equation: T = 1 / (1/T0 + (1/B) * ln(R/R0))
     T_kelvin = 1 / ((1 / T0) + (1 / B) * math.log(R / R0))
-    
+
     # Convert to Celsius
     T_celsius = T_kelvin - 273.15
-    
+
     return T_celsius

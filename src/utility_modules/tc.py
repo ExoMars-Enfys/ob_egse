@@ -1,13 +1,16 @@
 # Std library
 import logging
+
 # Added packages
 from datetime import datetime
 import time
+
 # Local modules
-#core
+# core
 from core_modules import config as config
 from core_modules import constants as const
-#utilities
+
+# utilities
 from utility_modules import comms as comms
 from utility_modules.crc8_function import crc8Calculate
 from utility_modules import tc as tc
@@ -25,12 +28,13 @@ beyond that should be done at a higher level, such as in the main script or send
 
 
 def send_tc(port, cmd_bytes: bytes, cmd_type):
-    """ Method to send a TC command to the EGSE. This method also logs the command to a file with a timestamp."""
+    """Method to send a TC command to the EGSE. This method also logs the command to a file with a timestamp."""
     # TODO: Would be nice to have a way to also include the short name of the command in the log.
     const.CMD_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
     const.CMD_LOG_FH.write(f"{cmd_type} - {bytes.hex(cmd_bytes, ' ', 2)}\n")
     port.write(cmd_bytes)
     return
+
 
 def verify_ack_hdr(parsed):
     """This function verifies the header parameters in the ACK response. If any of the parameters do not match the expected values, then a error condition is raised."""
@@ -45,6 +49,7 @@ def verify_ack_hdr(parsed):
     if parsed.ERROR_BYTE != 0:
         info_log.error(f"ACK ERROR_BYTE asserted. Got: {parsed.ERROR_BYTE}")
     return
+
 
 def verify_blank_ack_params(parsed: tm.ACK, start_index: int = 1):
     """This function verifies that all unused parameters in the ACK response are set to 0. Saves
@@ -70,13 +75,14 @@ def verify_blank_ack_params(parsed: tm.ACK, start_index: int = 1):
             info_log.error(f"ACK {key} not found in parsed response.")
     return
 
+
 def hk_request(port, verify=True):
     """Method to request HK - No parameters"""
     ## --- Send CMD ---
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
     info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
-    send_tc(port, cmd_tc, cmd_type = "HK")
+    send_tc(port, cmd_tc, cmd_type="HK")
 
     ## --- Get Response and check type ---
     response_bytes = tm.get_response(port, 66)
@@ -94,6 +100,7 @@ def hk_request(port, verify=True):
     # No verification performed here, but throughout scripts instead
 
     return parsed
+
 
 def clear_errors(port, verify_ack=True):
     """Method to Clear Errors - No parameters"""
@@ -127,6 +134,7 @@ def clear_errors(port, verify_ack=True):
     verify_blank_ack_params(parsed, start_index=1)
 
     return
+
 
 def set_errors(
     port,
@@ -166,6 +174,7 @@ def set_errors(
         info_log.error("Incorrect response to Set_Errors CMD")
         return
 
+
 def power_control(port, pwr_stat, verify_ack=True):
     """Method to send Power Control command. 0 - All OFF|1 - Mech ON|2 - Detec ON|3 - Both ON"""
     ## --- Check input parameters before sending CMD ---
@@ -203,6 +212,7 @@ def power_control(port, pwr_stat, verify_ack=True):
     verify_blank_ack_params(parsed, start_index=2)
 
     return
+
 
 def heater_control(
     port,
@@ -248,6 +258,7 @@ def heater_control(
     verify_blank_ack_params(parsed, start_index=2)
 
     return
+
 
 def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True):
     """Method to set Mechanism Thermal SetPoints. OFF_SP [0:FFF] | ON_SP [0:FFF]"""
@@ -303,6 +314,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
 
     return
 
+
 def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = True):
     """Method to set Detector Thermal SetPoints. OFF_SP [0:FFF] | ON_SP [0:FFF]"""
     ## --- Check input parameters before sending CMD ---
@@ -356,6 +368,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     verify_blank_ack_params(parsed, start_index=5)
 
     return
+
 
 def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = True):
     """Method to set Motor Parameters. PEAK_CURRENT [0:7F] Nom:40(85mA) | GUARD [0:FF] Nom: | RECVAL [0:FF] | SPEED [0:0F]"""
@@ -420,6 +433,7 @@ def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = T
 
     return
 
+
 def mtr_mov_pos(port, pos_steps, verify_ack=True):
     """Method to send Move Pos Steps command. POS_STEPS [0:10000]"""
     ## --- Check input parameters before sending CMD ---
@@ -458,6 +472,7 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
     verify_blank_ack_params(parsed, start_index=3)
 
     return
+
 
 def mtr_mov_neg(port, neg_steps, verify_ack=True):
     """Method to send Move Neg Steps command. NEG_STEPS [0:10000]"""
@@ -498,8 +513,9 @@ def mtr_mov_neg(port, neg_steps, verify_ack=True):
 
     return
 
+
 def mtr_homing(port, CAL: bool, OUTER: bool, verify=True):
-    """"Method to send Motor Homing command. 2 - CAL | 1 - DRIVE TO OUTER"""
+    """ "Method to send Motor Homing command. 2 - CAL | 1 - DRIVE TO OUTER"""
     ## --- Check input parameters before sending CMD ---
     # No parameters for CMD
 
@@ -535,6 +551,7 @@ def mtr_homing(port, CAL: bool, OUTER: bool, verify=True):
 
     return parsed
 
+
 def mtr_halt(port, verify=True):
     """Method to send Motor Halt command.No Parameters"""
     ## --- Check input parameters before sending CMD ---
@@ -567,8 +584,9 @@ def mtr_halt(port, verify=True):
 
     return
 
+
 def set_hk_samples(port, samp, verify_ack: bool = True):
-    """Method to send Set HK Samples command. SAMPLES [0:6] """
+    """Method to send Set HK Samples command. SAMPLES [0:6]"""
     ## --- Check input parameters before sending CMD ---
     if (samp < 0) or (samp > 0x06):
         info_log.error(f"Set HK samples command samp parameter out of limits. Rejected by EGSE {samp}")
@@ -602,6 +620,7 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
         info_log.error(f"Response does not match value. Got {parsed.PARAM1}, expected {samp}")
 
     verify_blank_ack_params(parsed, start_index=2)
+
 
 def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     """Method to send Set Sci Offset command. SWIR_OFFSET [0:FFF] | MWIR_OFFSET [0:FFF]"""
@@ -649,6 +668,7 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     verify_blank_ack_params(parsed, start_index=5)
 
     return
+
 
 # TODO: Update sci_request command so that it uses parameters SCI_ADC_SAMP and SCI_ADC_SKIP
 def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
