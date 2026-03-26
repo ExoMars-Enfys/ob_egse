@@ -1,23 +1,27 @@
+# Std library
 import logging
-import re
+
+# Added packages
 from datetime import datetime
+import re
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from nicegui import app, ui
 from matplotlib import dates as mdates
-from matplotlib.ticker import FuncFormatter
-import time
-import os
 
+# Local modules
+# core
+from core_modules import config as config
+from core_modules import constants as const
+from core_modules import tmstruct as tmstruct
 
-import constants as const
-import eb_interface
-import eb_sniffer
-import psu
-import sci_plot
-import tc
-import tmstruct
+# utilities
+from utility_modules import comms as comms
+from utility_modules import eb_packet_utility as eb_sniffer
+from utility_modules import eb_interface as eb_interface
+from utility_modules import tc as tc
+from utility_modules import tm as tm
 
 logger = logging.getLogger("info_log")
 level_options = {"INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
@@ -50,8 +54,8 @@ class LogElementHandler(logging.Handler):
 
 
 def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
-    rsrc_dir = Path(__file__).resolve().parent.parent / "rsrc"
-    app.add_static_files("/rsrc", rsrc_dir)
+    rsrc_dir = Path(__file__).resolve().parent.parent.parent / "rsrc"
+    app.add_static_files("./rsrc", rsrc_dir)
     gui_css_path = rsrc_dir / "guimasterconfig.css"
     gui_css_text = gui_css_path.read_text(encoding="utf-8")
 
@@ -157,25 +161,23 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
         return [
             name
             for name in ordered_names
-            if not name.startswith("UNUSED")
-            and not name.startswith("RESERVED")
-            and getattr(flag_ns, name, 0)
+            if not name.startswith("UNUSED") and not name.startswith("RESERVED") and getattr(flag_ns, name, 0)
         ]
 
     def _check_ob_fdir_alarm(hk) -> bool:
         """Check if OB has FDIR alarm or specific warning conditions"""
         if hk is None:
             return False
-        
+
         # Get warning flag names
         warning_names = [name for name, _ in tmstruct.eb_warning_flags]
         fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-        
+
         # Get active flags from warning bits
         warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
         fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
         fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-        
+
         # OB-specific warning flags
         ob_warning_flags = [
             "OB_FDIR_ALARM",
@@ -184,7 +186,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             "OB_UNRESPONSIVE",
             "OB_STEP_COUNT_MISMATCH",
         ]
-        
+
         # OB-related FDIR flags
         ob_fdir_flags = [
             "FPGA_IO_POWER_SUPPLY",
@@ -194,43 +196,43 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             "MECH_BOARD_TRP",
             "MOTOR_TRP",
         ]
-        
+
         # Check if any OB warning flags are active
         if any(flag in warning_bits for flag in ob_warning_flags):
             return True
-        
+
         # Check if any OB FDIR flags are active
         if any(flag in fdir_alarm_bits for flag in ob_fdir_flags):
             return True
         if any(flag in fdir_warning_bits for flag in ob_fdir_flags):
             return True
-        
+
         # Check for OB errors
         if _any_flag(getattr(hk, "ERRORS", None)):
             return True
         if _any_flag(getattr(hk, "MTR_ERRORS", None)):
             return True
-        
+
         return False
 
     def _check_eb_fdir_alarm(hk) -> bool:
         """Check if EB has specific error, warning, or FDIR alarm conditions"""
         if hk is None:
             return False
-        
+
         # Check TCS rejected
-        if hasattr(hk, 'TCS_REJECTED') and hk.TCS_REJECTED != 0:
+        if hasattr(hk, "TCS_REJECTED") and hk.TCS_REJECTED != 0:
             return True
-        
+
         # Get flag names
         warning_names = [name for name, _ in tmstruct.eb_warning_flags]
         fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-        
+
         # Get active flags from bits
         warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
         fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
         fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-        
+
         # EB-specific warning flags to check
         eb_warning_flags = [
             "GENERAL_ERROR",
@@ -244,7 +246,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             "RS485_RECEIVE_ERROR",
             "RS485_TRANSMIT_ERROR",
         ]
-        
+
         # EB-specific FDIR flags to check
         eb_fdir_flags = [
             "EB_PLUS_12V_SUPPLY",
@@ -255,17 +257,17 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             "INTERNAL_TRP_TEMPERATURE",
             "PSU_BOARD_TEMPERATURE",
         ]
-        
+
         # Check if any EB warning flags are active
         if any(flag in warning_bits for flag in eb_warning_flags):
             return True
-        
+
         # Check if any EB FDIR flags are active
         if any(flag in fdir_alarm_bits for flag in eb_fdir_flags):
             return True
         if any(flag in fdir_warning_bits for flag in eb_fdir_flags):
             return True
-        
+
         return False
 
     def _format_temperature(value_celsius: float, value_adu: int) -> str:
@@ -291,19 +293,19 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             return ["No HK data yet."]
         if kind == "ob":
             details = []
-            
+
             # OB ERRORS
             error_names = [name for name, _ in tmstruct.error_struct]
             errors = _active_flag_names(getattr(hk, "ERRORS", None), error_names)
             for error in errors:
                 details.append(f"OB Error: {error}")
-            
+
             # OB MOTOR ERRORS
             mtr_error_names = [name for name, _ in tmstruct.mtr_error_struct]
             mtr_errors = _active_flag_names(getattr(hk, "MTR_ERRORS", None), mtr_error_names)
             for error in mtr_errors:
                 details.append(f"OB Motor Error: {error}")
-            
+
             # OB warning flags (from WARNING_FLAGS_BITS)
             warning_names = [name for name, _ in tmstruct.eb_warning_flags]
             warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
@@ -317,7 +319,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             for flag in warning_bits:
                 if flag in ob_warning_flags:
                     details.append(f"OB Warning: {flag}")
-            
+
             # OB FDIR flags
             fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
             ob_fdir_flags = [
@@ -328,30 +330,30 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 "MECH_BOARD_TRP",
                 "MOTOR_TRP",
             ]
-            
+
             fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
             for flag in fdir_alarm_bits:
                 if flag in ob_fdir_flags:
                     details.append(f"OB FDIR Alarm: {flag}")
-            
+
             fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
             for flag in fdir_warning_bits:
                 if flag in ob_fdir_flags:
                     details.append(f"OB FDIR Warning: {flag}")
-            
+
             return details if details else ["No OB alarms"]
 
         if kind == "eb":
             details = []
-            
+
             # Check TCS rejected
-            if hasattr(hk, 'TCS_REJECTED') and hk.TCS_REJECTED != 0:
+            if hasattr(hk, "TCS_REJECTED") and hk.TCS_REJECTED != 0:
                 details.append("TCS Rejected")
-            
+
             # EB-specific warning flags
             warning_names = [name for name, _ in tmstruct.eb_warning_flags]
             warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
-            
+
             eb_warning_flags = [
                 "GENERAL_ERROR",
                 "EB_FDIR_ALARM",
@@ -364,16 +366,16 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 "RS485_RECEIVE_ERROR",
                 "RS485_TRANSMIT_ERROR",
             ]
-            
+
             for flag in warning_bits:
                 if flag in eb_warning_flags:
                     details.append(f"EB Warning: {flag}")
-            
+
             # EB-specific FDIR flags
             fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
             fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
             fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-            
+
             eb_fdir_flags = [
                 "EB_PLUS_12V_SUPPLY",
                 "EB_MINUS_12V_SUPPLY",
@@ -383,15 +385,15 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 "INTERNAL_TRP_TEMPERATURE",
                 "PSU_BOARD_TEMPERATURE",
             ]
-            
+
             for flag in fdir_alarm_bits:
                 if flag in eb_fdir_flags:
                     details.append(f"EB FDIR Alarm: {flag}")
-            
+
             for flag in fdir_warning_bits:
                 if flag in eb_fdir_flags:
                     details.append(f"EB FDIR Warning: {flag}")
-            
+
             return details if details else ["No EB alarms"]
 
         return ["Unknown alarm type."]
@@ -423,13 +425,11 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
         def _any_acknowledged(current_details: list[str], tcs_value: int) -> bool:
             return any(_is_detail_acknowledged(detail, tcs_value) for detail in current_details)
-        
+
         # Check if any detail is already acknowledged (suppressed)
         any_acknowledged = _any_acknowledged(details, tcs_rejected_value)
-        tcs_rejected_increased = (
-            kind == "eb" and tcs_rejected_value > alarm_last_tcs_rejected_seen[kind]
-        )
-        
+        tcs_rejected_increased = kind == "eb" and tcs_rejected_value > alarm_last_tcs_rejected_seen[kind]
+
         if is_active and any_acknowledged and not tcs_rejected_increased:
             alarm_last_active[kind] = True
             alarm_last_signature[kind] = signature
@@ -477,11 +477,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             lines.append(f"- {_escape_html(str(item))}")
         if isinstance(cleared_at, datetime):
             cleared_text = cleared_at.strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(
-                "<span style=\"font-weight: 700; color: #f0a500;\">"
-                f"Condition cleared at: {cleared_text}"
-                "</span>"
-            )
+            lines.append(f'<span style="font-weight: 700; color: #f0a500;">Condition cleared at: {cleared_text}</span>')
         return "<br>".join(lines)
 
     def _get_theme_palette(theme: str) -> dict[str, str]:
@@ -559,8 +555,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             dark=palette["primary_bg"],
         )
         ui.run_javascript(
-            "document.body.classList.remove('theme-dark','theme-light');"
-            f"document.body.classList.add('theme-{theme}');"
+            f"document.body.classList.remove('theme-dark','theme-light');document.body.classList.add('theme-{theme}');"
         )
         logo_src = logo_dark_src if theme == "dark" else logo_light_src
         _set_logo_sources(logo_src)
@@ -1174,7 +1169,9 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     0x08: "purple",
                 }
                 op_state_color = op_state_color_map.get(hk.CURRENT_OPERATING_STATE, "grey")
-                op_state_icon = "fiber_manual_record" if hk.CURRENT_OPERATING_STATE in op_state_color_map else "help_outline"
+                op_state_icon = (
+                    "fiber_manual_record" if hk.CURRENT_OPERATING_STATE in op_state_color_map else "help_outline"
+                )
                 if not hk_summary_manual_only:
                     labels["hk_tcs_accepted"].set_text(f"{hk.TCS_ACCEPTED}")
                     labels["hk_tcs_accepted"].set_background_color("green" if hk.TCS_ACCEPTED == 2 else "red")
@@ -1185,8 +1182,12 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["hk_tcs_rejected"].set_icon("check_circle" if hk.TCS_REJECTED == 0 else "error")
 
                     labels["hk_instr_status_flags"].set_text(f"{hk.INSTRUMENT_STATUS_FLAGS}")
-                    labels["hk_instr_status_flags"].set_background_color("green" if hk.INSTRUMENT_STATUS_FLAGS == 6 else "red")
-                    labels["hk_instr_status_flags"].set_icon("check_circle" if hk.INSTRUMENT_STATUS_FLAGS == 6 else "error")
+                    labels["hk_instr_status_flags"].set_background_color(
+                        "green" if hk.INSTRUMENT_STATUS_FLAGS == 6 else "red"
+                    )
+                    labels["hk_instr_status_flags"].set_icon(
+                        "check_circle" if hk.INSTRUMENT_STATUS_FLAGS == 6 else "error"
+                    )
 
                     set_chip_color(labels["hk_op_state"], op_state_label, op_state_color, op_state_icon)
 
@@ -1258,7 +1259,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["hk_eb_tec_drive_i"].set_background_color("green" if -0.1 <= eb_tec_i <= 0.1 else "red")
                     labels["hk_eb_tec_drive_i"].set_icon("check_circle" if -0.1 <= eb_tec_i <= 0.1 else "error")
 
-                v3v3 = (hk.OB_3V3_VOLTAGE *2) / 1000
+                v3v3 = (hk.OB_3V3_VOLTAGE * 2) / 1000
                 v1v5 = hk.OB_1V5_VOLTAGE / 1000
                 dig_trp_adu = hk.OB_DIGITAL_TRP
                 dig_trp = eb_sniffer.decode_ob_trps(dig_trp_adu)
@@ -1370,7 +1371,6 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     "ok" if hk.TCS_REJECTED == 0 else "alarm",
                 )
 
-                
                 is_adu_mode = temperature_units["value"] == "ADU"
                 plot_3v3_value = hk.OB_3V3_VOLTAGE if is_adu_mode else v3v3
                 plot_1v5_value = hk.OB_1V5_VOLTAGE if is_adu_mode else v1v5
@@ -1397,11 +1397,9 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     temp_y_limits = (temp_default_limits[0] - 20, temp_default_limits[1] + 20)
                 labels["plot_temps"].push([hk.TIME], temp_series_values, y_limits=temp_y_limits)
 
-                
-
                 if "cmd_cnt" in labels:
                     labels["cmd_cnt"].set_text(f"{hk.OB_COMMAND_COUNT}")
-                
+
                 # Always display voltage and temperature values
                 if "3v3" in labels:
                     if hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01:
@@ -1413,7 +1411,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     else:
                         labels["3v3"].set_text(_format_voltage(v3v3, hk.OB_3V3_VOLTAGE, precision=3))
                         labels["3v3"].set_background_color("grey")
-                
+
                 if "1v5" in labels:
                     if hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01:
                         set_chip_state(
@@ -1436,7 +1434,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     else:
                         labels["DIG"].set_text(_format_temperature(dig_trp, dig_trp_adu))
                         labels["DIG"].set_background_color("grey")
-                
+
                 if "DET" in labels:
                     if hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01:
                         set_chip_state(
@@ -1447,7 +1445,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     else:
                         labels["DET"].set_text(_format_temperature(det_trp, det_trp_adu))
                         labels["DET"].set_background_color("grey")
-                
+
                 if "MECH" in labels:
                     if hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01:
                         set_chip_state(
@@ -1458,7 +1456,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     else:
                         labels["MECH"].set_text(_format_temperature(mech_trp, mech_trp_adu))
                         labels["MECH"].set_background_color("grey")
-                
+
                 if "MTR" in labels:
                     if hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01:
                         set_chip_state(
@@ -1469,7 +1467,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     else:
                         labels["MTR"].set_text(_format_temperature(mot_trp, mot_trp_adu))
                         labels["MTR"].set_background_color("grey")
-                
+
                 # Always show OB enabled state
                 ob_enabled = bool(hk.INSTR_STATUS_FLAGS.OB_5V_ENABLED & 0x01)
                 labels["OB_ENBLD"].set_text("ON" if ob_enabled else "OFF")
@@ -1478,24 +1476,36 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
                 labels["HOME"].set_text("YES" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "NO")
                 labels["HOME"].set_background_color("green" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "grey")
-                labels["HOME"].set_icon("check_circle_outline" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "highlight_off")
+                labels["HOME"].set_icon(
+                    "check_circle_outline" if hk.INSTR_STATUS_FLAGS.HOMING_COMPLETE & 0x01 else "highlight_off"
+                )
 
                 parked = not bool(hk.INSTR_STATUS_FLAGS.MECHANISM_PARKED & 0x01)
                 labels["PARKED"].set_text("YES" if parked else "NO")
                 labels["PARKED"].set_background_color("orange" if parked else "grey")
                 labels["PARKED"].set_icon("directions_car" if parked else "highlight_off")
 
-                labels["OB_WARM"].set_text("YES" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "NO")
-                labels["OB_WARM"].set_background_color("green" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "grey")
-                labels["OB_WARM"].set_icon("check_circle_outline" if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01) else "highlight_off")
-
-
+                labels["OB_WARM"].set_text(
+                    "YES"
+                    if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01)
+                    else "NO"
+                )
+                labels["OB_WARM"].set_background_color(
+                    "green"
+                    if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01)
+                    else "grey"
+                )
+                labels["OB_WARM"].set_icon(
+                    "check_circle_outline"
+                    if (hk.INSTR_STATUS_FLAGS.DETECTOR_WARM & hk.INSTR_STATUS_FLAGS.MECHANISM_WARM & 0x01)
+                    else "highlight_off"
+                )
 
                 # Always update MECH_PWR and DET_PWR with actual power state
                 # Use INSTRUMENT_STATUS_FLAGS for power board enables
                 mech_pwr_on = bool(hk.INSTR_STATUS_FLAGS.OB_MECHANISM_BOARD_ENABLED & 0x01)
                 det_pwr_on = bool(hk.INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED & 0x01)
-                
+
                 labels["MECH_PWR"].set_text("ON" if mech_pwr_on else "OFF")
                 labels["MECH_PWR"].set_background_color("green" if mech_pwr_on else "red")
                 labels["MECH_PWR"].set_icon("check_circle_outline" if mech_pwr_on else "highlight_off")
@@ -1522,19 +1532,36 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["MTR_MOV"].set_icon("rotate_right" if (hk.MTR_FLAGS.MOVING & 0x01) else "do_not_disturb_on")
 
                     labels["DIRECTION"].set_text(("TO BASE" if (hk.MTR_FLAGS.DIR == 0x0) else "TO OUTER"))
-                    labels["DIRECTION"].set_background_color("purple" if (hk.MTR_FLAGS.DIR == 0x0) else ("blue" if (hk.MTR_FLAGS.DIR == 0x01) else "grey"))
-                    labels["DIRECTION"].set_icon("keyboard_double_arrow_left" if (hk.MTR_FLAGS.DIR == 0x0) else ("keyboard_double_arrow_right" if (hk.MTR_FLAGS.DIR == 0x01) else "do_not_disturb_on"))
-                    
-                    labels["STOP"].set_text(("BASE" if (hk.MTR_FLAGS.BASE & 0x01) else ("OUTER" if (hk.MTR_FLAGS.OUTER & 0x01) else "Not At Stop")))
-                    labels["STOP"].set_background_color("purple" if (hk.MTR_FLAGS.BASE & 0x01) else ("blue" if (hk.MTR_FLAGS.OUTER & 0x01) else "grey"))
-                    labels["STOP"].set_icon("first_page" if (hk.MTR_FLAGS.BASE & 0x01) else ("last_page" if (hk.MTR_FLAGS.OUTER & 0x01) else "do_not_disturb_on"))
+                    labels["DIRECTION"].set_background_color(
+                        "purple" if (hk.MTR_FLAGS.DIR == 0x0) else ("blue" if (hk.MTR_FLAGS.DIR == 0x01) else "grey")
+                    )
+                    labels["DIRECTION"].set_icon(
+                        "keyboard_double_arrow_left"
+                        if (hk.MTR_FLAGS.DIR == 0x0)
+                        else ("keyboard_double_arrow_right" if (hk.MTR_FLAGS.DIR == 0x01) else "do_not_disturb_on")
+                    )
+
+                    labels["STOP"].set_text(
+                        (
+                            "BASE"
+                            if (hk.MTR_FLAGS.BASE & 0x01)
+                            else ("OUTER" if (hk.MTR_FLAGS.OUTER & 0x01) else "Not At Stop")
+                        )
+                    )
+                    labels["STOP"].set_background_color(
+                        "purple" if (hk.MTR_FLAGS.BASE & 0x01) else ("blue" if (hk.MTR_FLAGS.OUTER & 0x01) else "grey")
+                    )
+                    labels["STOP"].set_icon(
+                        "first_page"
+                        if (hk.MTR_FLAGS.BASE & 0x01)
+                        else ("last_page" if (hk.MTR_FLAGS.OUTER & 0x01) else "do_not_disturb_on")
+                    )
 
                     labels["ABS_STEPS"].set_text(f"{hk.OB_MOTOR_ABS_STEPS}")
 
-                    labels["MECH_CAL"].set_text("CALIBRATED" if hk.MTR_FLAGS.CAL&0x01 else "--")
+                    labels["MECH_CAL"].set_text("CALIBRATED" if hk.MTR_FLAGS.CAL & 0x01 else "--")
                     labels["MECH_CAL"].set_background_color("green" if hk.THRM_STATUS.MA else "grey")
                     labels["MECH_CAL"].set_icon("check_circle_outline" if hk.THRM_STATUS.MA else "highlight_off")
-
 
                     labels["MECH_HTR_STAT"].set_text_color("green" if hk.THRM_STATUS.HMS else "red")
                     labels["MECH_HTR_MAN"].set_text("ON" if hk.THRM_STATUS.MM else "OFF")
@@ -1557,11 +1584,27 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 else:
                     # Reset OB Status chips when OB_5V_ENABLED is 0, but keep MECH_PWR/DET_PWR greyed with their values
 
-                    for label in ["ob_3v3", "ob_1v5", "MTR_MOV", "DIRECTION", "MECH_PWR","DET_PWR","STOP", "ABS_STEPS", "MECH_HTR_STAT", "MECH_HTR_MAN", "MECH_HTR_AUTO", "DET_HTR_STAT", "DET_HTR_MAN", "DET_HTR_AUTO", "HTR_SCI"]:
+                    for label in [
+                        "ob_3v3",
+                        "ob_1v5",
+                        "MTR_MOV",
+                        "DIRECTION",
+                        "MECH_PWR",
+                        "DET_PWR",
+                        "STOP",
+                        "ABS_STEPS",
+                        "MECH_HTR_STAT",
+                        "MECH_HTR_MAN",
+                        "MECH_HTR_AUTO",
+                        "DET_HTR_STAT",
+                        "DET_HTR_MAN",
+                        "DET_HTR_AUTO",
+                        "HTR_SCI",
+                    ]:
                         if label in labels:
-                            if hasattr(labels[label], 'set_background_color'):
+                            if hasattr(labels[label], "set_background_color"):
                                 labels[label].set_background_color("grey")
-                            if hasattr(labels[label], 'set_text'):
+                            if hasattr(labels[label], "set_text"):
                                 labels[label].set_text("---")
 
                 labels["ERR_IPI"].set_background_color("red" if hk.ERRORS.IPI else "grey")
@@ -1661,17 +1704,17 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
                         # Update overall POST status
                         all_post_passed = (
-                            post.POST_WARNING_FLAGS == 0 and
-                            post.POST_ERROR_FLAGS == 0 and
-                            post.NUM_BAD_FLASH_BLOCKS == 0 and
-                            post.NUM_BAD_SRAM_BLOCKS == 0 and
-                            post.ASW_IMAGE_1_CRC == 0xBAF7 and
-                            post.ASW_IMAGE_2_CRC == 0x5C55 and
-                            post.ASW_IMAGE_3_CRC == 0x01CB and
-                            post.ASW_IMAGE_4_CRC == 0x5318 and
-                            post.ASW_IMAGE_5_CRC == 0xDCAE and
-                            post.BSW_IMAGE_CRC == 0xD2D7 and
-                            post.MEASUREMENT_TABLE_CRC == 0x9D9B
+                            post.POST_WARNING_FLAGS == 0
+                            and post.POST_ERROR_FLAGS == 0
+                            and post.NUM_BAD_FLASH_BLOCKS == 0
+                            and post.NUM_BAD_SRAM_BLOCKS == 0
+                            and post.ASW_IMAGE_1_CRC == 0xBAF7
+                            and post.ASW_IMAGE_2_CRC == 0x5C55
+                            and post.ASW_IMAGE_3_CRC == 0x01CB
+                            and post.ASW_IMAGE_4_CRC == 0x5318
+                            and post.ASW_IMAGE_5_CRC == 0xDCAE
+                            and post.BSW_IMAGE_CRC == 0xD2D7
+                            and post.MEASUREMENT_TABLE_CRC == 0x9D9B
                         )
                         if all_post_passed:
                             labels["post_status"].set_text("✅ POST TEST PASSED")
@@ -1708,10 +1751,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 if len(sci_packets) > max_sci_packets:
                     del sci_packets[:-max_sci_packets]
 
-                sci_packet_identities = {
-                    _sci_packet_identity(packet)
-                    for packet in sci_packets
-                }
+                sci_packet_identities = {_sci_packet_identity(packet) for packet in sci_packets}
 
                 if new_sci_packets > 0:
                     _set_sci_packet(len(sci_packets) - 1)
@@ -1761,7 +1801,6 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
     def index() -> None:
         ui.add_css(gui_css_text, shared=True)
         apply_theme(theme_state["value"])
-
 
         def stop_and_shutdown() -> None:
             if stop_event is not None:
@@ -1861,18 +1900,20 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             _log_psu_snapshot()
 
         # Splash screen
-        with ui.dialog().props('persistent') as splash_dialog:
-            with ui.card().classes('items-center').style('min-width: 400px; padding: 2rem;'):
+        with ui.dialog().props("persistent") as splash_dialog:
+            with ui.card().classes("items-center").style("min-width: 400px; padding: 2rem;"):
                 logo_images.append(ui.image(logo_light_src).props("contain").classes("w-64 brand-logo"))
                 ui.markdown("# EB EGSE v0.5").classes("text-center mt-4")
                 ui.button(
                     "Complete Form to Continue",
                     on_click=lambda: (
                         ui.run_javascript('window.open("https://forms.office.com/e/gbzkXdQvCE", "_blank")'),
-                        splash_dialog.close()
-                    )
+                        splash_dialog.close(),
+                    ),
                 ).classes("mt-6").props("color=accent_color size=lg")
-                ui.label("Skip").classes("mt-4 underline text-xs cursor-pointer").style("color: var(--text-color)").on("click", lambda: splash_dialog.close())
+                ui.label("Skip").classes("mt-4 underline text-xs cursor-pointer").style("color: var(--text-color)").on(
+                    "click", lambda: splash_dialog.close()
+                )
 
         splash_dialog.open()
 
@@ -1930,19 +1971,31 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
         ui.timer(1.0, refresh_egse_log)
 
-        with ui.right_drawer(top_corner=True, bottom_corner=True).style("background-color: var(--secondary-bg)").props("width=550 bordered") as right_drawer:
+        with (
+            ui.right_drawer(top_corner=True, bottom_corner=True)
+            .style("background-color: var(--secondary-bg)")
+            .props("width=550 bordered") as right_drawer
+        ):
             with ui.row().classes("w-full items-center justify-between mb-2"):
                 logo_images.append(ui.image(logo_light_src).props("contain").classes("w-64 brand-logo"))
                 with ui.row().classes("items-center gap-6"):
-                    with ui.column().classes("items-center gap-1 cursor-pointer").on(
-                        "click",
-                        lambda: show_alarm_dialog("OB", "ob"),
+                    with (
+                        ui.column()
+                        .classes("items-center gap-1 cursor-pointer")
+                        .on(
+                            "click",
+                            lambda: show_alarm_dialog("OB", "ob"),
+                        )
                     ):
                         ui.label("OB").classes("text-xs")
                         labels["ob_warning_light"] = ui.element("div").classes("status-light status-light-lg ok")
-                    with ui.column().classes("items-center gap-1 cursor-pointer").on(
-                        "click",
-                        lambda: show_alarm_dialog("EB", "eb"),
+                    with (
+                        ui.column()
+                        .classes("items-center gap-1 cursor-pointer")
+                        .on(
+                            "click",
+                            lambda: show_alarm_dialog("EB", "eb"),
+                        )
                     ):
                         ui.label("EB").classes("text-xs")
                         labels["eb_warning_light"] = ui.element("div").classes("status-light status-light-lg ok")
@@ -1968,30 +2021,46 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ui.markdown("**OP**").classes("text-xs")
                     labels["op_state"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
-                with ui.column().classes("items-center w-full gap-0 cursor-pointer").on(
-                    "click",
-                    lambda: show_flags_dialog("Error Flags Bitmap", "ERROR_FLAGS_BITS"),
+                with (
+                    ui.column()
+                    .classes("items-center w-full gap-0 cursor-pointer")
+                    .on(
+                        "click",
+                        lambda: show_flags_dialog("Error Flags Bitmap", "ERROR_FLAGS_BITS"),
+                    )
                 ):
                     ui.markdown("**ERRORS**").classes("text-xs")
                     labels["error_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
-                with ui.column().classes("items-center w-full gap-0 cursor-pointer").on(
-                    "click",
-                    lambda: show_flags_dialog("Warning Flags Bitmap", "WARNING_FLAGS_BITS"),
+                with (
+                    ui.column()
+                    .classes("items-center w-full gap-0 cursor-pointer")
+                    .on(
+                        "click",
+                        lambda: show_flags_dialog("Warning Flags Bitmap", "WARNING_FLAGS_BITS"),
+                    )
                 ):
                     ui.markdown("**WARNS**").classes("text-xs")
                     labels["warning_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
-                
-                with ui.column().classes("items-center w-full gap-0 cursor-pointer").on(
-                    "click",
-                    lambda: show_flags_dialog("FDIR Alarm Flags Bitmap", "FDIR_ALARM_FLAGS_BITS"),
+
+                with (
+                    ui.column()
+                    .classes("items-center w-full gap-0 cursor-pointer")
+                    .on(
+                        "click",
+                        lambda: show_flags_dialog("FDIR Alarm Flags Bitmap", "FDIR_ALARM_FLAGS_BITS"),
+                    )
                 ):
                     ui.markdown("**FDIR ALM**").classes("text-xs")
                     labels["fdir_alarms"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
-                
-                with ui.column().classes("items-center w-full gap-0 cursor-pointer").on(
-                    "click",
-                    lambda: show_flags_dialog("FDIR Warning Flags Bitmap", "FDIR_WARNING_FLAGS_BITS"),
+
+                with (
+                    ui.column()
+                    .classes("items-center w-full gap-0 cursor-pointer")
+                    .on(
+                        "click",
+                        lambda: show_flags_dialog("FDIR Warning Flags Bitmap", "FDIR_WARNING_FLAGS_BITS"),
+                    )
                 ):
                     ui.markdown("**FDIR WRN**").classes("text-xs")
                     labels["fdir_warnings"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
@@ -2037,12 +2106,12 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**TEC Drive I**")
-                    labels["eb_tec_i"] = ui.chip("---", color="grey", icon="help_outline").props("dense")                
+                    labels["eb_tec_i"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
 
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**PELTIER TEMP**")
                     labels["eb_peltier_temp"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
-                
+
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**TEC DAC OUT**")
                     labels["eb_tec_dac_out"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
@@ -2050,7 +2119,6 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**TEC at Set**")
                     labels["tec_at_setpoint"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
-
 
             ui.separator()
             ui.markdown("**OB STATUS**").classes("gap-0")
@@ -2087,7 +2155,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**OB ENBLD**")
                     labels["OB_ENBLD"] = ui.chip("OB_ENBLD", selectable=False, icon="highlight_off", color="grey")
-                
+
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**HOME**")
                     labels["HOME"] = ui.chip("---", selectable=False, icon="highlight_off", color="grey")
@@ -2121,13 +2189,13 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["STOP"] = ui.chip(selectable=False, icon="highlight_off", color="grey")
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**STEPS**").classes("text-xs")
-                    labels["ABS_STEPS"] = ui.chip("---", color="grey", icon="help_outline").props("dense")                
+                    labels["ABS_STEPS"] = ui.chip("---", color="grey", icon="help_outline").props("dense")
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**MECH CAL**").classes("text-xs")
                     labels["MECH_CAL"] = ui.chip("CAL", selectable=False, icon="highlight_off", color="grey")
 
             ui.markdown("**MECH HEATER STATUS**")
-            with ui.grid(columns = 3).classes("w-full gap-2"):
+            with ui.grid(columns=3).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**STATUS**").classes("text-xs")
                     labels["MECH_HTR_STAT"] = ui.icon("fiber_manual_record", size="2em").classes("text-red")
@@ -2139,7 +2207,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     labels["MECH_HTR_AUTO"] = ui.chip("AUTO", selectable=False, icon="highlight_off", color="grey")
 
             ui.markdown("**DET HEATER STATUS**")
-            with ui.grid(columns = 4).classes("w-full gap-2"):
+            with ui.grid(columns=4).classes("w-full gap-2"):
                 with ui.column().classes("items-center w-full gap-0"):
                     ui.markdown("**STATUS**").classes("text-xs")
                     labels["DET_HTR_STAT"] = ui.icon("fiber_manual_record", size="2em").classes("text-red")
@@ -2163,8 +2231,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 labels["ERR_TMO"] = ui.chip("TMO", color="grey").classes("m-0 w-full")
                 labels["ERR_IPA"] = ui.chip("IPA", color="grey").classes("m-0 w-full")
 
-                
-                labels["ERR_CD"] = ui.chip("CD", color="grey").classes("m-0 w-full")                
+                labels["ERR_CD"] = ui.chip("CD", color="grey").classes("m-0 w-full")
                 labels["ERR_AB"] = ui.chip("AB", color="grey").classes("m-0 w-full")
                 labels["ERR_ABS"] = ui.chip("ABS", color="grey").classes("m-0 w-full")
                 labels["ERR_DSE"] = ui.chip("DSE", color="grey").classes("m-0 w-full")
@@ -2174,33 +2241,57 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 pill_btn_props = "color=accent_color size=sm dense"
                 pill_btn_style = "padding: 2px 12px; min-height: 26px; border-radius: 0;"
                 with ui.button_group().style("border-radius: 9999px; overflow: hidden;"):
-                    ui.button("Display Log Terminal", on_click=footer.toggle).props(pill_btn_props).style(pill_btn_style)
-                    ui.button("Toggle Fullscreen", on_click=fullscreen.toggle).props(pill_btn_props).style(pill_btn_style)
+                    ui.button("Display Log Terminal", on_click=footer.toggle).props(pill_btn_props).style(
+                        pill_btn_style
+                    )
+                    ui.button("Toggle Fullscreen", on_click=fullscreen.toggle).props(pill_btn_props).style(
+                        pill_btn_style
+                    )
                     ui.button("Toggle Theme", on_click=toggle_theme).props(pill_btn_props).style(pill_btn_style)
-                    labels["unit_toggle_btn"] = ui.button(
-                        f"Unit Toggle : {temperature_units['value']}",
-                        on_click=toggle_temperature_units,
-                    ).props(pill_btn_props).style(pill_btn_style)
+                    labels["unit_toggle_btn"] = (
+                        ui.button(
+                            f"Unit Toggle : {temperature_units['value']}",
+                            on_click=toggle_temperature_units,
+                        )
+                        .props(pill_btn_props)
+                        .style(pill_btn_style)
+                    )
 
-        with ui.left_drawer(fixed=True).style("background-color: var(--secondary-bg)").props("width=400 bordered") as left_drawer:
+        with (
+            ui.left_drawer(fixed=True)
+            .style("background-color: var(--secondary-bg)")
+            .props("width=400 bordered") as left_drawer
+        ):
             with ui.row(align_items="center").classes("w-full justify-between"):
                 ui.markdown("**MENU**").classes("text-xs")
                 ui.button(icon="close", on_click=lambda: left_drawer.toggle()).props("color=accent_color dense flat")
             with ui.row(align_items="center").classes("w-full justify-center pr-16"):
                 with ui.grid(columns=2).classes("w-full gap-x-2 gap-y-2"):
-                    ui.button("Start Tools", on_click=start_tools_handler).props("color=accent_color size=sm dense").classes("col-span-1 text-xs")
-                    ui.button("Stop Tools", on_click=stop_tools_handler).props("color=accent_color size=sm dense").classes("col-span-1 text-xs")
-                    ui.button("Select Folder", on_click=lambda: eb_interface.select_egse_folder(logger)).props("color=accent_color size=sm dense").classes("col-span-1 text-xs")
-                    ui.button("Select Script", on_click=lambda: eb_interface.select_egse_script(logger)).props("color=accent_color size=sm dense").classes("col-span-1 text-xs")
-                    ui.button("Select Log", on_click=select_log_handler).props("color=accent_color size=sm dense").classes("col-span-1 text-xs")
-            with ui.expansion('EB HK').classes('w-full overflow-x-hidden'):
+                    ui.button("Start Tools", on_click=start_tools_handler).props(
+                        "color=accent_color size=sm dense"
+                    ).classes("col-span-1 text-xs")
+                    ui.button("Stop Tools", on_click=stop_tools_handler).props(
+                        "color=accent_color size=sm dense"
+                    ).classes("col-span-1 text-xs")
+                    ui.button("Select Folder", on_click=lambda: eb_interface.select_egse_folder(logger)).props(
+                        "color=accent_color size=sm dense"
+                    ).classes("col-span-1 text-xs")
+                    ui.button("Select Script", on_click=lambda: eb_interface.select_egse_script(logger)).props(
+                        "color=accent_color size=sm dense"
+                    ).classes("col-span-1 text-xs")
+                    ui.button("Select Log", on_click=select_log_handler).props(
+                        "color=accent_color size=sm dense"
+                    ).classes("col-span-1 text-xs")
+            with ui.expansion("EB HK").classes("w-full overflow-x-hidden"):
                 with ui.tabs().props("dense align=justify").classes("w-full text-xs") as tabs:
                     response_tab = ui.tab("Response HK").classes("text-xs")
                     post_tab = ui.tab("POST HK").classes("text-xs")
                     sci_tab = ui.tab("SCI").classes("text-xs")
                 with ui.tab_panels(tabs, value=response_tab).classes("w-full overflow-x-hidden"):
                     with ui.tab_panel(response_tab).classes("w-full overflow-x-hidden text-xs"):
-                        ui.button("Check HK Packet", on_click=check_hk_manually, icon="verified").props("color=accent_color")
+                        ui.button("Check HK Packet", on_click=check_hk_manually, icon="verified").props(
+                            "color=accent_color"
+                        )
                         ui.markdown("**HK Summary**")
                         with ui.grid(columns=3).classes("w-full gap-x-2 gap-y-2"):
                             ui.label("Item").classes("font-bold")
@@ -2208,144 +2299,274 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                             ui.label("Expected").classes("font-bold")
 
                             ui.label("TCs Accepted")
-                            labels["hk_tcs_accepted"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_tcs_accepted"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("2")
 
                             ui.label("TCs Rejected")
-                            labels["hk_tcs_rejected"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_tcs_rejected"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("Instrument Status Flags")
-                            labels["hk_instr_status_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_instr_status_flags"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("6")
 
                             ui.label("Current Operating State")
-                            labels["hk_op_state"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_op_state"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("SAFE")
 
                             ui.label("Error Flags")
-                            labels["hk_error_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_error_flags"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("Warning Flags")
-                            labels["hk_warning_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_warning_flags"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("FDIR Alarm Flags")
-                            labels["hk_fdir_alarms"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_fdir_alarms"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("FDIR Warning Flags")
-                            labels["hk_fdir_warnings"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_fdir_warnings"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("EB +12V (V)")
-                            labels["hk_eb_12v"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_12v"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("11.0 - 13.0 V")
 
                             ui.label("EB -12V (V)")
-                            labels["hk_eb_neg12v"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_neg12v"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("-13.0 - -11.0 V")
 
                             ui.label("EB +5V (V)")
-                            labels["hk_eb_5v"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_5v"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("4.5 - 5.5 V")
 
                             ui.label("EB +3V3 (V)")
-                            labels["hk_eb_3v3"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_3v3"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("2.8 - 3.8 V")
 
                             ui.label("EB TEC_V (V)")
-                            labels["hk_eb_tec_v"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_tec_v"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("-0.5 - 0.5 V")
 
                             ui.label("EB 0V (V)")
-                            labels["hk_eb_0v"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_0v"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("-0.5 - 0.5 V")
 
                             ui.label("EB MCU Internal Temp (raw)")
-                            labels["hk_eb_mcu_temp"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_mcu_temp"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("18.0 - 43.0 C")
 
                             ui.label("EB Peltier Temp (raw)")
-                            labels["hk_eb_peltier_temp"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_peltier_temp"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("18.0 - 43.0 C")
 
                             ui.label("EB Internal TRP Temp (raw)")
-                            labels["hk_eb_internal_trp"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_internal_trp"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("18.0 - 43.0 C")
 
                             ui.label("EB PSU Board Temp (raw)")
-                            labels["hk_eb_psu_board_temp"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_psu_board_temp"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("18.0 - 43.0 C")
 
                             ui.label("EB TEC Drive Current (A)")
-                            labels["hk_eb_tec_drive_i"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["hk_eb_tec_drive_i"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("-0.1 - 0.1 A")
 
                     with ui.tab_panel(post_tab).classes("w-full overflow-x-hidden text-xs"):
-                        ui.button("Check POST Packet", on_click=check_post_manually, icon="verified").props("color=accent_color")
+                        ui.button("Check POST Packet", on_click=check_post_manually, icon="verified").props(
+                            "color=accent_color"
+                        )
                         ui.markdown("**POST Packet Parameters**")
                         labels["post_status"] = ui.label("⏳ Waiting for POST HK packet...").classes("text-lg")
                         ui.separator()
-                        
+
                         with ui.grid(columns=3).classes("w-full gap-x-2 gap-y-2"):
                             ui.label("Parameter").classes("font-bold")
                             ui.label("Recorded").classes("font-bold")
                             ui.label("Expected").classes("font-bold")
 
                             ui.label("POST Warning Flags")
-                            labels["post_warning_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_warning_flags"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("POST Error Flags")
-                            labels["post_error_flags"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_error_flags"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("Num Bad Flash Blocks")
-                            labels["post_bad_flash"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_bad_flash"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("Num Bad SRAM Blocks")
-                            labels["post_bad_sram"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_bad_sram"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0")
 
                             ui.label("ASW Image#1 CRC")
-                            labels["post_asw1_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_asw1_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0xBAF7")
 
                             ui.label("ASW Image#2 CRC")
-                            labels["post_asw2_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_asw2_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0x5C55")
 
                             ui.label("ASW Image#3 CRC")
-                            labels["post_asw3_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_asw3_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0x01CB")
 
                             ui.label("ASW Image#4 CRC")
-                            labels["post_asw4_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_asw4_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0x5318")
 
                             ui.label("ASW Image#5 CRC")
-                            labels["post_asw5_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_asw5_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0xDCAE")
 
                             ui.label("BSW Image CRC")
-                            labels["post_bsw_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_bsw_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0xD2D7")
 
                             ui.label("Measurement Table CRC")
-                            labels["post_meas_table_crc"] = ui.chip("---", color="grey", icon="help_outline").props("dense").classes("w-fit text-xs")
+                            labels["post_meas_table_crc"] = (
+                                ui.chip("---", color="grey", icon="help_outline")
+                                .props("dense")
+                                .classes("w-fit text-xs")
+                            )
                             ui.label("0x9D9B")
 
                     with ui.tab_panel(sci_tab).classes("w-full overflow-x-hidden text-xs"):
                         labels["sci_status"] = ui.label("⏳ Waiting for science packet...").classes("text-lg")
                         with ui.row(align_items="center").classes("w-full justify-between gap-2"):
-                            ui.button(icon="skip_previous", on_click=lambda: _set_sci_packet(0)).props("dense flat color=accent_color").tooltip("First packet")
-                            ui.button(icon="chevron_left", on_click=lambda: _shift_sci_packet(-1)).props("dense flat color=accent_color")
+                            ui.button(icon="skip_previous", on_click=lambda: _set_sci_packet(0)).props(
+                                "dense flat color=accent_color"
+                            ).tooltip("First packet")
+                            ui.button(icon="chevron_left", on_click=lambda: _shift_sci_packet(-1)).props(
+                                "dense flat color=accent_color"
+                            )
                             labels["sci_packet_index"] = ui.label("Packet 0 / 0").classes("font-bold")
-                            ui.button(icon="chevron_right", on_click=lambda: _shift_sci_packet(1)).props("dense flat color=accent_color")
-                            ui.button(icon="skip_next", on_click=lambda: _set_sci_packet(len(sci_packets) - 1)).props("dense flat color=accent_color").tooltip("Last packet")
+                            ui.button(icon="chevron_right", on_click=lambda: _shift_sci_packet(1)).props(
+                                "dense flat color=accent_color"
+                            )
+                            ui.button(icon="skip_next", on_click=lambda: _set_sci_packet(len(sci_packets) - 1)).props(
+                                "dense flat color=accent_color"
+                            ).tooltip("Last packet")
                         with ui.row(align_items="center").classes("w-full gap-2"):
                             ui.label("Packet Type:").classes("font-bold")
                             labels["sci_packet_type"] = ui.label("---")
@@ -2361,11 +2582,31 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                         ui.separator()
                         with ui.expansion("Science Data Point").classes("w-full"):
                             with ui.row(align_items="center").classes("w-full justify-between gap-2"):
-                                ui.button(icon="skip_previous", on_click=lambda: (sci_view_state.update({"index": 0}), _update_sci_panel())).props("dense flat color=accent_color").tooltip("First")
-                                ui.button(icon="chevron_left", on_click=lambda: _shift_sci_point(-1)).props("dense flat color=accent_color")
+                                ui.button(
+                                    icon="skip_previous",
+                                    on_click=lambda: (sci_view_state.update({"index": 0}), _update_sci_panel()),
+                                ).props("dense flat color=accent_color").tooltip("First")
+                                ui.button(icon="chevron_left", on_click=lambda: _shift_sci_point(-1)).props(
+                                    "dense flat color=accent_color"
+                                )
                                 labels["sci_point_index"] = ui.label("Point 0 / 0").classes("font-bold")
-                                ui.button(icon="chevron_right", on_click=lambda: _shift_sci_point(1)).props("dense flat color=accent_color")
-                                ui.button(icon="skip_next", on_click=lambda: (sci_view_state.update({"index": max(0, (last_sci["value"].SCI_POINT_COUNT - 1) if last_sci["value"] else 0)}), _update_sci_panel())).props("dense flat color=accent_color").tooltip("Last")
+                                ui.button(icon="chevron_right", on_click=lambda: _shift_sci_point(1)).props(
+                                    "dense flat color=accent_color"
+                                )
+                                ui.button(
+                                    icon="skip_next",
+                                    on_click=lambda: (
+                                        sci_view_state.update(
+                                            {
+                                                "index": max(
+                                                    0,
+                                                    (last_sci["value"].SCI_POINT_COUNT - 1) if last_sci["value"] else 0,
+                                                )
+                                            }
+                                        ),
+                                        _update_sci_panel(),
+                                    ),
+                                ).props("dense flat color=accent_color").tooltip("Last")
 
                             with ui.grid(columns=2).classes("w-full gap-x-8 gap-y-2"):
                                 ui.label("Data").classes("font-bold")
@@ -2376,25 +2617,27 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
 
                         ui.separator()
                         with ui.row(align_items="center").classes("w-full justify-center"):
-                            ui.button("Plot Science Data", icon="show_chart", on_click=_plot_sci_buffer).props("color=accent_color rounded").classes("rounded-full px-6")
+                            ui.button("Plot Science Data", icon="show_chart", on_click=_plot_sci_buffer).props(
+                                "color=accent_color rounded"
+                            ).classes("rounded-full px-6")
 
         with ui.row(align_items="center").classes("w-full justify-start"):
             ui.button(icon="menu", on_click=lambda: left_drawer.toggle()).props("color=accent_color dense")
 
-        with ui.grid(columns=2).classes("w-full"):        
-
+        with ui.grid(columns=2).classes("w-full"):
             with ui.column().classes("tight"):
                 with ui.row().classes("gap-4"):
                     ui.label("ROV HTR PSU")
                 with ui.row().classes("gap-4"):
                     ui.toggle(
-                        ["ON", "OFF"], value = "OFF",
+                        ["ON", "OFF"],
+                        value="OFF",
                         on_change=lambda event: psu.switch_psu_channel(
                             psu_port,
                             3,
                             state=(event.value == "ON"),
                         ),
-                    ).props('rounded')
+                    ).props("rounded")
 
                     with ui.card().classes("width-full "):
                         with ui.column().classes("items-center w-full gap-0"):
@@ -2408,13 +2651,14 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ui.label("EB PSU")
                 with ui.row().classes("gap-4"):
                     ui.toggle(
-                        ["ON", "OFF"], value = "OFF",
+                        ["ON", "OFF"],
+                        value="OFF",
                         on_change=lambda event: psu.switch_psu_channel(
                             psu_port,
                             4,
                             state=(event.value == "ON"),
                         ),
-                    ).props('rounded')         
+                    ).props("rounded")
 
                     with ui.card().classes("width-full"):
                         with ui.column().classes("items-center w-full gap-0"):
@@ -2429,7 +2673,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 plot_ax = labels["plot_psu_rov_htr"].fig.axes[0]
                 plot_ax.set_title("ROV_HTR +28V Current (mA)")
                 plot_ax.lines[0].set_marker("x")
-                plot_ax.lines[0].set_color("#b4421f") 
+                plot_ax.lines[0].set_color("#b4421f")
                 plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
                 plot_ax.grid(True, alpha=0.6, linewidth=0.6)
             with ui.column().classes("tight"):
@@ -2437,13 +2681,9 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                 plot_ax = labels["plot_psu_eb"].fig.axes[0]
                 plot_ax.set_title("EB +28V Current (mA)")
                 plot_ax.lines[0].set_marker("x")
-                plot_ax.lines[0].set_color("#1f78b4") 
+                plot_ax.lines[0].set_color("#1f78b4")
                 plot_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
                 plot_ax.grid(True, alpha=0.6, linewidth=0.6)
-
-            
-        
-
 
         with ui.grid(columns=2).classes("w-full"):
             with ui.column().classes("tight"):
@@ -2519,9 +2759,13 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     clear_alarm_btn = ui.button("Clear last alarm")
                 ui.separator()
                 with ui.expansion("Previous alarms").classes("w-full") as alarm_previous_section:
-                    alarm_previous = ui.html("---", sanitize=False).style("white-space: pre-wrap; font-family: monospace")
+                    alarm_previous = ui.html("---", sanitize=False).style(
+                        "white-space: pre-wrap; font-family: monospace"
+                    )
                 with ui.expansion("Ignored parameters").classes("w-full") as alarm_ignored_section:
-                    alarm_ignored = ui.html("---", sanitize=False).style("white-space: pre-wrap; font-family: monospace")
+                    alarm_ignored = ui.html("---", sanitize=False).style(
+                        "white-space: pre-wrap; font-family: monospace"
+                    )
 
         def show_flags_dialog(title: str, attr_name: str) -> None:
             hk = last_hk["value"]
@@ -2564,7 +2808,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             alarm_history[kind].append(current)
             if len(alarm_history[kind]) > alarm_history_max:
                 alarm_history[kind].pop(0)
-            
+
             # Promote pending alarm to current if it exists
             if alarm_pending[kind] is not None:
                 alarm_current[kind] = alarm_pending[kind]
@@ -2597,7 +2841,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     set_status_light(labels["ob_warning_light"], ok=True)
                 if kind == "eb" and "eb_warning_light" in labels:
                     set_status_light(labels["eb_warning_light"], ok=True)
-            
+
             alarm_dialog_state["checked_details"].clear()
             show_alarm_dialog("OB" if kind == "ob" else "EB", kind)
 
@@ -2609,7 +2853,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             history = alarm_history.get(kind, [])
             current = alarm_current.get(kind)
             alarm_title.set_text(f"{title} Alarm Details")
-            
+
             alarm_latest_container.clear()
             if current is not None:
                 timestamp = current.get("time")
@@ -2621,12 +2865,13 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
                     ui.label(time_str).classes("text-xs text-gray-500")
                     details = current.get("details", [])
                     for i, detail in enumerate(details if isinstance(details, list) else []):
+
                         def on_check(checked: bool, idx: int = i):
                             if checked:
                                 alarm_dialog_state["checked_details"].add(idx)
                             else:
                                 alarm_dialog_state["checked_details"].discard(idx)
-                        
+
                         ui.checkbox(detail, on_change=on_check).classes("text-sm")
             else:
                 with alarm_latest_container:
@@ -2638,7 +2883,7 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             else:
                 alarm_previous.set_content("None")
                 alarm_previous_section.set_value(False)
-            
+
             # Display ignored parameters
             ignored_sigs = alarm_acknowledged_signatures.get(kind, set())
             if kind == "eb" and alarm_acknowledged_tcs_rejected[kind] > 0:
@@ -2651,11 +2896,8 @@ def build_ui(psu_port, port_lock=None, stop_event=None) -> None:
             else:
                 alarm_ignored.set_content("None")
                 alarm_ignored_section.set_value(False)
-            
-            alarm_dialog.open()
 
-        
-        
+            alarm_dialog.open()
 
         with ui.page_sticky(position="bottom-right", x_offset=20, y_offset=20):
             with ui.row().classes("items-center gap-2"):

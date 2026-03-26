@@ -1,14 +1,22 @@
+# Std library
 import logging
+
+# Added packages
 from contextlib import nullcontext
 from pathlib import Path
 from nicegui import app, ui
 from matplotlib import dates as mdates
-from matplotlib.ticker import FuncFormatter
 
+# Local modules
+# core
+from core_modules import config as config
+from core_modules import constants as const
+from core_modules import tmstruct as tmstruct
 
-import constants as const
-import psu
-import tc
+# utilities
+from utility_modules import comms as comms
+from utility_modules import tc as tc
+from utility_modules import tm as tm
 
 logger = logging.getLogger("info_log")
 level_options = {"INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
@@ -41,7 +49,7 @@ class LogElementHandler(logging.Handler):
 
 
 def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
-    rsrc_dir = Path(__file__).resolve().parent.parent / "rsrc"
+    rsrc_dir = Path(__file__).resolve().parent.parent.parent / "rsrc"
     app.add_static_files("/rsrc", rsrc_dir)
     labels: dict[str, ui.label] = {}
     status: dict[str, int] = {"pwr": 0, "psu": 0}
@@ -273,7 +281,9 @@ def build_ui(ob_port, psu_port, port_lock=None, stop_event=None) -> None:
 
         with ui.right_drawer(fixed=True).style("background-color: #ebf1fa").props("width=350 bordered") as right_drawer:
             with ui.grid(columns=2):
-                ui.button("Toggle PSU", on_click=lambda: psu.switchPSU(psu_port, ebmode = False, state = not (status["psu"])))
+                ui.button(
+                    "Toggle PSU", on_click=lambda: psu.switchPSU(psu_port, ebmode=False, state=not (status["psu"]))
+                )
 
                 labels["PSU_STATUS"] = ui.label(f"PSU OFF")
                 with ui.card().tight():

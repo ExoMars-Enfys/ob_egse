@@ -8,19 +8,23 @@ from nicegui import ui
 from pathlib import Path
 import threading
 
+
 # Local modules
-import comms
-import constants as const
-import config
-import egse_logger
-import gui
-import ebgui
-import psu
-import scripts.sequences as sq
-import scripts.error_checks as ec
-import scripts.abu_sequences as abu
-from send_cmd import *
-import tc
+# core
+from core_modules import config as config
+from core_modules import constants as const
+from core_modules import tmstruct as tmstruct
+
+# utilities
+from utility_modules import comms as comms
+from utility_modules import egse_logger as egse_logger
+from utility_modules import psu as psu
+from utility_modules import tc as tc
+from utility_modules import tm as tm
+
+# widgets
+from widget_modules import ebgui as ebgui
+from widget_modules import gui as gui
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -126,13 +130,14 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
-        psu.switchPSU(psu_port, ebmode=args.ebmode, state=1)  # Switch on PSU
+        psu.switch_psu_channel(psu_port, channel=1, state=1)  # Switch on PSU
+        psu.switch_psu_channel(psu_port, channel=2, state=1)
+        psu.switch_psu_channel(psu_port, channel=3, state=1)
         time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         psu_thread.start()
         hk_pause_event.clear()  # Resume HK polling
 
         # First HK
-        sq.parse_hk(ob_port)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
@@ -142,7 +147,6 @@ def main() -> None:
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        sq.parse_hk(ob_port)
         stop_event.set()
 
     else:
@@ -152,10 +156,10 @@ def main() -> None:
             ebgui.build_ui(psu_port, port_lock, stop_event)
             ui.run(port=8085, reload=False)
         else:
-            hk_thread = threading.Thread(
-                target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True
-            )
-            hk_thread.start()
+            # hk_thread = threading.Thread(
+            #     target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True
+            # )
+            # hk_thread.start()
             gui.build_ui(ob_port, psu_port, port_lock, stop_event)
             ui.run(port=8085, reload=False)
             # TODO What about stop_envent?
