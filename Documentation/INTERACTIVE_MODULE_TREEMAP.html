@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>OB EGSE Project Treemap</title>
+<style>
+body { margin:0; font-family:Segoe UI, Tahoma, sans-serif; background:#f4f7fb; color:#122036; }
+.wrap { padding:14px; display:grid; grid-template-columns:1.4fr 1fr; gap:14px; min-height:100vh; }
+.panel { background:#fff; border:1px solid #d5deea; border-radius:14px; box-shadow:0 10px 28px rgba(19,32,51,.08); overflow:hidden; }
+.head { padding:12px 14px; border-bottom:1px solid #d5deea; }
+.head h1 { margin:0; font-size:20px; } .sub { margin:4px 0 0; color:#5f6f86; font-size:13px; }
+.tree { padding:10px; display:flex; gap:8px; align-items:stretch; min-height:72vh; overflow:auto; }
+.pkg { background:var(--pkg-color); border:1px solid #fff; border-radius:8px; padding:8px; display:flex; flex-direction:column; min-width:150px; }
+.pkg h3 { margin:0 0 8px; font-size:13px; }
+.mods { display:grid; gap:6px; }
+.mod { display:block; text-decoration:none; color:#122036; background:rgba(255,255,255,.45); border:1px solid rgba(18,32,54,.08); border-radius:6px; padding:6px; }
+.mod:hover { background:rgba(255,255,255,.7); }
+.mod-name { display:block; font-weight:600; font-size:12px; }
+.mod-meta { display:block; font-size:11px; color:#4f5f76; margin-top:2px; }
+.details { padding:10px; max-height:82vh; overflow:auto; }
+.hint { font-size:13px; color:#5f6f86; background:#f8fbff; border:1px solid #d5deea; border-radius:8px; padding:8px; margin-bottom:10px; }
+.detail { display:none; border:1px solid #d5deea; border-radius:10px; padding:10px; margin-bottom:10px; background:#fbfdff; }
+.detail:target { display:block; }
+.detail h4 { margin:0 0 6px; font-size:16px; }
+.path { margin:0 0 8px; font-size:12px; color:#5f6f86; }
+.detail ul { margin:8px 0 0 18px; padding:0; }
+.detail li { margin:6px 0; font-size:13px; line-height:1.4; }
+.method { margin-left:10px; }
+.chip { font-size:11px; border:1px solid #d5deea; border-radius:999px; padding:1px 6px; color:#4f5f76; }
+@media (max-width:1100px) { .wrap { grid-template-columns:1fr; } .tree { min-height:48vh; } }
+</style>
+</head>
+<body>
+<div class='wrap'>
+  <section class='panel'>
+    <div class='head'>
+      <h1>Project Flow Treemap</h1>
+      <p class='sub'>Regenerated from current src state. Top is main entrypoint conceptually, then package blocks, then module tiles.</p>
+    </div>
+    <div class='tree'>
+<section class='pkg' style='--pkg-color:#cde7ff; flex:4'><h3>core_modules</h3><div class='mods'>
+<a class='mod' href='#src__core_modules__cmd_ids_py' title='src/core_modules/cmd_ids.py'><span class='mod-name'>cmd_ids</span><span class='mod-meta'>0 fn, 0 cls</span></a>
+<a class='mod' href='#src__core_modules__config_py' title='src/core_modules/config.py'><span class='mod-name'>config</span><span class='mod-meta'>0 fn, 0 cls</span></a>
+<a class='mod' href='#src__core_modules__constants_py' title='src/core_modules/constants.py'><span class='mod-name'>constants</span><span class='mod-meta'>0 fn, 0 cls</span></a>
+<a class='mod' href='#src__core_modules__tmstruct_py' title='src/core_modules/tmstruct.py'><span class='mod-name'>tmstruct</span><span class='mod-meta'>0 fn, 0 cls</span></a>
+</div></section>
+<section class='pkg' style='--pkg-color:#d8f6df; flex:13'><h3>utility_modules</h3><div class='mods'>
+<a class='mod' href='#src__utility_modules__app_theme_py' title='src/utility_modules/app_theme.py'><span class='mod-name'>app_theme</span><span class='mod-meta'>8 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__comms_py' title='src/utility_modules/comms.py'><span class='mod-name'>comms</span><span class='mod-meta'>3 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__crc8_function_py' title='src/utility_modules/crc8_function.py'><span class='mod-name'>crc8_function</span><span class='mod-meta'>2 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__ebtcs_py' title='src/utility_modules/ebtcs.py'><span class='mod-name'>ebtcs</span><span class='mod-meta'>44 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__eb_interface_py' title='src/utility_modules/eb_interface.py'><span class='mod-name'>eb_interface</span><span class='mod-meta'>10 fn, 1 cls</span></a>
+<a class='mod' href='#src__utility_modules__eb_packet_utility_py' title='src/utility_modules/eb_packet_utility.py'><span class='mod-name'>eb_packet_utility</span><span class='mod-meta'>12 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__egse_logger_py' title='src/utility_modules/egse_logger.py'><span class='mod-name'>egse_logger</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__hk_conversions_py' title='src/utility_modules/hk_conversions.py'><span class='mod-name'>hk_conversions</span><span class='mod-meta'>1 fn, 1 cls</span></a>
+<a class='mod' href='#src__utility_modules__psu_py' title='src/utility_modules/psu.py'><span class='mod-name'>psu</span><span class='mod-meta'>9 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__psu_log_utility_py' title='src/utility_modules/psu_log_utility.py'><span class='mod-name'>psu_log_utility</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__send_cmd_py' title='src/utility_modules/send_cmd.py'><span class='mod-name'>send_cmd</span><span class='mod-meta'>2 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__tc_py' title='src/utility_modules/tc.py'><span class='mod-name'>tc</span><span class='mod-meta'>18 fn, 0 cls</span></a>
+<a class='mod' href='#src__utility_modules__tm_py' title='src/utility_modules/tm.py'><span class='mod-name'>tm</span><span class='mod-meta'>2 fn, 6 cls</span></a>
+</div></section>
+<section class='pkg' style='--pkg-color:#ffe7c2; flex:13'><h3>widget_modules</h3><div class='mods'>
+<a class='mod' href='#src__widget_modules__detector_tab_py' title='src/widget_modules/detector_tab.py'><span class='mod-name'>detector_tab</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__widget_modules__file_dialog_window_widget_py' title='src/widget_modules/file_dialog_window_widget.py'><span class='mod-name'>file_dialog_window_widget</span><span class='mod-meta'>3 fn, 0 cls</span></a>
+<a class='mod' href='#src__widget_modules__log_terminal_widget_py' title='src/widget_modules/log_terminal_widget.py'><span class='mod-name'>log_terminal_widget</span><span class='mod-meta'>2 fn, 2 cls</span></a>
+<a class='mod' href='#src__widget_modules__mechanism_tab_py' title='src/widget_modules/mechanism_tab.py'><span class='mod-name'>mechanism_tab</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__widget_modules__menu_widget_py' title='src/widget_modules/menu_widget.py'><span class='mod-name'>menu_widget</span><span class='mod-meta'>13 fn, 1 cls</span></a>
+<a class='mod' href='#src__widget_modules__metrics_card_widget_py' title='src/widget_modules/metrics_card_widget.py'><span class='mod-name'>metrics_card_widget</span><span class='mod-meta'>22 fn, 4 cls</span></a>
+<a class='mod' href='#src__widget_modules__packet_viewer_widget_py' title='src/widget_modules/packet_viewer_widget.py'><span class='mod-name'>packet_viewer_widget</span><span class='mod-meta'>2 fn, 1 cls</span></a>
+<a class='mod' href='#src__widget_modules__parent_window_widget_py' title='src/widget_modules/parent_window_widget.py'><span class='mod-name'>parent_window_widget</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__widget_modules__plot_widget_py' title='src/widget_modules/plot_widget.py'><span class='mod-name'>plot_widget</span><span class='mod-meta'>1 fn, 2 cls</span></a>
+<a class='mod' href='#src__widget_modules__popup_widget_py' title='src/widget_modules/popup_widget.py'><span class='mod-name'>popup_widget</span><span class='mod-meta'>2 fn, 0 cls</span></a>
+<a class='mod' href='#src__widget_modules__psu_widget_py' title='src/widget_modules/psu_widget.py'><span class='mod-name'>psu_widget</span><span class='mod-meta'>1 fn, 1 cls</span></a>
+<a class='mod' href='#src__widget_modules__traffic_light_widget_py' title='src/widget_modules/traffic_light_widget.py'><span class='mod-name'>traffic_light_widget</span><span class='mod-meta'>1 fn, 1 cls</span></a>
+<a class='mod' href='#src__widget_modules__ui_runtime_controller_py' title='src/widget_modules/ui_runtime_controller.py'><span class='mod-name'>ui_runtime_controller</span><span class='mod-meta'>42 fn, 0 cls</span></a>
+</div></section>
+<section class='pkg' style='--pkg-color:#e8ddff; flex:4'><h3>analysis_modules</h3><div class='mods'>
+<a class='mod' href='#src__analysis_modules__analysis_py' title='src/analysis_modules/analysis.py'><span class='mod-name'>analysis</span><span class='mod-meta'>24 fn, 0 cls</span></a>
+<a class='mod' href='#src__analysis_modules__fill_chamber_temps_and_dwell_py' title='src/analysis_modules/fill_chamber_temps_and_dwell.py'><span class='mod-name'>fill_chamber_temps_and_dwell</span><span class='mod-meta'>16 fn, 1 cls</span></a>
+<a class='mod' href='#src__analysis_modules__sci_plot_py' title='src/analysis_modules/sci_plot.py'><span class='mod-name'>sci_plot</span><span class='mod-meta'>8 fn, 0 cls</span></a>
+<a class='mod' href='#src__analysis_modules__thermal_summary_py' title='src/analysis_modules/thermal_summary.py'><span class='mod-name'>thermal_summary</span><span class='mod-meta'>21 fn, 0 cls</span></a>
+</div></section>
+<section class='pkg' style='--pkg-color:#ffd9dc; flex:7'><h3>scripts_modules</h3><div class='mods'>
+<a class='mod' href='#src__scripts_modules__abu_sequences_py' title='src/scripts_modules/abu_sequences.py'><span class='mod-name'>abu_sequences</span><span class='mod-meta'>14 fn, 0 cls</span></a>
+<a class='mod' href='#src__scripts_modules__error_checks_py' title='src/scripts_modules/error_checks.py'><span class='mod-name'>error_checks</span><span class='mod-meta'>3 fn, 2 cls</span></a>
+<a class='mod' href='#src__scripts_modules__fft_py' title='src/scripts_modules/fft.py'><span class='mod-name'>fft</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__scripts_modules__heaters_py' title='src/scripts_modules/heaters.py'><span class='mod-name'>heaters</span><span class='mod-meta'>1 fn, 0 cls</span></a>
+<a class='mod' href='#src__scripts_modules__LTM_py' title='src/scripts_modules/LTM.py'><span class='mod-name'>LTM</span><span class='mod-meta'>8 fn, 0 cls</span></a>
+<a class='mod' href='#src__scripts_modules__OB_FFT_py' title='src/scripts_modules/OB_FFT.py'><span class='mod-name'>OB_FFT</span><span class='mod-meta'>2 fn, 0 cls</span></a>
+<a class='mod' href='#src__scripts_modules__sequences_py' title='src/scripts_modules/sequences.py'><span class='mod-name'>sequences</span><span class='mod-meta'>8 fn, 0 cls</span></a>
+</div></section>
+</div>
+  </section>
+  <aside class='panel'>
+    <div class='head'>
+      <h1>Selected Module</h1>
+      <p class='sub'>Method and class details by module.</p>
+    </div>
+    <div class='details'>
+      <div class='hint'>Click any module tile on the left. This is static HTML so it does not depend on scripts or CDN.</div>
+      <article id='src__main_py' class='detail'><h4>main</h4><p class='path'>src/main.py</p><p>Provides `main` module logic.</p><ul>
+<li><b>init_arparse</b> <span class='chip'>function</span><br></li>
+<li><b>setup_logs</b> <span class='chip'>function</span><br></li>
+<li><b>clean_exit</b> <span class='chip'>function</span><br></li>
+<li><b>main</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__analysis_modules__analysis_py' class='detail'><h4>analysis</h4><p class='path'>src/analysis_modules/analysis.py</p><p>Provides `analysis` module logic.</p><ul>
+<li><b>analysis</b> <span class='chip'>function</span><br>Analyze RS422 log file and create plots for EB and OB data.</li>
+<li><b>_read_all_packets</b> <span class='chip'>function</span><br>Read all packets from RS422 log file.</li>
+<li><b>_read_hk_line_log_packets</b> <span class='chip'>function</span><br>Read packets from line-based HK log format: '&lt;timestamp&gt; - &lt;hex words&gt;'.</li>
+<li><b>_parse_timestamp_text</b> <span class='chip'>function</span><br>Parse a timestamp string using known datetime formats.</li>
+<li><b>_apply_time_cutoff</b> <span class='chip'>function</span><br>Trim EB/OB/PSU data after a given time-of-day cutoff (HH:MM[:SS]).</li>
+<li><b>_build_error128_zoom_data</b> <span class='chip'>function</span><br>Build zoomed data from 5 samples before first Error 128 to the end.</li>
+<li><b>_extract_packet_timestamp</b> <span class='chip'>function</span><br>Extract packet timestamp from telemetry line context.</li>
+<li><b>_read_psu_log</b> <span class='chip'>function</span><br>Read PSU log file and extract CH3/CH4 voltage and current time series.</li>
+<li><b>_build_timeseries</b> <span class='chip'>function</span><br>Build time series data from packets.</li>
+<li><b>_get_state_name</b> <span class='chip'>function</span><br>Convert state code to human readable name.</li>
+<li><b>_get_state_color</b> <span class='chip'>function</span><br>Convert state code to color for plotting.</li>
+<li><b>_error_bits_to_value</b> <span class='chip'>function</span><br>Convert ERROR_FLAGS_BITS object to an integer for comparison.</li>
+<li><b>_decode_error_flags</b> <span class='chip'>function</span><br>Extract active EB error flags from decoded ERROR_FLAGS_BITS object.</li>
+<li><b>_format_error_description</b> <span class='chip'>function</span><br>Format EB error description for display.</li>
+<li><b>_show_error_popup</b> <span class='chip'>function</span><br>Display EB error information in a popup window.</li>
+<li><b>_format_hk_data</b> <span class='chip'>function</span><br>Format HK packet data for display.</li>
+<li><b>_get_hk_packet_from_pick</b> <span class='chip'>function</span><br>Resolve clicked sample to nearest HK packet in time.</li>
+<li><b>_show_hk_popup</b> <span class='chip'>function</span><br>Display HK data in a popup window.</li>
+<li><b>_create_eb_plot</b> <span class='chip'>function</span><br>Create EB window with voltage and temperature plots.</li>
+<li><b>_create_ob_plot</b> <span class='chip'>function</span><br>Create OB window with voltage and temperature plots.</li>
+<li><b>_create_psu_plot</b> <span class='chip'>function</span><br>Create PSU window with CH3/CH4 current plots.</li>
+<li><b>_create_ob_abs_steps_plot</b> <span class='chip'>function</span><br>Create OB absolute motor steps plot over time.</li>
+<li><b>_build_arg_parser</b> <span class='chip'>function</span><br></li>
+<li><b>_save_open_figures</b> <span class='chip'>function</span><br>Save all currently open matplotlib figures (as displayed in the plotting window).</li>
+</ul></article>
+<article id='src__analysis_modules__fill_chamber_temps_and_dwell_py' class='detail'><h4>fill_chamber_temps_and_dwell</h4><p class='path'>src/analysis_modules/fill_chamber_temps_and_dwell.py</p><p>Provides `fill_chamber_temps_and_dwell` module logic.</p><ul>
+<li><b>_parse_time</b> <span class='chip'>function</span><br></li>
+<li><b>_safe_float</b> <span class='chip'>function</span><br></li>
+<li><b>_extract_sft_key</b> <span class='chip'>function</span><br></li>
+<li><b>_parse_setpoint</b> <span class='chip'>function</span><br></li>
+<li><b>_read_eb_series</b> <span class='chip'>function</span><br></li>
+<li><b>_read_ob_series</b> <span class='chip'>function</span><br></li>
+<li><b>_pt1000_resistance_from_temp</b> <span class='chip'>function</span><br></li>
+<li><b>_build_pt1000_lookup</b> <span class='chip'>function</span><br></li>
+<li><b>_pt1000_lookup_temp_from_ohms</b> <span class='chip'>function</span><br></li>
+<li><b>_read_rov_series</b> <span class='chip'>function</span><br></li>
+<li><b>_nearest_value</b> <span class='chip'>function</span><br></li>
+<li><b>_stable_dwell_seconds</b> <span class='chip'>function</span><br></li>
+<li><b>_run_switch_times</b> <span class='chip'>function</span><br></li>
+<li><b>_ensure_column</b> <span class='chip'>function</span><br></li>
+<li><b>_fmt</b> <span class='chip'>function</span><br></li>
+<li><b>fill_workbook</b> <span class='chip'>function</span><br></li>
+<li><b>SeriesPoint</b> <span class='chip'>class</span><br></li>
+</ul></article>
+<article id='src__analysis_modules__sci_plot_py' class='detail'><h4>sci_plot</h4><p class='path'>src/analysis_modules/sci_plot.py</p><p>Provides `sci_plot` module logic.</p><ul>
+<li><b>_parse_sci_log_line</b> <span class='chip'>function</span><br></li>
+<li><b>_remove_offset_calibration</b> <span class='chip'>function</span><br></li>
+<li><b>_parse_rs422_science</b> <span class='chip'>function</span><br></li>
+<li><b>plot_sci_log_file</b> <span class='chip'>function</span><br></li>
+<li><b>plot_sci_from_rs422</b> <span class='chip'>function</span><br></li>
+<li><b>plot_sci_packets</b> <span class='chip'>function</span><br></li>
+<li><b>render_sci_packets_data_urls</b> <span class='chip'>function</span><br></li>
+<li><b>plot_sci_logs</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__analysis_modules__thermal_summary_py' class='detail'><h4>thermal_summary</h4><p class='path'>src/analysis_modules/thermal_summary.py</p><p>Provides `thermal_summary` module logic.</p><ul>
+<li><b>_extract_temperature_label</b> <span class='chip'>function</span><br></li>
+<li><b>_convert_eb_rails</b> <span class='chip'>function</span><br></li>
+<li><b>_convert_eb_temps</b> <span class='chip'>function</span><br></li>
+<li><b>_convert_ob_temps</b> <span class='chip'>function</span><br></li>
+<li><b>_convert_ob_rails</b> <span class='chip'>function</span><br></li>
+<li><b>_find_ob_switch_on_index</b> <span class='chip'>function</span><br></li>
+<li><b>_is_valid_switch_sample</b> <span class='chip'>function</span><br></li>
+<li><b>_first_valid_sample_after_index</b> <span class='chip'>function</span><br></li>
+<li><b>_first_valid_sample_before_index</b> <span class='chip'>function</span><br></li>
+<li><b>_nearest_non_nan</b> <span class='chip'>function</span><br></li>
+<li><b>_read_science_packets</b> <span class='chip'>function</span><br></li>
+<li><b>_find_preferred_rs422_logs</b> <span class='chip'>function</span><br></li>
+<li><b>_rs422_rank</b> <span class='chip'>function</span><br></li>
+<li><b>_extract_run_key</b> <span class='chip'>function</span><br></li>
+<li><b>_iter_psu_candidates</b> <span class='chip'>function</span><br></li>
+<li><b>_rank_psu_candidate</b> <span class='chip'>function</span><br></li>
+<li><b>_find_psu_logs_for_rs422</b> <span class='chip'>function</span><br></li>
+<li><b>_fmt</b> <span class='chip'>function</span><br></li>
+<li><b>_summarize_log</b> <span class='chip'>function</span><br></li>
+<li><b>build_table</b> <span class='chip'>function</span><br></li>
+<li><b>_build_arg_parser</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__core_modules__cmd_ids_py' class='detail'><h4>cmd_ids</h4><p class='path'>src/core_modules/cmd_ids.py</p><p>Provides `cmd_ids` module logic.</p><ul>
+<li>No methods/functions documented for this module.</li>
+</ul></article>
+<article id='src__core_modules__config_py' class='detail'><h4>config</h4><p class='path'>src/core_modules/config.py</p><p>Provides `config` module logic.</p><ul>
+<li>No methods/functions documented for this module.</li>
+</ul></article>
+<article id='src__core_modules__constants_py' class='detail'><h4>constants</h4><p class='path'>src/core_modules/constants.py</p><p>Provides `constants` module logic.</p><ul>
+<li>No methods/functions documented for this module.</li>
+</ul></article>
+<article id='src__core_modules__tmstruct_py' class='detail'><h4>tmstruct</h4><p class='path'>src/core_modules/tmstruct.py</p><p>Provides `tmstruct` module logic.</p><ul>
+<li>No methods/functions documented for this module.</li>
+</ul></article>
+<article id='src__scripts_modules__abu_sequences_py' class='detail'><h4>abu_sequences</h4><p class='path'>src/scripts_modules/abu_sequences.py</p><p>Provides `abu_sequences` module logic.</p><ul>
+<li><b>read_hk</b> <span class='chip'>function</span><br>This function requests a HK and generates a decoded log of all the HK parameters.</li>
+<li><b>cal_motor_to_base</b> <span class='chip'>function</span><br>This function powers the Mechanism board (if it isn't already).
+Sets the default motor parameters
+Then commands the motor to HOME to BASE with CAL applied.
+As it moves it will report the relative and absolute steps.</li>
+<li><b>home_to_outer</b> <span class='chip'>function</span><br>This function powers the Mechanism board (if it isn't already).
+Then commands the motor to HOME to OUTER.
+As it moves it will report the relative and absolute steps.</li>
+<li><b>home_to_base</b> <span class='chip'>function</span><br>Then commands the motor to HOME to BASE.
+As it moves it will report the relative and absolute steps.</li>
+<li><b>mv_pos_steps</b> <span class='chip'>function</span><br>Script that moves the mechanism a certain number of steps positive (towards the base).
+Automatically checks that we are not already at the base.</li>
+<li><b>mv_neg_steps</b> <span class='chip'>function</span><br>Script that moves the mechanism a certain number of steps negative (towards the outer).
+Automatically checks that we are not already at the outer.</li>
+<li><b>set_offset_and_check_sci</b> <span class='chip'>function</span><br>Function that will power the detector board if it isn't already.
+Apply the offsets, set within the variables.
+Automatically request a science packet and ensure that the packet contents matches those set.</li>
+<li><b>mwir_binary_chop</b> <span class='chip'>function</span><br>This fixes the SWIR DAC offset as per the functional call.
+It then itterates throgh the MWIR DAC offsets doing a binary search.
+The function aims for the science readings for the MWIR to be between the values set within the
+constants file.</li>
+<li><b>swir_binary_chop</b> <span class='chip'>function</span><br>This sets the MWIR DAC offset as per the functional call.
+It then itterates throgh the SWIR DAC offsets doing a binary search.
+The function aims for the science readings for the SWIR to be between the values set within the
+constants file.</li>
+<li><b>move_and_measure</b> <span class='chip'>function</span><br>Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
+and the sequence will just measure the same point once again.
+
+This sequence should be executed once the motor has been HOMING and the offsets applied.
+
+The motor moves from the Outer to Base using (positive steps)</li>
+<li><b>abu_measurement_scan</b> <span class='chip'>function</span><br>Performs the basic Enfys science measurement
+Homes and Calibrates to Base
+Goes to the Outer
+Drives across the whole range of the mechanism using the step_spacing specified in the function
+Halts once Base Stop is reached</li>
+<li><b>sweep_offset_mwir</b> <span class='chip'>function</span><br>This function sweeps through the mwir DAC from 0 to 4095 using the increment specified.
+A science reading is the acquired at each DAC offset.</li>
+<li><b>sweep_offset_swir</b> <span class='chip'>function</span><br>This function sweeps through the swir DAC from 0 to 4095 using the increment specified.
+A science reading is the acquired at each DAC offset.</li>
+<li><b>first_power_on</b> <span class='chip'>function</span><br>Very simple sequence that powers on both sub-systems.
+Then Calibrates the mech to BASE
+Then Moves the mech to OUTER</li>
+</ul></article>
+<article id='src__scripts_modules__error_checks_py' class='detail'><h4>error_checks</h4><p class='path'>src/scripts_modules/error_checks.py</p><p>Provides `error_checks` module logic.</p><ul>
+<li><b>check_set_ob_errors</b> <span class='chip'>function</span><br></li>
+<li><b>check_set_mtr_errors</b> <span class='chip'>function</span><br></li>
+<li><b>check_mask_mtr_errors</b> <span class='chip'>function</span><br></li>
+<li><b>SetError</b> <span class='chip'>class</span><br></li>
+<li><b>ClearError</b> <span class='chip'>class</span><br></li>
+</ul></article>
+<article id='src__scripts_modules__fft_py' class='detail'><h4>fft</h4><p class='path'>src/scripts_modules/fft.py</p><p>Provides `fft` module logic.</p><ul>
+<li><b>run_fft</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__scripts_modules__heaters_py' class='detail'><h4>heaters</h4><p class='path'>src/scripts_modules/heaters.py</p><p>Provides `heaters` module logic.</p><ul>
+<li><b>mech_auto_heater_test</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__scripts_modules__LTM_py' class='detail'><h4>LTM</h4><p class='path'>src/scripts_modules/LTM.py</p><p>Provides `LTM` module logic.</p><ul>
+<li><b>LTM_Measurement</b> <span class='chip'>function</span><br></li>
+<li><b>outer_cal</b> <span class='chip'>function</span><br></li>
+<li><b>outer_home</b> <span class='chip'>function</span><br></li>
+<li><b>base_home</b> <span class='chip'>function</span><br></li>
+<li><b>mwir_dark_region_start</b> <span class='chip'>function</span><br></li>
+<li><b>stepping</b> <span class='chip'>function</span><br></li>
+<li><b>acquisition</b> <span class='chip'>function</span><br></li>
+<li><b>park</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__scripts_modules__OB_FFT_py' class='detail'><h4>OB_FFT</h4><p class='path'>src/scripts_modules/OB_FFT.py</p><p>Provides `OB_FFT` module logic.</p><ul>
+<li><b>fft</b> <span class='chip'>function</span><br></li>
+<li><b>hk_check</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__scripts_modules__sequences_py' class='detail'><h4>sequences</h4><p class='path'>src/scripts_modules/sequences.py</p><p>Provides `sequences` module logic.</p><ul>
+<li><b>power_up</b> <span class='chip'>function</span><br></li>
+<li><b>mech_heater_test</b> <span class='chip'>function</span><br></li>
+<li><b>parse_hk</b> <span class='chip'>function</span><br></li>
+<li><b>check_sci</b> <span class='chip'>function</span><br></li>
+<li><b>check_sci_vs_hk</b> <span class='chip'>function</span><br></li>
+<li><b>hk_approx_cal</b> <span class='chip'>function</span><br>Request a HK packet and provide an approximate calibration of all analogue parameters.</li>
+<li><b>increasing_torque_test</b> <span class='chip'>function</span><br>Perform a motor torque test by incrementally increasing the motor current until the motor moves.</li>
+<li><b>torque_test</b> <span class='chip'>function</span><br>Perform a motor torque test by incrementally increasing the motor current until the motor moves.</li>
+</ul></article>
+<article id='src__utility_modules__app_theme_py' class='detail'><h4>app_theme</h4><p class='path'>src/utility_modules/app_theme.py</p><p>Provides `app_theme` module logic.</p><ul>
+<li><b>_extract_block_vars</b> <span class='chip'>function</span><br>Return the CSS custom properties declared inside *selector* { … }.</li>
+<li><b>_resolve_vars</b> <span class='chip'>function</span><br>Resolve var(--x) references until all values are concrete colours.</li>
+<li><b>load_css_vars</b> <span class='chip'>function</span><br>Parse *css_path* and return a flat dict of resolved CSS variable values
+for the requested *theme* (``"dark"`` or ``"light"``).
+
+The dict keys are variable names **without** the leading ``--``, e.g.
+``"primary-bg"``, ``"series-dig-trp"``.</li>
+<li><b>get_theme_palette</b> <span class='chip'>function</span><br>Get a color palette based on the current theme and GUI variables.</li>
+<li><b>apply_plot_theme</b> <span class='chip'>function</span><br>Apply the given color palette to a matplotlib Axes object.</li>
+<li><b>apply_theme_to_plots</b> <span class='chip'>function</span><br></li>
+<li><b>set_logo_sources</b> <span class='chip'>function</span><br></li>
+<li><b>apply_theme</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__utility_modules__comms_py' class='detail'><h4>comms</h4><p class='path'>src/utility_modules/comms.py</p><p>Provides `comms` module logic.</p><ul>
+<li><b>initialise_comms</b> <span class='chip'>function</span><br>Initialise an unopened RS485 port with project communication settings.</li>
+<li><b>open_comms</b> <span class='chip'>function</span><br>Open an initialised RS485 port and clear stale input/output buffers.</li>
+<li><b>close_comms</b> <span class='chip'>function</span><br>Clear buffers and close an open RS485 port.</li>
+</ul></article>
+<article id='src__utility_modules__crc8_function_py' class='detail'><h4>crc8_function</h4><p class='path'>src/utility_modules/crc8_function.py</p><p>Provides `crc8_function` module logic.</p><ul>
+<li><b>crc8Calculate</b> <span class='chip'>function</span><br>Append CRC8 to a hex command string and return bytes ready to send.</li>
+<li><b>crc8InjectErr</b> <span class='chip'>function</span><br>Append an invalid trailing byte to inject a deliberate CRC mismatch.</li>
+</ul></article>
+<article id='src__utility_modules__ebtcs_py' class='detail'><h4>ebtcs</h4><p class='path'>src/utility_modules/ebtcs.py</p><p>Provides `ebtcs` module logic.</p><ul>
+<li><b>_resolve_tc_name</b> <span class='chip'>function</span><br></li>
+<li><b>_build_ebtc_line</b> <span class='chip'>function</span><br></li>
+<li><b>send_tc</b> <span class='chip'>function</span><br>Method to send an EB TC command to CmdTool and write command log.</li>
+<li><b>configure_send_flow_control</b> <span class='chip'>function</span><br>Configure optional external flow-control hooks for script execution.</li>
+<li><b>clear_send_flow_control</b> <span class='chip'>function</span><br>Disable external flow-control hooks.</li>
+<li><b>_gate_send</b> <span class='chip'>function</span><br>Block or reject sends based on configured pause/abort hooks.</li>
+<li><b>verify_ack_hdr</b> <span class='chip'>function</span><br>Verify basic TC acknowledgement fields from HK snapshots.</li>
+<li><b>verify_blank_ack_params</b> <span class='chip'>function</span><br>Verify optional fields are zero, mirroring tc.py blank ACK checks.</li>
+<li><b>_verify_field_equals</b> <span class='chip'>function</span><br></li>
+<li><b>_verify_flag_equals</b> <span class='chip'>function</span><br></li>
+<li><b>_read_latest_hk_and_index</b> <span class='chip'>function</span><br>Read latest HK and its line index from currently selected RS422 log.</li>
+<li><b>_wait_for_response_hk</b> <span class='chip'>function</span><br>Wait for a newer HK packet after command send.</li>
+<li><b>_verify_tc</b> <span class='chip'>function</span><br></li>
+<li><b>_verify_tc_applied</b> <span class='chip'>function</span><br></li>
+<li><b>_send_named_tc</b> <span class='chip'>function</span><br></li>
+<li><b>ret</b> <span class='chip'>function</span><br></li>
+<li><b>hk_request</b> <span class='chip'>function</span><br></li>
+<li><b>patch</b> <span class='chip'>function</span><br></li>
+<li><b>dump</b> <span class='chip'>function</span><br></li>
+<li><b>set_hk_rate</b> <span class='chip'>function</span><br></li>
+<li><b>monitor_addr</b> <span class='chip'>function</span><br></li>
+<li><b>abort</b> <span class='chip'>function</span><br></li>
+<li><b>generic_tc</b> <span class='chip'>function</span><br></li>
+<li><b>safe</b> <span class='chip'>function</span><br></li>
+<li><b>standby</b> <span class='chip'>function</span><br></li>
+<li><b>acquisition</b> <span class='chip'>function</span><br></li>
+<li><b>set_motor_configs</b> <span class='chip'>function</span><br></li>
+<li><b>set_heater_configs</b> <span class='chip'>function</span><br></li>
+<li><b>set_acq_configs</b> <span class='chip'>function</span><br></li>
+<li><b>set_tec_setpoint</b> <span class='chip'>function</span><br></li>
+<li><b>set_fdir_limits</b> <span class='chip'>function</span><br></li>
+<li><b>en_mech_board</b> <span class='chip'>function</span><br></li>
+<li><b>en_det_board</b> <span class='chip'>function</span><br></li>
+<li><b>en_mech_heater</b> <span class='chip'>function</span><br></li>
+<li><b>en_det_heater</b> <span class='chip'>function</span><br></li>
+<li><b>en_ob5v</b> <span class='chip'>function</span><br></li>
+<li><b>ob_park</b> <span class='chip'>function</span><br></li>
+<li><b>ob_homing</b> <span class='chip'>function</span><br></li>
+<li><b>ob_hk</b> <span class='chip'>function</span><br></li>
+<li><b>check_memory</b> <span class='chip'>function</span><br></li>
+<li><b>goto</b> <span class='chip'>function</span><br></li>
+<li><b>copy_memory</b> <span class='chip'>function</span><br></li>
+<li><b>switch_rs422</b> <span class='chip'>function</span><br></li>
+<li><b>set_tec_current</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__utility_modules__eb_interface_py' class='detail'><h4>eb_interface</h4><p class='path'>src/utility_modules/eb_interface.py</p><p>Provides `eb_interface` module logic.</p><ul>
+<li><b>rs422_log_changed</b> <span class='chip'>function</span><br>Return True if the RS422 log path or mtime changed since last check.</li>
+<li><b>get_egse_log_snapshot</b> <span class='chip'>function</span><br>Return latest EB EGSE log snapshot if changed.
+Returns (changed, header, lines, error).</li>
+<li><b>get_egse_interface</b> <span class='chip'>function</span><br>Get the EGSE interface instance, initializing it if it doesn't exist.</li>
+<li><b>update_egse_interface_path</b> <span class='chip'>function</span><br>Update the EGSE interface path and reinitialize the interface if it already exists.</li>
+<li><b>select_cmd_script</b> <span class='chip'>function</span><br>Open a file picker instance to select an EGSE script file and send it to CmdTool using Typecast.</li>
+<li><b>select_egse_folder</b> <span class='chip'>function</span><br>Open folder picker to set the EGSE tools directory.</li>
+<li><b>select_rs422_log</b> <span class='chip'>function</span><br>Open file picker to select an RS422if log file.</li>
+<li><b>locate_latest_egse_log</b> <span class='chip'>function</span><br>Locate the newest EB EGSE log file.</li>
+<li><b>start_egse_tools</b> <span class='chip'>function</span><br>Method that runs the batch file to start the EGSE tools.</li>
+<li><b>stop_egse_tools</b> <span class='chip'>function</span><br>Stop the EGSE tools.</li>
+<li><b>EGSEInterface</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>EGSEInterface.__init__</b> <span class='chip'>method</span><br>Interface class to manage interactions with the EB EGSE tools, including starting/stopping the tools and sending commands via typecasting.</li>
+<li class='method'><b>EGSEInterface._set_clipboard_text</b> <span class='chip'>method</span><br>Set Windows clipboard text using CF_UNICODETEXT.</li>
+<li class='method'><b>EGSEInterface._focus_cmdtool_entry</b> <span class='chip'>method</span><br>Focus likely Tkinter command entry by clicking near bottom-left input area.</li>
+<li class='method'><b>EGSEInterface.start_egse</b> <span class='chip'>method</span><br>Start the EGSE tools by running the Start_tools.bat script. Optionally, a script argument can be passed to be executed after the tools start.</li>
+<li class='method'><b>EGSEInterface.stop_egse</b> <span class='chip'>method</span><br>Stop the EGSE tools by running the Stop_tools.bat script.</li>
+<li class='method'><b>EGSEInterface.typecast</b> <span class='chip'>method</span><br>Typecasting function that sends the commands from a script file to the CMDTool window.</li>
+<li class='method'><b>EGSEInterface.send_command_to_cmdtool</b> <span class='chip'>method</span><br>Send a single command string to the CmdTool input window.</li>
+<li class='method'><b>EGSEInterface._connect_cmdtool_window</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>EGSEInterface._resolve_cmdtool_input</b> <span class='chip'>method</span><br>Resolve the text input control in CmdTool for direct command send.</li>
+<li class='method'><b>EGSEInterface._send_text_to_cmdtool_input</b> <span class='chip'>method</span><br>Send text to CmdTool using clipboard + paste (Tkinter-compatible approach).
+
+CmdTool is built with Tkinter and doesn't have standard Windows Edit controls.
+Clipboard paste is the most reliable method for Tkinter apps.
+Falls back to keyboard typing if clipboard fails.</li>
+<li class='method'><b>EGSEInterface.send_makesafe</b> <span class='chip'>method</span><br>Send MakeSafe sequence into CmdTool and verify SAFE operating state.
+
+Sequence:
+1) ENFYS_SAFE 0
+2) wait 2000 ms
+3) ENFYS_RET 0 0 0 0 0 0</li>
+<li class='method'><b>EGSEInterface.wait_for_safe_state</b> <span class='chip'>method</span><br>Poll latest HK from RS422 log until CURRENT_OPERATING_STATE becomes SAFE (0x02).</li>
+</ul></article>
+<article id='src__utility_modules__eb_packet_utility_py' class='detail'><h4>eb_packet_utility</h4><p class='path'>src/utility_modules/eb_packet_utility.py</p><p>Provides `eb_packet_utility` module logic.</p><ul>
+<li><b>read_pkt</b> <span class='chip'>function</span><br>Reads packet from EB RS422_if.log files.</li>
+<li><b>read_block_length</b> <span class='chip'>function</span><br>Read the block length from bytes 12-13 of the packet data. Returns None if packet is too short.</li>
+<li><b>trim_sci_packet_by_block_length</b> <span class='chip'>function</span><br>Trims Science packet to header + block length if block length is present and packet is long enough. Otherwise returns original packet data.</li>
+<li><b>parse_eb_hk</b> <span class='chip'>function</span><br>Parse EB Housekeeping packet data and decode all relevant fields, using the defined dictionaries from TMStruct</li>
+<li><b>decode_post_hk</b> <span class='chip'>function</span><br></li>
+<li><b>decode_dump_data</b> <span class='chip'>function</span><br>Decodes Dump Data SCI packet using the defined dictionary from TMStruct for dump_data</li>
+<li><b>decode_cscience_data</b> <span class='chip'>function</span><br>Decodes Critical Science Data SCI packet using the defined dictionary from TMStruct for eb_sci_header, and trims packet to header + block length if block length is present.</li>
+<li><b>decode_ncscience_data</b> <span class='chip'>function</span><br>Decodes Non-Critical Science Data SCI packet using the defined dictionary from TMStruct for eb_sci_header, and trims packet to header + block length if block length is present.</li>
+<li><b>decode_sci_data_points</b> <span class='chip'>function</span><br>Decodes SCI data points from a decoded SCI packet, returning a list of SimpleNamespace objects.</li>
+<li><b>merge_sci_data_packet</b> <span class='chip'>function</span><br>Decodes SCI data points from a decoded SCI packet, and merges decoded SCI data point fields with base packet fields.</li>
+<li><b>decode_ob_trps</b> <span class='chip'>function</span><br>Convert a thermistor ADU value to temperature in Celsius using the linear conversion defined by the HKREF voltage divider circuitry and an estimation formula using a PT1000 table.</li>
+<li><b>decode_eb_trps</b> <span class='chip'>function</span><br>Convert a thermistor ADU value to temperature in Celsius using the B-parameter equation.</li>
+</ul></article>
+<article id='src__utility_modules__egse_logger_py' class='detail'><h4>egse_logger</h4><p class='path'>src/utility_modules/egse_logger.py</p><p>Provides `egse_logger` module logic.</p><ul>
+<li><b>get_loggers</b> <span class='chip'>function</span><br>Initializes and returns the event_log, info_log, and psu_log loggers.</li>
+</ul></article>
+<article id='src__utility_modules__hk_conversions_py' class='detail'><h4>hk_conversions</h4><p class='path'>src/utility_modules/hk_conversions.py</p><p>Universal ADU-to-physical conversion table for EB/OB HK telemetry fields.
+
+Add an entry here whenever a new field needs a physical conversion.  Both the
+metrics card system and plot card system consume this table so the scaling
+logic lives in exactly one place.
+
+Usage
+-----
+    from utility_modules import hk_conversions
+
+    temp = hk_conversions.decode_field(hk_packet, "OB_DIGITAL_TRP")  # float | None</p><ul>
+<li><b>decode_field</b> <span class='chip'>function</span><br>Convert one raw HK field to its physical value.
+
+Returns None when:
+- the field is not in the conversion table
+- the packet attribute is absent / None
+- the conversion raises (e.g. ADU out of range)</li>
+<li><b>FieldConversion</b> <span class='chip'>class</span><br>Conversion definition for a single HK telemetry field.</li>
+</ul></article>
+<article id='src__utility_modules__psu_py' class='detail'><h4>psu</h4><p class='path'>src/utility_modules/psu.py</p><p>Provides `psu` module logic.</p><ul>
+<li><b>init_psu_comms</b> <span class='chip'>function</span><br>Initialise an unopened PSU serial port handle.</li>
+<li><b>open_psu_comms</b> <span class='chip'>function</span><br>Open PSU serial comms and verify the expected IDN response.</li>
+<li><b>close_psu_comms</b> <span class='chip'>function</span><br>Return PSU to local mode, clear buffers, and close the serial port.</li>
+<li><b>psuRead</b> <span class='chip'>function</span><br>Read a PSU value for a channel and command type.</li>
+<li><b>parse_psu_reading</b> <span class='chip'>function</span><br>Parse raw PSU text readings into float values with safe fallback to 0.0.</li>
+<li><b>psu_monitor_thread</b> <span class='chip'>function</span><br>Monitor PSU channels, log telemetry, and shut down on limit violations.</li>
+<li><b>setChannels</b> <span class='chip'>function</span><br>Configure PSU channel voltage/current/OVP limits for OB or EB mode.</li>
+<li><b>switch_psu_channel</b> <span class='chip'>function</span><br>Switch a PSU channel on or off.</li>
+<li><b>emergencyShutDown</b> <span class='chip'>function</span><br>Perform emergency PSU shutdown and hand control back to local front panel.</li>
+</ul></article>
+<article id='src__utility_modules__psu_log_utility_py' class='detail'><h4>psu_log_utility</h4><p class='path'>src/utility_modules/psu_log_utility.py</p><p>Provides `psu_log_utility` module logic.</p><ul>
+<li><b>load_psu_channel_samples</b> <span class='chip'>function</span><br>Parse PSU log file and return generic per-channel samples.
+
+Each returned record uses:
+{
+  "TIME": datetime,
+  "STATUS": bool,
+  "CHANNELS": {
+    "CH1": {"V": float | None, "I": float | None},
+    "CH2": {"V": float | None, "I": float | None},
+    "CH3": {"V": float | None, "I": float | None},
+    "CH4": {"V": float | None, "I": float | None},
+  }
+}
+
+Expected line format:
+- "YYYY-mm-dd HH:MM:SS,mmm - CH3_V 28V CH3_I 0.05 CH4_V 28V CH4_I 0.5"
+
+Channels may be partially present on each line, depending on which outputs
+were enabled at the time.</li>
+</ul></article>
+<article id='src__utility_modules__send_cmd_py' class='detail'><h4>send_cmd</h4><p class='path'>src/utility_modules/send_cmd.py</p><p>Provides `send_cmd` module logic.</p><ul>
+<li><b>cmd_repeat</b> <span class='chip'>function</span><br>Retry a TC once after clearing errors when the first attempt fails.</li>
+<li><b>poll_hk</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__utility_modules__tc_py' class='detail'><h4>tc</h4><p class='path'>src/utility_modules/tc.py</p><p>Provides `tc` module logic.</p><ul>
+<li><b>send_tc</b> <span class='chip'>function</span><br>Method to send a TC command to the EGSE. This method also logs the command to a file with a timestamp.</li>
+<li><b>verify_ack_hdr</b> <span class='chip'>function</span><br>This function verifies the header parameters in the ACK response. If any of the parameters do not match the expected values, then a error condition is raised.</li>
+<li><b>verify_blank_ack_params</b> <span class='chip'>function</span><br>This function verifies that all unused parameters in the ACK response are set to 0. Saves
+having to check them all individually in each command. If the value is not 0, then a
+info_log.error is raised.
+
+Args:
+    parsed (tm.ACK): The parsed ACK response object that already has the parameters decoded.
+    start_index (int, optional): The number of the first blank parameter, this is used to
+    generate the set of parameters that will be looped through. Defaults to 1.</li>
+<li><b>hk_request</b> <span class='chip'>function</span><br>Method to request HK - No parameters</li>
+<li><b>clear_errors</b> <span class='chip'>function</span><br>Method to Clear Errors - No parameters</li>
+<li><b>set_errors</b> <span class='chip'>function</span><br>Method to Set Errors - Setting : TMO|IPA|CD|AB|ABS|DSE Ignoring :IG_B|IG_O  Masking : M_CD|M_AB|M_ABS|M_DSE</li>
+<li><b>power_control</b> <span class='chip'>function</span><br>Method to send Power Control command. 0 - All OFF|1 - Mech ON|2 - Detec ON|3 - Both ON</li>
+<li><b>heater_control</b> <span class='chip'>function</span><br>Method to send Heater Control command. 16 : HTR_SCI_TOG | 8 : HTR_DETEC_MAN | 4 : HTR_DETEC_AUTO | 2 : HTR_MECH_MAN | 1 : HTR_MECH_AUTO</li>
+<li><b>set_mech_sp</b> <span class='chip'>function</span><br>Method to set Mechanism Thermal SetPoints. OFF_SP [0:FFF] | ON_SP [0:FFF]</li>
+<li><b>set_detec_sp</b> <span class='chip'>function</span><br>Method to set Detector Thermal SetPoints. OFF_SP [0:FFF] | ON_SP [0:FFF]</li>
+<li><b>set_mtr_param</b> <span class='chip'>function</span><br>Method to set Motor Parameters. PEAK_CURRENT [0:7F] Nom:40(85mA) | GUARD [0:FF] Nom: | RECVAL [0:FF] | SPEED [0:0F]</li>
+<li><b>mtr_mov_pos</b> <span class='chip'>function</span><br>Method to send Move Pos Steps command. POS_STEPS [0:10000]</li>
+<li><b>mtr_mov_neg</b> <span class='chip'>function</span><br>Method to send Move Neg Steps command. NEG_STEPS [0:10000]</li>
+<li><b>mtr_homing</b> <span class='chip'>function</span><br>"Method to send Motor Homing command. 2 - CAL | 1 - DRIVE TO OUTER</li>
+<li><b>mtr_halt</b> <span class='chip'>function</span><br>Method to send Motor Halt command.No Parameters</li>
+<li><b>set_hk_samples</b> <span class='chip'>function</span><br>Method to send Set HK Samples command. SAMPLES [0:6]</li>
+<li><b>sci_offset</b> <span class='chip'>function</span><br>Method to send Set Sci Offset command. SWIR_OFFSET [0:FFF] | MWIR_OFFSET [0:FFF]</li>
+<li><b>sci_request</b> <span class='chip'>function</span><br>Method to send SCI Request command. SCI_ADC_SAMP [0:10] | SCI_ADC_SKIP [0:255]</li>
+</ul></article>
+<article id='src__utility_modules__tm_py' class='detail'><h4>tm</h4><p class='path'>src/utility_modules/tm.py</p><p>Provides `tm` module logic.</p><ul>
+<li><b>get_response</b> <span class='chip'>function</span><br>Read the raw bytes from the serial port and return them</li>
+<li><b>parse_tm</b> <span class='chip'>function</span><br>Parse the raw bytes from the TM response and return the appropriate object based on the CMD ID</li>
+<li><b>Response</b> <span class='chip'>class</span><br>Class Definition for the raw response received from the serial port.</li>
+<li class='method'><b>Response.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>Response.get_cmd_mod_id</b> <span class='chip'>method</span><br>Extract the command and module IDs from the raw bytes.</li>
+<li class='method'><b>Response.verify_cmd_id</b> <span class='chip'>method</span><br>Verify that the command ID matches one of the expected values and set the command type accordingly.</li>
+<li class='method'><b>Response.verify_model_id</b> <span class='chip'>method</span><br>Verify that the model ID matches the expected value.</li>
+<li class='method'><b>Response.verify_crc</b> <span class='chip'>method</span><br>Calculate the CRC8 of the raw bytes and compare it to the expected value. The CRC8 should be 0x00 if the data is correct.</li>
+<li><b>TM</b> <span class='chip'>class</span><br>Parent Class Definition for all TM responses. Reads the raw bytes from the response and parses them based on the dictionary defined in tmstruct.py</li>
+<li class='method'><b>TM.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>TM.check_len</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>TM.decode_bytes</b> <span class='chip'>method</span><br>Read the raw bytes and decode them into the appropriate variables using the dictionary defined in tmstruct.py</li>
+<li class='method'><b>TM.decode_error_byte</b> <span class='chip'>method</span><br>Read the error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py</li>
+<li class='method'><b>TM.decode_mtr_error_byte</b> <span class='chip'>method</span><br>Read the motor error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py</li>
+<li class='method'><b>TM.decode_thrm_status_byte</b> <span class='chip'>method</span><br>Read the thermal status byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py</li>
+<li class='method'><b>TM.check_errors</b> <span class='chip'>method</span><br>Check the error byte and log any errors that are asserted</li>
+<li><b>HK</b> <span class='chip'>class</span><br>HK Class Definition. Reads the HK response and parses it based on the dictionary defined in tmstruct.py</li>
+<li class='method'><b>HK.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>HK.check_len</b> <span class='chip'>method</span><br>Check the length of the HK message</li>
+<li class='method'><b>HK.check_unused</b> <span class='chip'>method</span><br>Check the unused bytes in the HK message. These should always be 0.</li>
+<li><b>ACK</b> <span class='chip'>class</span><br>ACK Class Definition. Reads the ACK response and parses it based on the dictionary defined in tmstruct.py</li>
+<li class='method'><b>ACK.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>ACK.check_len</b> <span class='chip'>method</span><br>Check the length of the ACK message</li>
+<li><b>SCI</b> <span class='chip'>class</span><br>SCI Class Definition. Reads the SCI response and parses it based on the dictionary defined in tmstruct.py</li>
+<li class='method'><b>SCI.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>SCI.check_len</b> <span class='chip'>method</span><br>Check the length of the SCI message</li>
+<li><b>NACK</b> <span class='chip'>class</span><br>NACK Class Definition. Reads the NACK response and parses it based on the dictionary defined in tmstruct.py</li>
+<li class='method'><b>NACK.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>NACK.check_len</b> <span class='chip'>method</span><br>Check the length of the NACK message</li>
+</ul></article>
+<article id='src__widget_modules__detector_tab_py' class='detail'><h4>detector_tab</h4><p class='path'>src/widget_modules/detector_tab.py</p><p>Provides `detector_tab` module logic.</p><ul>
+<li><b>create_detector_tab</b> <span class='chip'>function</span><br>Build detector controls (legacy detector panel) for OB mode.</li>
+</ul></article>
+<article id='src__widget_modules__file_dialog_window_widget_py' class='detail'><h4>file_dialog_window_widget</h4><p class='path'>src/widget_modules/file_dialog_window_widget.py</p><p>Provides `file_dialog_window_widget` module logic.</p><ul>
+<li><b>create_dialog_root</b> <span class='chip'>function</span><br>Creates a hidden root window for the file dialog to ensure it appears on top of other windows.</li>
+<li><b>select_folder_dialog</b> <span class='chip'>function</span><br>Opens a folder selection dialog and returns the selected path.</li>
+<li><b>select_file_dialog</b> <span class='chip'>function</span><br>Opens a file selection dialog and returns the selected file path.</li>
+</ul></article>
+<article id='src__widget_modules__log_terminal_widget_py' class='detail'><h4>log_terminal_widget</h4><p class='path'>src/widget_modules/log_terminal_widget.py</p><p>Provides `log_terminal_widget` module logic.</p><ul>
+<li><b>create_log_terminal</b> <span class='chip'>function</span><br>Creates a log terminal using ui.log and a custom logging.Handler to display logs in the UI.</li>
+<li><b>set_log_display</b> <span class='chip'>function</span><br>Set the log display mode and logging level based on user selection.</li>
+<li><b>LogTerminalController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>LogTerminalController.set_level</b> <span class='chip'>method</span><br></li>
+<li><b>LogElementHandler</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>LogElementHandler.__init__</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>LogElementHandler.emit</b> <span class='chip'>method</span><br>Emit a log record to the ui.log element.</li>
+<li class='method'><b>LogElementHandler.bind_level_radio</b> <span class='chip'>method</span><br>Bind the log level radio button to this handler for dynamic level changes.</li>
+<li class='method'><b>LogElementHandler.on_level_change</b> <span class='chip'>method</span><br>Update logger level and selected radio color based on level selection.</li>
+</ul></article>
+<article id='src__widget_modules__mechanism_tab_py' class='detail'><h4>mechanism_tab</h4><p class='path'>src/widget_modules/mechanism_tab.py</p><p>Provides `mechanism_tab` module logic.</p><ul>
+<li><b>create_mechanism_tab</b> <span class='chip'>function</span><br>Build mechanism controls (legacy motor panel) for OB mode.</li>
+</ul></article>
+<article id='src__widget_modules__menu_widget_py' class='detail'><h4>menu_widget</h4><p class='path'>src/widget_modules/menu_widget.py</p><p>Provides `menu_widget` module logic.</p><ul>
+<li><b>create_menu</b> <span class='chip'>function</span><br>Creates the menu for the application. The menu contains buttons to start/stop EB EGSE tools, select a log file, and take a log snapshot.</li>
+<li><b>_call_set_mode</b> <span class='chip'>function</span><br></li>
+<li><b>_log_psu_snapshot</b> <span class='chip'>function</span><br>Logs the current PSU readings to the info log.</li>
+<li><b>_log_snapshot</b> <span class='chip'>function</span><br>Takes a snapshot of the current logs and PSU readings, and logs them to the info log.</li>
+<li><b>_select_psu_log</b> <span class='chip'>function</span><br>Open a PSU log picker and register selected replay file in app state.</li>
+<li><b>_run_txt_script</b> <span class='chip'>function</span><br>Pick a .txt script file and typecast it to CmdTool.</li>
+<li><b>_run_selected_script</b> <span class='chip'>function</span><br>Run the selected EB script from the menu.</li>
+<li><b>_start_egse_tools</b> <span class='chip'>function</span><br>Start EB EGSE tools and expose script controls only on successful startup.</li>
+<li><b>_stop_egse_tools</b> <span class='chip'>function</span><br>Stop EB EGSE tools and hide script controls.</li>
+<li><b>_pause_selected_script</b> <span class='chip'>function</span><br>Toggle pause/resume for a running script.</li>
+<li><b>_abort_selected_script</b> <span class='chip'>function</span><br>Abort a running script.</li>
+<li><b>_handle_script_hotkeys</b> <span class='chip'>function</span><br>Map keyboard shortcuts to existing script pause/abort actions.</li>
+<li><b>stop_and_shutdown</b> <span class='chip'>function</span><br>Stops any running processes and shuts down the application.</li>
+<li><b>MenuController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>MenuController.open</b> <span class='chip'>method</span><br>Opens the menu by setting the state and applying styles to show the card.</li>
+<li class='method'><b>MenuController.close</b> <span class='chip'>method</span><br>Closes the menu by setting the state and applying styles to hide the card.</li>
+<li class='method'><b>MenuController.toggle</b> <span class='chip'>method</span><br>Toggles the menu open or closed based on the current state.</li>
+</ul></article>
+<article id='src__widget_modules__metrics_card_widget_py' class='detail'><h4>metrics_card_widget</h4><p class='path'>src/widget_modules/metrics_card_widget.py</p><p>Provides `metrics_card_widget` module logic.</p><ul>
+<li><b>_safe_get_value</b> <span class='chip'>function</span><br></li>
+<li><b>_coerce_float</b> <span class='chip'>function</span><br></li>
+<li><b>_coerce_bool</b> <span class='chip'>function</span><br></li>
+<li><b>_format_value</b> <span class='chip'>function</span><br></li>
+<li><b>_flag_true</b> <span class='chip'>function</span><br></li>
+<li><b>_has_any_asserted</b> <span class='chip'>function</span><br></li>
+<li><b>_decoded</b> <span class='chip'>function</span><br></li>
+<li><b>_tec_temp</b> <span class='chip'>function</span><br></li>
+<li><b>_state_name</b> <span class='chip'>function</span><br></li>
+<li><b>_ob_warm</b> <span class='chip'>function</span><br></li>
+<li><b>_parked</b> <span class='chip'>function</span><br></li>
+<li><b>_direction</b> <span class='chip'>function</span><br></li>
+<li><b>_stop</b> <span class='chip'>function</span><br></li>
+<li><b>_ns_bool</b> <span class='chip'>function</span><br></li>
+<li><b>_eb_hk_specs</b> <span class='chip'>function</span><br></li>
+<li><b>_ob_hk_specs</b> <span class='chip'>function</span><br></li>
+<li><b>_render_metric_grid</b> <span class='chip'>function</span><br></li>
+<li><b>_bind_metric_popups</b> <span class='chip'>function</span><br></li>
+<li><b>create_metrics_card</b> <span class='chip'>function</span><br></li>
+<li><b>create_default_eb_metrics_card</b> <span class='chip'>function</span><br></li>
+<li><b>create_default_ob_metrics_card</b> <span class='chip'>function</span><br></li>
+<li><b>create_packet_metrics_card</b> <span class='chip'>function</span><br></li>
+<li><b>MetricSpec</b> <span class='chip'>class</span><br></li>
+<li><b>MetricPill</b> <span class='chip'>class</span><br></li>
+<li><b>MetricsCardController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>MetricsCardController.set_visible</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>MetricsCardController.set_no_data</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>MetricsCardController.update_from_packet</b> <span class='chip'>method</span><br></li>
+<li><b>PacketMetricsCardController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>PacketMetricsCardController.set_no_data</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketMetricsCardController.set_mode</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketMetricsCardController.refresh</b> <span class='chip'>method</span><br></li>
+</ul></article>
+<article id='src__widget_modules__packet_viewer_widget_py' class='detail'><h4>packet_viewer_widget</h4><p class='path'>src/widget_modules/packet_viewer_widget.py</p><p>Provides `packet_viewer_widget` module logic.</p><ul>
+<li><b>create_packet_viewer</b> <span class='chip'>function</span><br>Creates a packet viewer UI component and returns its controller for updates.</li>
+<li><b>create_telemetry_list</b> <span class='chip'>function</span><br></li>
+<li><b>PacketViewerController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>PacketViewerController.refresh</b> <span class='chip'>method</span><br>Refresh values currently available in state.</li>
+<li class='method'><b>PacketViewerController.increment</b> <span class='chip'>method</span><br>Backward-compatible counter update used by existing callers.</li>
+<li class='method'><b>PacketViewerController.set_packet_type</b> <span class='chip'>method</span><br>Set the current packet type and refresh displayed values accordingly.</li>
+<li class='method'><b>PacketViewerController.update_from_packet</b> <span class='chip'>method</span><br>Store and render one decoded TM packet.
+
+packet_type supports: EB_HK, EB_POST, EB_SCI, OB_HK, OB_SCI.
+packet_data can be a dict or an object with __dict__ (e.g. SimpleNamespace).</li>
+<li class='method'><b>PacketViewerController.shift_sci_packet</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController.set_sci_packet</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController.shift_sci_point</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController.set_sci_point</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController.plot_selected_sci_packet</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._render_sci_panel</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._format_measurement_config</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._format_acquisition_mode</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._format_sci_temp_value</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._format_sci_packet_number</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PacketViewerController._render_values</b> <span class='chip'>method</span><br>Render the given packet values in the UI, matching field names to labels.</li>
+<li class='method'><b>PacketViewerController._format_value</b> <span class='chip'>method</span><br>Format a telemetry field value for display, with special handling for certain types.</li>
+<li class='method'><b>PacketViewerController._coerce_packet_dict</b> <span class='chip'>method</span><br>Coerce a raw packet into a dictionary for easier processing.</li>
+</ul></article>
+<article id='src__widget_modules__parent_window_widget_py' class='detail'><h4>parent_window_widget</h4><p class='path'>src/widget_modules/parent_window_widget.py</p><p>Provides `parent_window_widget` module logic.</p><ul>
+<li><b>build_ui</b> <span class='chip'>function</span><br></li>
+</ul></article>
+<article id='src__widget_modules__plot_widget_py' class='detail'><h4>plot_widget</h4><p class='path'>src/widget_modules/plot_widget.py</p><p>Provides `plot_widget` module logic.</p><ul>
+<li><b>create_plot_card</b> <span class='chip'>function</span><br>Create a generic plot card.
+
+Args:
+    title: Card title.
+    series: One entry per plotted line, each with a label and colour.
+    y_label: Y-axis label (e.g. "mA", "°C", "V").
+    y_limits: Fixed (ymin, ymax) applied at creation.  Ignored when
+        *mode_limits* provides a value for the current mode.
+    mode_limits: Optional per-mode (ymin, ymax) updated by set_mode().
+    limit: Number of x-points to keep in the rolling window.
+    show_toggles: When True, renders a per-series checkbox row inside the
+        card so individual series can be shown or hidden at runtime.
+    show_title: When False, suppresses both card and axis titles.
+    plot_height_class: Tailwind height class for the plot area.
+    show_legend: Force legend visibility. Defaults to visible when
+        there is more than one series.</li>
+<li><b>SeriesConfig</b> <span class='chip'>class</span><br>Configuration for a single plotted series.</li>
+<li><b>PlotCardController</b> <span class='chip'>class</span><br></li>
+</ul></article>
+<article id='src__widget_modules__popup_widget_py' class='detail'><h4>popup_widget</h4><p class='path'>src/widget_modules/popup_widget.py</p><p>Provides `popup_widget` module logic.</p><ul>
+<li><b>show_message</b> <span class='chip'>function</span><br></li>
+<li><b>show_flag_popup</b> <span class='chip'>function</span><br>Show a popup with decoded flag bits for the selected metric.</li>
+</ul></article>
+<article id='src__widget_modules__psu_widget_py' class='detail'><h4>psu_widget</h4><p class='path'>src/widget_modules/psu_widget.py</p><p>Provides `psu_widget` module logic.</p><ul>
+<li><b>create_psu_channel_card</b> <span class='chip'>function</span><br>Create a PSU channel card with a plot and enable switch.</li>
+<li><b>PsuChannelController</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>PsuChannelController.set_visible</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PsuChannelController.apply_profile</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>PsuChannelController.push_sample</b> <span class='chip'>method</span><br>Push a new sample to the channel's plot and update the value label.</li>
+<li class='method'><b>PsuChannelController.set_enabled_from_psu</b> <span class='chip'>method</span><br>Synchronize UI switch state from live PSU status without issuing commands.</li>
+</ul></article>
+<article id='src__widget_modules__traffic_light_widget_py' class='detail'><h4>traffic_light_widget</h4><p class='path'>src/widget_modules/traffic_light_widget.py</p><p>Provides `traffic_light_widget` module logic.</p><ul>
+<li><b>create_traffic_lights</b> <span class='chip'>function</span><br></li>
+<li><b>AlarmLight</b> <span class='chip'>class</span><br></li>
+<li class='method'><b>AlarmLight.__init__</b> <span class='chip'>method</span><br>Creates an alarm light with a label. The light can be set to OK or Fault state, and clicking on it will show a dialog with details.</li>
+<li class='method'><b>AlarmLight._create_fault_widget</b> <span class='chip'>method</span><br>Creates the UI elements for the fault light and its dialog.</li>
+<li class='method'><b>AlarmLight._refresh_from_sources</b> <span class='chip'>method</span><br></li>
+<li class='method'><b>AlarmLight._refresh_light</b> <span class='chip'>method</span><br>Refreshes the fault light's appearance based on its current state.</li>
+<li class='method'><b>AlarmLight.set_fault_state</b> <span class='chip'>method</span><br>Sets the fault state to OK or Fault, and updates the details if provided.</li>
+<li class='method'><b>AlarmLight.update_from_faults</b> <span class='chip'>method</span><br>Updates the fault state based on source-specific fault names and active status.</li>
+<li class='method'><b>AlarmLight.clear_selected_faults</b> <span class='chip'>method</span><br>Acknowledge selected details while leaving other active alarms untouched.</li>
+<li class='method'><b>AlarmLight.clear_fault</b> <span class='chip'>method</span><br>Clears the fault state and details.</li>
+<li class='method'><b>AlarmLight.show_fault_dialog</b> <span class='chip'>method</span><br>Shows a dialog with the current fault details.</li>
+<li class='method'><b>AlarmLight.set_visible</b> <span class='chip'>method</span><br></li>
+</ul></article>
+<article id='src__widget_modules__ui_runtime_controller_py' class='detail'><h4>ui_runtime_controller</h4><p class='path'>src/widget_modules/ui_runtime_controller.py</p><p>Provides `ui_runtime_controller` module logic.</p><ul>
+<li><b>notify_script_pause</b> <span class='chip'>function</span><br>Notify the user that the script is paused, showing progress.</li>
+<li><b>request_force_pause</b> <span class='chip'>function</span><br>Request a forced pause — blocks script execution until released.</li>
+<li><b>clear_force_pause</b> <span class='chip'>function</span><br>Release a previously requested forced pause.</li>
+<li><b>is_force_paused</b> <span class='chip'>function</span><br>Return True when script execution is held by a forced pause.</li>
+<li><b>create_set_mode</b> <span class='chip'>function</span><br>Create a mode setter callback bound to current state and app.</li>
+<li><b>dispatch_ob_tc</b> <span class='chip'>function</span><br>Send an OB TC using the shared OB port lock when available.</li>
+<li><b>create_sci_navigation_state</b> <span class='chip'>function</span><br>Create backend-owned SCI navigation state for packet/point swiping.</li>
+<li><b>sci_current_packet</b> <span class='chip'>function</span><br></li>
+<li><b>sci_set_packet_index</b> <span class='chip'>function</span><br></li>
+<li><b>sci_shift_packet_index</b> <span class='chip'>function</span><br></li>
+<li><b>sci_set_point_index</b> <span class='chip'>function</span><br></li>
+<li><b>sci_shift_point_index</b> <span class='chip'>function</span><br></li>
+<li><b>sci_add_packet</b> <span class='chip'>function</span><br>Normalize, dedupe, and insert an SCI packet into backend state.</li>
+<li><b>_apply_theme_to_ui</b> <span class='chip'>function</span><br></li>
+<li><b>create_set_theme</b> <span class='chip'>function</span><br>Create a theme setter callback bound to current UI controllers.</li>
+<li><b>_reset_psu_replay</b> <span class='chip'>function</span><br></li>
+<li><b>_card_channel_preferences</b> <span class='chip'>function</span><br></li>
+<li><b>_update_psu_readings</b> <span class='chip'>function</span><br></li>
+<li><b>_update_psu_cards</b> <span class='chip'>function</span><br></li>
+<li><b>_update_psu_alarm_lights</b> <span class='chip'>function</span><br></li>
+<li><b>_apply_psu_sample</b> <span class='chip'>function</span><br></li>
+<li><b>_build_replay_psu_sample</b> <span class='chip'>function</span><br></li>
+<li><b>create_set_psu_log_path</b> <span class='chip'>function</span><br>Create PSU replay-log setter callback bound to current state.</li>
+<li><b>create_set_psu_card_profiles</b> <span class='chip'>function</span><br>Create mode-dependent PSU card profile callback bound to PSU card controllers.</li>
+<li><b>create_poll_psu</b> <span class='chip'>function</span><br>Create PSU polling callback bound to the current UI state and cards.</li>
+<li><b>_decode_tuple</b> <span class='chip'>function</span><br></li>
+<li><b>_decoded</b> <span class='chip'>function</span><br></li>
+<li><b>_active_flag_names</b> <span class='chip'>function</span><br></li>
+<li><b>_any_flag</b> <span class='chip'>function</span><br></li>
+<li><b>_ob_alarm_details</b> <span class='chip'>function</span><br></li>
+<li><b>_eb_alarm_details</b> <span class='chip'>function</span><br></li>
+<li><b>_update_hk_alarm_lights</b> <span class='chip'>function</span><br></li>
+<li><b>_update_plot_cards</b> <span class='chip'>function</span><br></li>
+<li><b>_update_packet_viewer</b> <span class='chip'>function</span><br></li>
+<li><b>_drain_packet_queue</b> <span class='chip'>function</span><br></li>
+<li><b>_violates_limits</b> <span class='chip'>function</span><br></li>
+<li><b>_append_violation</b> <span class='chip'>function</span><br></li>
+<li><b>_limit_tuple</b> <span class='chip'>function</span><br></li>
+<li><b>_mms_reasons</b> <span class='chip'>function</span><br></li>
+<li><b>_disable_ob5v</b> <span class='chip'>function</span><br></li>
+<li><b>_run_mms_actions</b> <span class='chip'>function</span><br></li>
+<li><b>create_poll_tm</b> <span class='chip'>function</span><br>Create TM polling callback bound to current controllers and state.</li>
+</ul></article>
+    </div>
+  </aside>
+</div>
+</body>
+</html>
