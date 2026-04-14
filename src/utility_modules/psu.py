@@ -1,4 +1,5 @@
 # Std library
+from contextlib import nullcontext
 from datetime import datetime
 import logging
 # Added packages
@@ -17,7 +18,7 @@ def init_psu_comms(psu_com: str) -> serial.Serial:
     """Initialise an unopened PSU serial port handle."""
     psuport = serial.Serial(port=None, timeout=1.0)
     psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
-    print("Initialized PSU COM port: {psu_com}")
+    print(f"Initialized PSU COM port: {psu_com}")
     return psuport
 
 def open_psu_comms(port: serial.Serial , psu_not_required):
@@ -80,157 +81,165 @@ def parse_psu_reading(raw_value: str) -> float:
     except ValueError:
         return 0.0
 
-def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
+def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode_state=None, port_lock=None):
     """Monitor PSU channels, log telemetry, and shut down on limit violations."""
     if not port:
         return
 
     last_status = None
+    last_ch1_status = None
+    last_ch2_status = None
+    last_ch3_status = None
+    last_ch4_status = None
     last_eb_status = None
     last_rov_htr_status = None
+    last_mode_is_eb = None
     on_since = None
 
     while not stop_event.is_set():
         try:
-            #Read the status of the PSU channels, and set stop event accordingly
-            if ebmode:
-                ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
-                rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
-                if hk_pause_event is not None:
-                    if ebstatus == 0 and rov_htr_status == 0:
-                        hk_pause_event.set()
-                    else:
-                        hk_pause_event.clear()
-                #Assign timer for transient protection if either channel just turned on
-                if ebstatus != 0 and last_eb_status == 0:
-                    on_since = time.monotonic()
-                if rov_htr_status != 0 and last_rov_htr_status == 0:
-                    on_since = time.monotonic()
-                last_eb_status = ebstatus
-                last_rov_htr_status = rov_htr_status
+            active_ebmode = bool(mode_state.get("ebmode", ebmode)) if isinstance(mode_state, dict) else ebmode
+            if last_mode_is_eb is None or last_mode_is_eb != active_ebmode:
+                # Reset edge detectors on mode transition so first ON in new mode gets transient delay.
+                last_status = 0
+                last_ch1_status = 0
+                last_ch2_status = 0
+                last_ch3_status = 0
+                last_ch4_status = 0
+                last_eb_status = 0
+                last_rov_htr_status = 0
+                on_since = None
+                last_mode_is_eb = active_ebmode
+            lock_ctx = port_lock if port_lock is not None else nullcontext()
+            with lock_ctx:
+                if active_ebmode:
+                    ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
+                    rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
 
-                # Read the voltage and current for each channel and parse the readings to floats
-                eb_v = parse_psu_reading(psuRead(port, "4", "V", True).rstrip())
-                eb_i = parse_psu_reading(psuRead(port, "4", "I", True).rstrip())
-
-                rov_htr_v = parse_psu_reading(psuRead(port, "3", "V", True).rstrip())
-                rov_htr_i = parse_psu_reading(psuRead(port, "3", "I", True).rstrip())
-
-                #Populate PSU Queue with dictionary
-                psu_readings = {
-                    "TIME": datetime.now(),
-                    "STATUS": ebstatus,
-                    "PSU_EB_V": eb_v,
-                    "PSU_EB_I": eb_i,
-                    "PSU_ROV_HTR_V": rov_htr_v,
-                    "PSU_ROV_HTR_I": rov_htr_i,
-                }
-                const.psu_queue.put(psu_readings)
-
-                # Log only the channels that are on and push to the queue
-                log_parts = []
-                if rov_htr_status:
-                    log_parts.append("CH3 {rov_htr_v}  \t{rov_htr_i}")
-                if ebstatus:
-                    log_parts.append(f"CH4 {eb_v}  \t{eb_i}")
-                if log_parts:
-                    psu_log.info("  \t".join(log_parts))
-
-                # Check status again in case toggled during reads
-                ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
-                rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
-                if ebstatus == 0 and rov_htr_status == 0:
-                    if hk_pause_event is not None:
-                        hk_pause_event.set()
-                    continue
-
-                #Check for transients if either channel is switched on
-                if on_since is not None and time.monotonic() - on_since < 1:
-                    continue
-
-                if rov_htr_status and not (26 < rov_htr_v < 30):
-                    psu_log.error(f"Voltage out of bounds Ch3 :  {rov_htr_v}")
-                    emergencyShutDown(port)
-
-                if ebstatus and not (26 < eb_v < 30):
-                    psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
-                    emergencyShutDown(port)
-
-                if rov_htr_status and (rov_htr_i >= 150):
-                    psu_log.error(f"Current out of bounds Ch3 :  {rov_htr_i}")
-                    emergencyShutDown(port)
-
-                if ebstatus and (eb_i >= 500):
-                    psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
-                    emergencyShutDown(port)
-
-            else:
-                #Read the status of the PSU channels, and set stop event accordingly
-                ob_status = int(psuRead(port, "1", "OP", False).rstrip())
-                if ob_status == 0:
-                    if hk_pause_event is not None:
-                        hk_pause_event.set()
-                    on_since = None
-                    stop_event.wait(1 / freq)
-                else:
-                    #Assign timer for transient protection if channels just turned on
-                    if hk_pause_event is not None:
-                        hk_pause_event.clear()
-                    if last_status == 0:
+                    # Assign timer for transient protection if either channel just turned on.
+                    if ebstatus != 0 and last_eb_status in (None, 0):
                         on_since = time.monotonic()
+                    if rov_htr_status != 0 and last_rov_htr_status in (None, 0):
+                        on_since = time.monotonic()
+                    last_eb_status = ebstatus
+                    last_rov_htr_status = rov_htr_status
 
-                last_status = ob_status
+                    eb_v = parse_psu_reading(psuRead(port, "4", "V", True).rstrip())
+                    eb_i = parse_psu_reading(psuRead(port, "4", "I", True).rstrip())
 
-                # Read the voltage and current for each channel and parse the readings to floats
-                ch1_v = parse_psu_reading(psuRead(port, "1", "V", True).rstrip())
-                ch1_i = parse_psu_reading(psuRead(port, "1", "I", True).rstrip())
-                ch2_v = parse_psu_reading(psuRead(port, "2", "V", True).rstrip())
-                ch2_i = parse_psu_reading(psuRead(port, "2", "I", True).rstrip())
-                ch3_v = parse_psu_reading(psuRead(port, "3", "V", True).rstrip())
-                ch3_i = parse_psu_reading(psuRead(port, "3", "I", True).rstrip())
+                    rov_htr_v = parse_psu_reading(psuRead(port, "3", "V", True).rstrip())
+                    rov_htr_i = parse_psu_reading(psuRead(port, "3", "I", True).rstrip())
 
-                #Populate PSU Queue with dictionary
-                psu_readings = {
-                    "TIME": datetime.now(),
-                    "STATUS": ob_status,
-                    "CH1_V": ch1_v,
-                    "CH1_I": ch1_i,
-                    "CH2_V": ch2_v,
-                    "CH2_I": ch2_i,
-                    "CH3_V": ch3_v,
-                    "CH3_I": ch3_i,
-                }
-                const.psu_queue.put(psu_readings)
+                    psu_readings = {
+                        "TIME": datetime.now(),
+                        "STATUS": ebstatus,
+                        "CH1_STATUS": 0,
+                        "CH2_STATUS": 0,
+                        "CH3_STATUS": rov_htr_status,
+                        "CH4_STATUS": ebstatus,
+                        "PSU_EB_V": eb_v,
+                        "PSU_EB_I": eb_i,
+                        "PSU_ROV_HTR_V": rov_htr_v,
+                        "PSU_ROV_HTR_I": rov_htr_i,
+                    }
+                    const.psu_queue.put(psu_readings)
 
-                # Log the readings
-                psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+                    psu_log.info(
+                        f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\t"
+                        f"CH4(status={ebstatus}) {eb_v}\t{eb_i}"
+                    )
 
-                # Check status again in case toggled during reads
-                ob_status = int(psuRead(port, "1", "OP", False).rstrip())
-                if not ob_status:
-                    if hk_pause_event is not None:
-                        hk_pause_event.set()
-                    continue
+                    ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
+                    rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
 
-                #Check for transients if channels just switched on
-                if on_since is not None and time.monotonic() - on_since < 0.5:
-                    continue
+                    if on_since is not None and time.monotonic() - on_since < 0.5:
+                        continue
 
-                if (
-                    not (11.2 < float(ch1_v) < 13.2)
-                    or not (11.2 < float(ch2_v) < 13.2)
-                    or not (4.8 < float(ch3_v) < 5.5)
-                ):
-                    psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
-                    emergencyShutDown(port)
+                    if rov_htr_status and not (26 < rov_htr_v < 30):
+                        psu_log.error(f"Voltage out of bounds Ch3 :  {rov_htr_v}")
+                        emergencyShutDown(port)
 
-                if (
-                    (float(ch1_i) >= 150)
-                    or (float(ch2_i) >= 90)
-                    or (float(ch3_i) >= 150)
-                ):
-                    psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
-                    emergencyShutDown(port)
+                    if ebstatus and not (26 < eb_v < 30):
+                        psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
+                        emergencyShutDown(port)
+
+                    if rov_htr_status and (rov_htr_i >= 150):
+                        psu_log.error(f"Current out of bounds Ch3 :  {rov_htr_i}")
+                        emergencyShutDown(port)
+
+                    if ebstatus and (eb_i >= 500):
+                        psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
+                        emergencyShutDown(port)
+
+                else:
+                    ch1_status = int(psuRead(port, "1", "OP", False).rstrip())
+                    ch2_status = int(psuRead(port, "2", "OP", False).rstrip())
+                    ch3_status = int(psuRead(port, "3", "OP", False).rstrip())
+                    ch4_status = int(psuRead(port, "4", "OP", False).rstrip())
+                    ob_status = int(ch1_status or ch2_status or ch3_status or ch4_status)
+                    if ob_status == 0:
+                        on_since = None
+                    else:
+                        # Assign timer for transient protection if any OB channel just turned on.
+                        if (
+                            (ch1_status != 0 and last_ch1_status in (None, 0))
+                            or (ch2_status != 0 and last_ch2_status in (None, 0))
+                            or (ch3_status != 0 and last_ch3_status in (None, 0))
+                            or (ch4_status != 0 and last_ch4_status in (None, 0))
+                        ):
+                            on_since = time.monotonic()
+
+                    last_status = ob_status
+                    last_ch1_status = ch1_status
+                    last_ch2_status = ch2_status
+                    last_ch3_status = ch3_status
+                    last_ch4_status = ch4_status
+
+                    ch1_v = parse_psu_reading(psuRead(port, "1", "V", True).rstrip())
+                    ch1_i = parse_psu_reading(psuRead(port, "1", "I", True).rstrip())
+                    ch2_v = parse_psu_reading(psuRead(port, "2", "V", True).rstrip())
+                    ch2_i = parse_psu_reading(psuRead(port, "2", "I", True).rstrip())
+                    ch3_v = parse_psu_reading(psuRead(port, "3", "V", True).rstrip())
+                    ch3_i = parse_psu_reading(psuRead(port, "3", "I", True).rstrip())
+
+                    psu_readings = {
+                        "TIME": datetime.now(),
+                        "STATUS": ob_status,
+                        "CH1_STATUS": ch1_status,
+                        "CH2_STATUS": ch2_status,
+                        "CH3_STATUS": ch3_status,
+                        "CH4_STATUS": ch4_status,
+                        "CH1_V": ch1_v,
+                        "CH1_I": ch1_i,
+                        "CH2_V": ch2_v,
+                        "CH2_I": ch2_i,
+                        "CH3_V": ch3_v,
+                        "CH3_I": ch3_i,
+                    }
+                    const.psu_queue.put(psu_readings)
+
+                    psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
+
+                    ob_status = int(psuRead(port, "1", "OP", False).rstrip())
+
+                    if on_since is not None and time.monotonic() - on_since < 0.5:
+                        continue
+
+                    if (
+                        not (11.2 < float(ch1_v) < 13.2)
+                        or not (11.2 < float(ch2_v) < 13.2)
+                        or not (4.8 < float(ch3_v) < 5.5)
+                    ):
+                        psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
+                        emergencyShutDown(port)
+
+                    if (
+                        (float(ch1_i) >= 150)
+                        or (float(ch2_i) >= 90)
+                        or (float(ch3_i) >= 150)
+                    ):
+                        psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
+                        emergencyShutDown(port)
 
         except Exception as e:
             psu_log.error(f"Error in PSU monitor thread: {e}")
@@ -240,6 +249,11 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None):
 def setChannels(port, ebmode):
     """Configure PSU channel voltage/current/OVP limits for OB or EB mode."""
     if port:
+        # Force a known safe state at startup/mode switch: all outputs OFF.
+        port.write("OPALL 0\r\n".encode("utf-8"))
+        port.write("OP4 0\r\n".encode("utf-8"))
+        psu_log.info("Initialized PSU outputs to OFF for all channels")
+
         if not ebmode:
             ch1_ovp = config.CH1_OVP
             ch1_i = config.CH1_I
@@ -247,6 +261,8 @@ def setChannels(port, ebmode):
             ch2_i = config.CH2_I
             ch3_ovp = config.CH3_OVP
             ch3_i = config.CH3_I
+            ch4_ovp = config.ROV_HTR_OVP
+            ch4_i = config.ROV_HTR_I
             # Set the voltage and current limits for each channel
             psu_log.info(f"Setting PSU Channels: CH1 V: 12V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
             port.write("V1 12\r\n".encode("utf-8"))
@@ -263,8 +279,15 @@ def setChannels(port, ebmode):
             port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
             port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
+            psu_log.info(f"Setting PSU Channels: CH4 V: 28V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
+            port.write("V4 28\r\n".encode("utf-8"))
+            port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
+            port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
+
             psu_log.info("PSU Channels set successfully")
-            psu_log.info(f"  CH1_V  12V\t   CH1_I {ch1_i}\t  CH2_V -12V\t  CH2_I {ch2_i}\t  CH3_V 5V\t   CH3_I {ch3_i}")
+            psu_log.info(
+                f"  CH1_V  12V\t   CH1_I {ch1_i}\t  CH2_V -12V\t  CH2_I {ch2_i}\t  CH3_V 5V\t   CH3_I {ch3_i}\t  CH4_V 28V\t   CH4_I {ch4_i}"
+            )
             port.reset_output_buffer()  # Clear stale bytes after transactions
             port.reset_input_buffer()
 

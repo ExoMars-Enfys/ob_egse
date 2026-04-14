@@ -23,8 +23,7 @@ from utility_modules import tc as tc
 from utility_modules import tm as tm
 
 # widgets
-from widget_modules import ebgui as ebgui
-from widget_modules import gui as gui
+from widget_modules import parent_window_widget
 
 
 ## -- Setup session ----------------------------------------------------------------------------------------------------
@@ -40,7 +39,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
-    parser.add_argument("-eb", "--ebmode", action="store_true")
+    parser.add_argument("--reload", action="store_true", help="Enable NiceGUI hot reload for development")
     return parser
 
 
@@ -87,41 +86,46 @@ def clean_exit(ob_port, psu_port, event_log):
 def main() -> None:
     parser = init_arparse()
     args = parser.parse_args()
+    startup_mode = "OB" if args.script else "EB"
+    startup_eb_mode = startup_mode == "EB"
+    psu_mode_state = {"ebmode": startup_eb_mode}
 
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
     const.LOG_PATH = args.basedir
     (event_log, info_log, psu_log) = setup_logs()
 
+    psu_lock = threading.Lock()
     psu_port = None
     if not args.nopsu:
         psu_com = "COM" + str(args.psuport)
         info_log.info("Initialising PSU Comms on Port " + psu_com)
         psu_port = psu.init_psu_comms(psu_com)
         psu_port = psu.open_psu_comms(psu_port, args.nopsu)
-        psu.setChannels(psu_port, args.ebmode)
+        psu.setChannels(psu_port, startup_eb_mode)
 
     stop_event = threading.Event()
     hk_pause_event = threading.Event()
     hk_pause_event.set()  # Start with HK polling paused until we know the PSU is on and stable
 
-    if not args.ebmode:
-        rs485_com = "COM" + str(args.com)
+    rs485_com = "COM" + str(args.com)
+    ob_port = None
 
-        info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
+    info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
+    try:
         ob_port = comms.initialise_comms(rs485_com)
         ob_port = comms.open_comms(ob_port)
-        atexit.register(stop_event.set)
-        atexit.register(clean_exit, ob_port, psu_port, event_log)
-    else:
-        atexit.register(stop_event.set)
-        atexit.register(clean_exit, ob_port=None, psu_port=psu_port, event_log=event_log)
+    except Exception as exc:
+        info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
+        ob_port = None
+    atexit.register(stop_event.set)
+    atexit.register(clean_exit, ob_port, psu_port, event_log)
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
     psu_thread = threading.Thread(
         target=psu.psu_monitor_thread,
-        args=(psu_port, args.ebmode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event),
+        args=(psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock),
         daemon=True,
     )
 
@@ -151,22 +155,23 @@ def main() -> None:
 
     else:
         info_log.info("Running GUI")
-
-        if args.ebmode:
-            ebgui.build_ui(psu_port, port_lock, stop_event)
-            ui.run(port=8085, reload=False)
-        else:
-            # hk_thread = threading.Thread(
-            #     target=poll_hk, args=(ob_port, stop_event, port_lock, hk_pause_event), daemon=True
-            # )
-            # hk_thread.start()
-            gui.build_ui(ob_port, psu_port, port_lock, stop_event)
-            ui.run(port=8085, reload=False)
-            # TODO What about stop_envent?
+        if psu_port is not None and not psu_thread.is_alive():
+            psu_thread.start()
+        parent_window_widget.build_ui(
+            default_mode=startup_mode,
+            psu_port=psu_port,
+            psu_lock=psu_lock,
+            port_lock=port_lock,
+            stop_event=stop_event,
+            psu_mode_state=psu_mode_state,
+        )
+        ui.run(port=8085, reload=args.reload, show=not args.reload)
+        # TODO What about stop_envent?
 
     event_log.info("Shutting down")
-    event_log.info("Waiting for PSU monitor thread to finish")
-    psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
+    if psu_thread.is_alive():
+        event_log.info("Waiting for PSU monitor thread to finish")
+        psu_thread.join(timeout=1.0)  # Wait for the PSU monitor thread to finish
 
     if hk_thread is not None:
         if hk_thread.is_alive():
@@ -174,7 +179,7 @@ def main() -> None:
             hk_thread.join(timeout=1.0)  # Wait for the HK polling thread to finish
 
 
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:
     main()
 
 # TODO Fix display of HK

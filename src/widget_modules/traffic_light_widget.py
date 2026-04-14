@@ -1,248 +1,184 @@
 from __future__ import annotations
 
+# Std library
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
+
+# Added packages
+from nicegui import ui
 
 
-def set_status_light(light: Any, ok: bool) -> None:
-    if ok:
-        light.classes(remove="alarm", add="ok")
-    else:
-        light.classes(remove="ok", add="alarm")
+class AlarmLight:
+    def __init__(self, *, key: str, label: str) -> None:
+        """Creates an alarm light with a label. The light can be set to OK or Fault state, and clicking on it will show a dialog with details."""
+        self.key = key
+        self.label = label
+
+        self.is_fault: bool = False
+        self.details: list[str] = []
+        self._source_faults: dict[str, list[str]] = {}
+        self._muted_signatures: set[str] = set()
+        self._muted_details: set[str] = set()
+        self._checked_details: set[str] = set()
+        self._history: list[dict[str, str | list[str]]] = []
+        self._last_signature: str | None = None
+
+        self._create_fault_widget()
+
+    def _create_fault_widget(self) -> None:
+        """Creates the UI elements for the fault light and its dialog."""
+        with ui.column().classes("items-center gap-1 cursor-pointer") as container:
+            ui.label(self.label).classes("text-xs")
+            self.light = ui.element("div").classes("status-light status-light-lg ok")
+        self.container = container
+
+        container.on("click", lambda _=None: self.show_fault_dialog())
+
+        with ui.dialog() as self.fault_dialog:
+            with ui.card().classes("w-96"):
+                self.fault_title = ui.label("Fault Details").classes("text-lg font-bold")
+                ui.separator()
+                self.current_faults = ui.column().classes("w-full gap-1")
+                with ui.row().classes("gap-2"):
+                    ui.button("Clear selected", on_click=self.clear_selected_faults).props("size=sm")
+                    ui.button("Clear all", on_click=self.clear_fault).props("size=sm")
+                with ui.expansion("History").classes("w-full"):
+                    self.history_text = ui.label("None").classes("text-xs whitespace-pre-wrap")
+                with ui.expansion("Ignored alarms").classes("w-full"):
+                    self.ignored_text = ui.label("None").classes("text-xs whitespace-pre-wrap")
+
+    def _refresh_from_sources(self, *, track_history: bool) -> None:
+        merged_details: list[str] = []
+        for names in self._source_faults.values():
+            for name in names:
+                if name not in merged_details:
+                    merged_details.append(name)
+
+        filtered_details = [name for name in merged_details if name not in self._muted_details]
+        signature = "|".join(sorted(filtered_details))
+
+        if signature and signature in self._muted_signatures:
+            self.set_fault_state(ok=True, details=[])
+            return
+
+        if filtered_details:
+            if track_history and signature != self._last_signature:
+                self._history.append(
+                    {
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "details": filtered_details,
+                    }
+                )
+                if len(self._history) > 50:
+                    self._history.pop(0)
+            self._last_signature = signature
+            self.set_fault_state(ok=False, details=filtered_details)
+            return
+
+        self._last_signature = None
+        self.set_fault_state(ok=True, details=[])
+
+    def _refresh_light(self) -> None:
+        """Refreshes the fault light's appearance based on its current state."""
+        self.light.classes(remove="ok alarm")
+        self.light.classes(add="alarm" if self.is_fault else "ok")
+
+    def set_fault_state(
+        self,
+        ok: bool,
+        details: list[str] | None = None,
+    ) -> None:
+        """Sets the fault state to OK or Fault, and updates the details if provided."""
+        self.is_fault = not ok
+        if self.is_fault:
+            self.details = [str(item) for item in (details if details is not None else [f"{self.label} fault active"])]
+        else:
+            self.details = []
+        self._refresh_light()
+
+    def update_from_faults(self, faults: Mapping[str, bool], *, source: str = "generic") -> None:
+        """Updates the fault state based on source-specific fault names and active status."""
+        self._source_faults[source] = [name for name, active in faults.items() if bool(active)]
+        self._refresh_from_sources(track_history=True)
+
+    def clear_selected_faults(self) -> None:
+        """Acknowledge selected details while leaving other active alarms untouched."""
+        if not self._checked_details:
+            self.show_fault_dialog()
+            return
+        for detail in self._checked_details:
+            self._muted_details.add(detail)
+        self._checked_details.clear()
+        self._refresh_from_sources(track_history=False)
+        self.show_fault_dialog()
+
+    def clear_fault(self) -> None:
+        """Clears the fault state and details."""
+        if self.details:
+            signature = "|".join(sorted(self.details))
+            if signature:
+                self._muted_signatures.add(signature)
+            for detail in self.details:
+                self._muted_details.add(detail)
+        self._checked_details.clear()
+        self.set_fault_state(True)
+        self.show_fault_dialog()
+
+    def show_fault_dialog(self) -> None:
+        """Shows a dialog with the current fault details."""
+        self.fault_title.set_text(f"{self.label} Fault Details")
+        self.current_faults.clear()
+        if self.details:
+            with self.current_faults:
+                for detail in self.details:
+
+                    def _on_change(event: Any, name: str = detail) -> None:
+                        if bool(event.value):
+                            self._checked_details.add(name)
+                        else:
+                            self._checked_details.discard(name)
+
+                    ui.checkbox(
+                        detail,
+                        value=detail in self._checked_details,
+                        on_change=_on_change,
+                    ).classes("text-sm")
+        elif self.is_fault:
+            with self.current_faults:
+                ui.label(f"{self.label} currently reports a fault condition.").classes("text-sm")
+        else:
+            with self.current_faults:
+                ui.label(f"{self.label} currently reports OK.").classes("text-sm")
+
+        if self._history:
+            lines: list[str] = []
+            for entry in reversed(self._history[-20:]):
+                time_text = str(entry.get("time", "Unknown time"))
+                lines.append(time_text)
+                for detail in entry.get("details", []):
+                    lines.append(f"- {detail}")
+                lines.append("")
+            self.history_text.set_text("\n".join(lines).strip())
+        else:
+            self.history_text.set_text("None")
+
+        ignored_entries = sorted(self._muted_details)
+        if ignored_entries:
+            ignored_lines: list[str] = []
+            for detail in ignored_entries:
+                ignored_lines.append(detail)
+            self.ignored_text.set_text("\n".join(ignored_lines))
+        else:
+            self.ignored_text.set_text("None")
+        self.fault_dialog.open()
+
+    def set_visible(self, visible: bool) -> None:
+        if visible:
+            self.container.classes(remove="hidden")
+            return
+        self.container.classes(add="hidden")
 
 
-def any_flag(ns: Any) -> bool:
-    if ns is None:
-        return False
-    return any(bool(v) for v in ns.__dict__.values())
-
-
-def active_flag_names(flag_ns: Any, ordered_names: list[str]) -> list[str]:
-    if flag_ns is None:
-        return []
-    return [
-        name
-        for name in ordered_names
-        if not name.startswith("UNUSED") and not name.startswith("RESERVED") and getattr(flag_ns, name, 0)
-    ]
-
-
-def check_ob_fdir_alarm(hk: Any, tmstruct: Any) -> bool:
-    if hk is None:
-        return False
-
-    warning_names = [name for name, _ in tmstruct.eb_warning_flags]
-    fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-
-    warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
-    fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
-    fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-
-    ob_warning_flags = [
-        "OB_FDIR_ALARM",
-        "OB_GENERAL_ERROR",
-        "OB_MOTOR_ERROR",
-        "OB_UNRESPONSIVE",
-        "OB_STEP_COUNT_MISMATCH",
-    ]
-
-    ob_fdir_flags = [
-        "FPGA_IO_POWER_SUPPLY",
-        "FPGA_CORE_POWER_SUPPLY",
-        "DIGITAL_BOARD_TRP",
-        "DETECTOR_BOARD_TRP",
-        "MECH_BOARD_TRP",
-        "MOTOR_TRP",
-    ]
-
-    if any(flag in warning_bits for flag in ob_warning_flags):
-        return True
-
-    if any(flag in fdir_alarm_bits for flag in ob_fdir_flags):
-        return True
-    if any(flag in fdir_warning_bits for flag in ob_fdir_flags):
-        return True
-
-    if any_flag(getattr(hk, "ERRORS", None)):
-        return True
-    if any_flag(getattr(hk, "MTR_ERRORS", None)):
-        return True
-
-    return False
-
-
-def check_eb_fdir_alarm(hk: Any, tmstruct: Any) -> bool:
-    if hk is None:
-        return False
-
-    if hasattr(hk, "TCS_REJECTED") and hk.TCS_REJECTED != 0:
-        return True
-
-    warning_names = [name for name, _ in tmstruct.eb_warning_flags]
-    fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-
-    warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
-    fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
-    fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-
-    eb_warning_flags = [
-        "GENERAL_ERROR",
-        "EB_FDIR_ALARM",
-        "WATCHDOG_TIMEOUT_DETECTED",
-        "NO_RET_RECEIVED",
-        "NO_HEALTHY_ASW_IMAGE",
-        "PATCH_WRITING_ERROR",
-        "RS422_RECEIVE_ERROR",
-        "RS422_TRANSMIT_ERROR",
-        "RS485_RECEIVE_ERROR",
-        "RS485_TRANSMIT_ERROR",
-    ]
-
-    eb_fdir_flags = [
-        "EB_PLUS_12V_SUPPLY",
-        "EB_MINUS_12V_SUPPLY",
-        "EB_PLUS_5V_SUPPLY",
-        "EB_PLUS_3V3_SUPPLY",
-        "PROCESSOR_INTERNAL_TEMPERATURE",
-        "INTERNAL_TRP_TEMPERATURE",
-        "PSU_BOARD_TEMPERATURE",
-    ]
-
-    if any(flag in warning_bits for flag in eb_warning_flags):
-        return True
-
-    if any(flag in fdir_alarm_bits for flag in eb_fdir_flags):
-        return True
-    if any(flag in fdir_warning_bits for flag in eb_fdir_flags):
-        return True
-
-    return False
-
-
-def format_alarm_details(kind: str, hk: Any, tmstruct: Any) -> list[str]:
-    if hk is None:
-        return ["No HK data yet."]
-    if kind == "ob":
-        details = []
-
-        error_names = [name for name, _ in tmstruct.error_struct]
-        errors = active_flag_names(getattr(hk, "ERRORS", None), error_names)
-        for error in errors:
-            details.append(f"OB Error: {error}")
-
-        mtr_error_names = [name for name, _ in tmstruct.mtr_error_struct]
-        mtr_errors = active_flag_names(getattr(hk, "MTR_ERRORS", None), mtr_error_names)
-        for error in mtr_errors:
-            details.append(f"OB Motor Error: {error}")
-
-        warning_names = [name for name, _ in tmstruct.eb_warning_flags]
-        warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
-        ob_warning_flags = [
-            "OB_FDIR_ALARM",
-            "OB_GENERAL_ERROR",
-            "OB_MOTOR_ERROR",
-            "OB_UNRESPONSIVE",
-            "OB_STEP_COUNT_MISMATCH",
-        ]
-        for flag in warning_bits:
-            if flag in ob_warning_flags:
-                details.append(f"OB Warning: {flag}")
-
-        fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-        ob_fdir_flags = [
-            "FPGA_IO_POWER_SUPPLY",
-            "FPGA_CORE_POWER_SUPPLY",
-            "DIGITAL_BOARD_TRP",
-            "DETECTOR_BOARD_TRP",
-            "MECH_BOARD_TRP",
-            "MOTOR_TRP",
-        ]
-
-        fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
-        for flag in fdir_alarm_bits:
-            if flag in ob_fdir_flags:
-                details.append(f"OB FDIR Alarm: {flag}")
-
-        fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-        for flag in fdir_warning_bits:
-            if flag in ob_fdir_flags:
-                details.append(f"OB FDIR Warning: {flag}")
-
-        return details if details else ["No OB alarms"]
-
-    if kind == "eb":
-        details = []
-
-        if hasattr(hk, "TCS_REJECTED") and hk.TCS_REJECTED != 0:
-            details.append("TCS Rejected")
-
-        warning_names = [name for name, _ in tmstruct.eb_warning_flags]
-        warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), warning_names)
-
-        eb_warning_flags = [
-            "GENERAL_ERROR",
-            "EB_FDIR_ALARM",
-            "WATCHDOG_TIMEOUT_DETECTED",
-            "NO_RET_RECEIVED",
-            "NO_HEALTHY_ASW_IMAGE",
-            "PATCH_WRITING_ERROR",
-            "RS422_RECEIVE_ERROR",
-            "RS422_TRANSMIT_ERROR",
-            "RS485_RECEIVE_ERROR",
-            "RS485_TRANSMIT_ERROR",
-        ]
-
-        for flag in warning_bits:
-            if flag in eb_warning_flags:
-                details.append(f"EB Warning: {flag}")
-
-        fdir_names = [name for name, _ in tmstruct.eb_fdir_flags]
-        fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), fdir_names)
-        fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), fdir_names)
-
-        eb_fdir_flags = [
-            "EB_PLUS_12V_SUPPLY",
-            "EB_MINUS_12V_SUPPLY",
-            "EB_PLUS_5V_SUPPLY",
-            "EB_PLUS_3V3_SUPPLY",
-            "PROCESSOR_INTERNAL_TEMPERATURE",
-            "INTERNAL_TRP_TEMPERATURE",
-            "PSU_BOARD_TEMPERATURE",
-        ]
-
-        for flag in fdir_alarm_bits:
-            if flag in eb_fdir_flags:
-                details.append(f"EB FDIR Alarm: {flag}")
-
-        for flag in fdir_warning_bits:
-            if flag in eb_fdir_flags:
-                details.append(f"EB FDIR Warning: {flag}")
-
-        return details if details else ["No EB alarms"]
-
-    return ["Unknown alarm type."]
-
-
-def alarm_signature(kind: str, hk: Any, tmstruct: Any) -> str:
-    return "|".join(format_alarm_details(kind, hk, tmstruct))
-
-
-def escape_html(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )
-
-
-def format_alarm_entry(entry: dict[str, object]) -> str:
-    timestamp = entry.get("time")
-    if isinstance(timestamp, datetime):
-        time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        time_str = "Unknown time"
-    details = entry.get("details", [])
-    detail_text = "<br>".join(f"- {escape_html(str(detail))}" for detail in details if details) or "- No details"
-    return f"<b>{time_str}</b><br>{detail_text}"
+def create_traffic_lights(items: list[tuple[str, str]]) -> dict[str, AlarmLight]:
+    with ui.row().classes("items-start gap-4"):
+        return {key: AlarmLight(key=key, label=label) for key, label in items}

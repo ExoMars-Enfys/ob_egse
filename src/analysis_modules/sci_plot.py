@@ -10,7 +10,7 @@ from typing import cast
 import matplotlib.pyplot as plt
 import numpy as np
 
-import eb_sniffer
+from utility_modules import eb_packet_utility
 
 _MANUALLY_OFFSET = {
     "20250620T123307",
@@ -63,7 +63,9 @@ def _remove_offset_calibration(abs_steps: np.ndarray, *series: list[int]) -> tup
     return abs_steps[keep_indices], cleaned
 
 
-def _parse_rs422_science(log_path: Path) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int], list[int]]:
+def _parse_rs422_science(
+    log_path: Path,
+) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int], list[int]]:
     swir_low: list[int] = []
     swir_med: list[int] = []
     swir_high: list[int] = []
@@ -97,10 +99,10 @@ def _parse_rs422_science(log_path: Path) -> tuple[list[int], list[int], list[int
 
         try:
             if tm_type_id == 0x5:
-                sci_pkt = eb_sniffer.decode_cscience_data(byte_array)
+                sci_pkt = eb_packet_utility.decode_cscience_data(byte_array)
             else:
-                sci_pkt = eb_sniffer.decode_ncscience_data(byte_array)
-            sci_data = eb_sniffer.decode_sci_data_packet(sci_pkt)
+                sci_pkt = eb_packet_utility.decode_ncscience_data(byte_array)
+            sci_data = eb_packet_utility.merge_sci_data_packet(sci_pkt)
         except Exception:
             continue
 
@@ -391,7 +393,9 @@ def render_sci_packets_data_urls(
     sort_idx = np.argsort(abs_steps_array)
     abs_steps_sorted = abs_steps_array[sort_idx]
 
-    def _axis_bounds(x_values: np.ndarray, y_values: list[np.ndarray]) -> tuple[tuple[float, float], tuple[float, float]]:
+    def _axis_bounds(
+        x_values: np.ndarray, y_values: list[np.ndarray]
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
         x_min = float(np.min(x_values))
         x_max = float(np.max(x_values))
         if x_min == x_max:

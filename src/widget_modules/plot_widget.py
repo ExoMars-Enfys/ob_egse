@@ -1,145 +1,178 @@
 from __future__ import annotations
 
-from typing import Any
+# Std library
+from dataclasses import dataclass
+from typing import Any, Callable
+
+# Added packages
+from nicegui import app, ui
 
 
-def get_theme_palette(gui_vars: dict[str, str], theme: str) -> dict[str, str]:
-    def _get(name: str, fallback: str = "") -> str:
-        return gui_vars.get(name, fallback)
+@dataclass
+class SeriesConfig:
+    """Configuration for a single plotted series."""
 
-    return {
-        "accent_color": _get("accent-color", "#2196f3"),
-        "secondary_bg": _get("secondary-bg", "#f3f4f6") if theme == "light" else _get("secondary-bg", "#111827"),
-        "primary_bg": _get("primary-bg", "#ffffff") if theme == "light" else _get("primary-bg", "#0f172a"),
-        "plot_bg": _get("plot-bg", "#ffffff") if theme == "light" else _get("plot-bg", "#1f2937"),
-        "plot_text": _get("plot-text", "#111827") if theme == "light" else _get("plot-text", "#e5e7eb"),
-        "plot_grid": _get("plot-grid", "#d1d5db") if theme == "light" else _get("plot-grid", "#374151"),
-        "plot_spine": _get("plot-spine", "#9ca3af"),
-        "plot_legend": _get("plot-legend", "#111827") if theme == "light" else _get("plot-legend", "#e5e7eb"),
-    }
+    label: str
+    color: str
+    visible: bool = True
 
 
-def apply_plot_theme(ax: Any, palette: dict[str, str]) -> None:
-    ax.set_facecolor(palette["plot_bg"])
-    ax.tick_params(colors=palette["plot_text"])
-    ax.xaxis.label.set_color(palette["plot_text"])
-    ax.yaxis.label.set_color(palette["plot_text"])
-    ax.title.set_color(palette["plot_text"])
-    ax.grid(True, color=palette["plot_grid"], alpha=0.6, linewidth=0.6)
-
-    for spine in ax.spines.values():
-        spine.set_color(palette["plot_spine"])
-
-    legend = ax.get_legend()
-    if legend is not None:
-        frame = legend.get_frame()
-        frame.set_facecolor(palette["plot_bg"])
-        frame.set_edgecolor(palette["plot_spine"])
-        for text in legend.get_texts():
-            text.set_color(palette["plot_legend"])
+@dataclass
+class PlotCardController:
+    plot: Any
+    set_mode: Callable[[str], None]
+    push: Callable[[list[Any], list[list[float]]], None]
+    set_series_labels: Callable[[list[str]], None]
 
 
-def apply_theme_to_plots(labels: dict[str, Any], plot_keys: list[str], palette: dict[str, str]) -> None:
-    for key in plot_keys:
-        plot = labels.get(key)
-        if plot is None:
-            continue
-        ax = plot.fig.axes[0]
-        apply_plot_theme(ax, palette)
+def create_plot_card(
+    title: str,
+    *,
+    series: list[SeriesConfig],
+    y_label: str = "",
+    y_limits: tuple[float, float] | None = None,
+    mode_limits: dict[str, tuple[float, float]] | None = None,
+    limit: int = 240,
+    show_toggles: bool = False,
+    show_title: bool = True,
+    plot_height_class: str = "h-60",
+    show_legend: bool | None = None,
+) -> PlotCardController:
+    """Create a generic plot card.
+
+    Args:
+        title: Card title.
+        series: One entry per plotted line, each with a label and colour.
+        y_label: Y-axis label (e.g. "mA", "°C", "V").
+        y_limits: Fixed (ymin, ymax) applied at creation.  Ignored when
+            *mode_limits* provides a value for the current mode.
+        mode_limits: Optional per-mode (ymin, ymax) updated by set_mode().
+        limit: Number of x-points to keep in the rolling window.
+        show_toggles: When True, renders a per-series checkbox row inside the
+            card so individual series can be shown or hidden at runtime.
+        show_title: When False, suppresses both card and axis titles.
+        plot_height_class: Tailwind height class for the plot area.
+        show_legend: Force legend visibility. Defaults to visible when
+            there is more than one series.
+    """
+    _HEIGHT_SCALE = {"h-40": ("h-60", (14, 4.5)), "h-60": ("h-96", (14, 5.25))}
+    if plot_height_class in _HEIGHT_SCALE:
+        plot_height_class, _figsize = _HEIGHT_SCALE[plot_height_class]
+    else:
+        _figsize = (14, 5.25)
+    n_series = len(series)
+
+    with ui.card().classes("w-full flex-1"):
+        title_label = ui.label(title).classes("text-sm font-bold")
+        if not show_title:
+            title_label.classes(add="hidden")
+
+        checkboxes: list[Any] = []
+        if show_toggles:
+            with ui.row().classes("w-full flex-wrap gap-x-4 gap-y-1"):
+                for cfg in series:
+                    checkboxes.append(
+                        ui.checkbox(cfg.label, value=cfg.visible)
+                        .props(
+                            f'checked-icon="radio_button_checked" unchecked-icon="radio_button_unchecked" keep-color color="{cfg.color}"'
+                        )
+                        .style(f"color: {cfg.color}")
+                        .classes("text-xs")
+                    )
+
+        plot = (
+            ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
+            .classes(f"w-full {plot_height_class}")
+            .style("width: 100%; min-width: 100%; max-width: none; padding: 0;")
+        )
+
+    ax = plot.fig.axes[0]
+    ax.set_ylabel(y_label, fontsize=15)
+    ax.tick_params(labelsize=15)
+    ax.grid(True, alpha=0.35)
+
+    lines = list(ax.lines)
+    for line, cfg in zip(lines, series):
+        line.set_color(cfg.color)
+        line.set_visible(cfg.visible)
+
+    legend_visible = (n_series > 1) if show_legend is None else bool(show_legend)
+    series_labels = [cfg.label for cfg in series]
+
+    def _redraw_plot() -> None:
         plot.fig.canvas.draw_idle()
         plot.fig.canvas.draw()
         convert = getattr(plot, "_convert_to_html", None)
         if callable(convert):
             convert()
-        update = getattr(plot, "update", None)
-        if callable(update):
-            update()
+        plot.update()
 
+    def _style_legend() -> None:
+        legend = ax.get_legend()
+        palette = getattr(app.state, "theme_palette", None)
+        if legend is None or not isinstance(palette, dict):
+            return
+        frame = legend.get_frame()
+        frame.set_facecolor(palette.get("plot_bg", "white"))
+        frame.set_edgecolor(palette.get("plot_spine", "black"))
+        for text in legend.get_texts():
+            text.set_color(palette.get("plot_legend", "black"))
 
-def set_logo_sources(logo_images: list[Any], src: str) -> None:
-    for logo in logo_images:
-        logo.props(f"src={src}")
-        update = getattr(logo, "update", None)
-        if callable(update):
-            update()
+    def _refresh_legend() -> None:
+        legend = ax.get_legend()
+        if legend is not None:
+            legend.remove()
 
+        if legend_visible:
+            for idx, line in enumerate(lines):
+                label = series_labels[idx] if idx < len(series_labels) else line.get_label()
+                line.set_label(label if line.get_visible() else "_nolegend_")
 
-def update_unit_dependent_plots(labels: dict[str, Any], temperature_units: dict[str, str], const: Any) -> None:
-    is_adu = temperature_units["value"] == "ADU"
+            if any(line.get_visible() for line in lines):
+                ax.legend(loc="upper left", fontsize=12)
+                _style_legend()
 
-    if "plot_3v3" in labels:
-        ax_3v3 = labels["plot_3v3"].fig.axes[0]
-        ax_3v3.set_title(f"3V3 Voltage ({'ADU' if is_adu else 'V'})")
-        while len(ax_3v3.lines) > 1:
-            ax_3v3.lines[-1].remove()
-        wlim_3v3 = const.WLIM_3V3_ADU if is_adu else const.WLIM_3V3
-        alim_3v3 = const.ALIM_3V3_ADU if is_adu else const.ALIM_3V3
-        ax_3v3.axhline(wlim_3v3[0], color="orange", linewidth=1.0, linestyle="--")
-        ax_3v3.axhline(wlim_3v3[1], color="orange", linewidth=1.0, linestyle="--")
-        ax_3v3.axhline(alim_3v3[0], color="red", linewidth=1.0, linestyle="--")
-        ax_3v3.axhline(alim_3v3[1], color="red", linewidth=1.0, linestyle="--")
-        labels["plot_3v3"].update()
+        _redraw_plot()
 
-    if "plot_1v5" in labels:
-        ax_1v5 = labels["plot_1v5"].fig.axes[0]
-        ax_1v5.set_title(f"1V5 Voltage ({'ADU' if is_adu else 'V'})")
-        while len(ax_1v5.lines) > 1:
-            ax_1v5.lines[-1].remove()
-        wlim_1v5 = const.WLIM_1V5_ADU if is_adu else const.WLIM_1V5
-        alim_1v5 = const.ALIM_1V5_ADU if is_adu else const.ALIM_1V5
-        ax_1v5.axhline(wlim_1v5[0], color="orange", linewidth=1.0, linestyle="--")
-        ax_1v5.axhline(wlim_1v5[1], color="orange", linewidth=1.0, linestyle="--")
-        ax_1v5.axhline(alim_1v5[0], color="red", linewidth=1.0, linestyle="--")
-        ax_1v5.axhline(alim_1v5[1], color="red", linewidth=1.0, linestyle="--")
-        labels["plot_1v5"].update()
+    def _set_legend(labels: list[str]) -> None:
+        nonlocal series_labels
+        series_labels = list(labels)
+        _refresh_legend()
 
-    if "plot_temps" in labels:
-        ax_temps = labels["plot_temps"].fig.axes[0]
-        ax_temps.set_ylabel(f"Temperature ({'ADU' if is_adu else 'degC'})")
-        while len(ax_temps.lines) > 4:
-            ax_temps.lines[-1].remove()
-        wlim_tpr = const.WLIM_TPR_ADU if is_adu else const.WLIM_TPR
-        alim_tpr = const.ALIM_TPR_ADU if is_adu else const.ALIM_TPR
-        ax_temps.axhline(wlim_tpr[0], color="orange", linewidth=1.0, linestyle="--")
-        ax_temps.axhline(wlim_tpr[1], color="orange", linewidth=1.0, linestyle="--")
-        ax_temps.axhline(alim_tpr[0], color="red", linewidth=1.0, linestyle="--")
-        ax_temps.axhline(alim_tpr[1], color="red", linewidth=1.0, linestyle="--")
-        labels["plot_temps"].update()
+    _set_legend(series_labels)
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
+    top = 0.92 if show_title else 0.98
+    plot.fig.subplots_adjust(left=0.06, right=0.998, top=top, bottom=0.10)
 
+    if show_toggles:
 
-def apply_theme(
-    ui: Any,
-    theme: str,
-    gui_vars: dict[str, str],
-    labels: dict[str, Any],
-    plot_keys: list[str],
-    logo_images: list[Any],
-    logo_light_src: str,
-    logo_dark_src: str,
-) -> None:
-    palette = get_theme_palette(gui_vars, theme)
-    ui.colors(
-        primary=palette["accent_color"],
-        accent=palette["accent_color"],
-        accent_color=palette["accent_color"],
-        secondary=palette["secondary_bg"],
-        dark=palette["primary_bg"],
-    )
-    ui.run_javascript(
-        f"document.body.classList.remove('theme-dark','theme-light');document.body.classList.add('theme-{theme}');"
-    )
-    logo_src = logo_dark_src if theme == "dark" else logo_light_src
-    set_logo_sources(logo_images, logo_src)
-    apply_theme_to_plots(labels, plot_keys, palette)
+        def _make_handler(ln: Any) -> Callable[[Any], None]:
+            def _handler(e: Any) -> None:
+                ln.set_visible(e.value)
+                _refresh_legend()
 
+            return _handler
 
-def toggle_theme(theme_state: dict[str, str], apply_theme_fn: Any) -> None:
-    theme_state["value"] = "light" if theme_state["value"] == "dark" else "dark"
-    apply_theme_fn(theme_state["value"])
+        for cb, ln in zip(checkboxes, lines):
+            cb.on_value_change(_make_handler(ln))
 
+    def set_mode(mode: str) -> None:
+        """Set the plot mode, updating any mode-specific limits and the title."""
+        if mode_limits is not None:
+            ymin, ymax = mode_limits.get(mode, y_limits or (0.0, 1000.0))
+            ax.set_ylim(ymin, ymax)
+        if show_title:
+            ax.set_title(f"{title} ({mode})", fontsize=14)
+            title_label.set_text(f"{title} [{mode}]")
+        else:
+            ax.set_title("")
+        plot.update()
 
-def toggle_temperature_units(temperature_units: dict[str, str], labels: dict[str, Any], update_fn: Any) -> None:
-    temperature_units["value"] = "ADU" if temperature_units["value"] == "Metric" else "Metric"
-    if "unit_toggle_btn" in labels:
-        labels["unit_toggle_btn"].set_text(f"Unit Toggle : {temperature_units['value']}")
-    update_fn()
+    def push(time_points: list[Any], series_values: list[list[float]]) -> None:
+        """Push one sample per series.  series_values[i] is the list of y-values
+        for series i at the corresponding time_points."""
+        if time_points:
+            plot.push(time_points, series_values)
+
+    return PlotCardController(plot=plot, set_mode=set_mode, push=push, set_series_labels=_set_legend)

@@ -6,7 +6,9 @@ from pathlib import Path
 import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
+import tkinter as tk
 from tkinter import Tk, filedialog
+from tkinter import scrolledtext
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -49,28 +51,24 @@ def analysis(
     psu_prompt: bool = True,
 ) -> None:
     """Analyze RS422 log file and create plots for EB and OB data."""
-    
+
     # If no log file provided, show file picker
     if log is None:
         root = Tk()
         root.withdraw()  # Hide the root window
-        
+
         log_file = filedialog.askopenfilename(
             title="Select RS422 Log File",
-            filetypes=[
-                ("RS422 Log Files", "RS422if_*.log"),
-                ("All Log Files", "*.log"),
-                ("All Files", "*.*")
-            ]
+            filetypes=[("RS422 Log Files", "RS422if_*.log"), ("All Log Files", "*.log"), ("All Files", "*.*")],
         )
         root.destroy()
-        
+
         if not log_file:
             print("No file selected. Exiting.")
             return
-        
+
         log = Path(log_file)
-    
+
     log_path = Path(log)
     if not log_path.exists():
         print(f"Log file not found: {log_path}")
@@ -91,11 +89,7 @@ def analysis(
 
         psu_log_file = filedialog.askopenfilename(
             title="Select PSU Log File",
-            filetypes=[
-                ("PSU Log Files", "*_PSU.log *_PSU.LOG"),
-                ("All Log Files", "*.log"),
-                ("All Files", "*.*")
-            ]
+            filetypes=[("PSU Log Files", "*_PSU.log *_PSU.LOG"), ("All Log Files", "*.log"), ("All Files", "*.*")],
         )
         root.destroy()
 
@@ -133,9 +127,7 @@ def analysis(
         root = Tk()
         root.withdraw()  # Hide the root window
 
-        selected_dir = filedialog.askdirectory(
-            title="Select folder to save plot images"
-        )
+        selected_dir = filedialog.askdirectory(title="Select folder to save plot images")
         root.destroy()
 
         if not selected_dir:
@@ -167,7 +159,7 @@ def analysis(
 
     if cutoff_time:
         packets, ts_data, psu_data = _apply_time_cutoff(packets, ts_data, psu_data, cutoff_time)
-    
+
     # Store packets for interactive lookups
     ts_data["packets"] = packets
 
@@ -390,19 +382,17 @@ def _apply_time_cutoff(packets: list, ts_data: dict, psu_data: dict, cutoff_time
         if isinstance(values, list) and len(values) == len(time_mask):
             ts_data[key] = [val for val, keep in zip(values, time_mask, strict=False) if keep]
 
-    ts_data["state_changes"] = [
-        event for event in ts_data["state_changes"] if event[0].time() <= cutoff_clock
-    ]
-    ts_data["error_flags"] = [
-        event for event in ts_data["error_flags"] if event[0].time() <= cutoff_clock
-    ]
+    ts_data["state_changes"] = [event for event in ts_data["state_changes"] if event[0].time() <= cutoff_clock]
+    ts_data["error_flags"] = [event for event in ts_data["error_flags"] if event[0].time() <= cutoff_clock]
 
     psu_mask = [time_val.time() <= cutoff_clock for time_val in psu_data["times"]]
     for key, values in psu_data.items():
         if isinstance(values, list) and len(values) == len(psu_mask):
             psu_data[key] = [val for val, keep in zip(values, psu_mask, strict=False) if keep]
 
-    print(f"Applied cutoff at {cutoff_clock}. Remaining HK packets: {len(filtered_packets)}, PSU samples: {len(psu_data['times'])}")
+    print(
+        f"Applied cutoff at {cutoff_clock}. Remaining HK packets: {len(filtered_packets)}, PSU samples: {len(psu_data['times'])}"
+    )
     return filtered_packets, ts_data, psu_data
 
 
@@ -437,8 +427,7 @@ def _build_error128_zoom_data(packets: list, ts_data: dict, psu_data: dict):
     zoom_ts_data["error_flags"] = [event for event in ts_data["error_flags"] if event[0] >= start_time]
 
     zoom_packets = [
-        packet for packet in packets
-        if getattr(packet[1], "TIME", None) is not None and packet[1].TIME >= start_time
+        packet for packet in packets if getattr(packet[1], "TIME", None) is not None and packet[1].TIME >= start_time
     ]
 
     psu_times = psu_data.get("times", [])
@@ -662,7 +651,7 @@ def _build_timeseries(packets: list) -> dict:
             last_state = current_state
 
         # Track error state changes (convert bits to comparable value)
-        error_flags_bits = getattr(pkt, 'ERROR_FLAGS_BITS', None)
+        error_flags_bits = getattr(pkt, "ERROR_FLAGS_BITS", None)
         current_error_state = int(getattr(pkt, "ERROR_FLAGS", 0))
         if current_error_state != last_error_state:
             ts_data["error_flags"].append((time_val, error_flags_bits, current_error_state))
@@ -697,15 +686,15 @@ def _error_bits_to_value(error_flags_bits) -> int:
     """Convert ERROR_FLAGS_BITS object to an integer for comparison."""
     if error_flags_bits is None:
         return 0
-    
+
     value = 0
     bit_pos = 0
     for attr_name in dir(error_flags_bits):
-        if not attr_name.startswith('_'):
+        if not attr_name.startswith("_"):
             try:
                 flag_val = bool(getattr(error_flags_bits, attr_name, False))
                 if flag_val:
-                    value |= (1 << bit_pos)
+                    value |= 1 << bit_pos
                 bit_pos += 1
             except:
                 pass
@@ -716,11 +705,11 @@ def _decode_error_flags(error_flags_bits) -> dict[str, bool]:
     """Extract active EB error flags from decoded ERROR_FLAGS_BITS object."""
     if error_flags_bits is None:
         return {}
-    
+
     # Get all attributes and their boolean values
     flags = {}
     for attr_name in dir(error_flags_bits):
-        if not attr_name.startswith('_'):  # Skip private attributes
+        if not attr_name.startswith("_"):  # Skip private attributes
             try:
                 value = getattr(error_flags_bits, attr_name)
                 if isinstance(value, (bool, int)):
@@ -749,10 +738,10 @@ def _format_error_description(error_flags_bits) -> str:
         "RS485_RECEIVE_ERROR": "RS485 RX Error",
         "RS485_TRANSMIT_ERROR": "RS485 TX Error",
     }
-    
+
     errors = _decode_error_flags(error_flags_bits)
     active_errors = [f"{name} ({error_map.get(name, name)})" for name, active in errors.items() if active]
-    
+
     if not active_errors:
         return "No EB errors"
     return "\n".join(active_errors)
@@ -761,30 +750,27 @@ def _format_error_description(error_flags_bits) -> str:
 def _show_error_popup(error_flags_bits) -> None:
     """Display EB error information in a popup window."""
     try:
-        import tkinter as tk
-        from tkinter import scrolledtext
-        
         popup = tk.Toplevel()
         popup.title("EB Error Flags Information")
         popup.geometry("500x350")
-        
+
         text_widget = scrolledtext.ScrolledText(popup, wrap=tk.WORD, font=("Courier", 10))
         text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
         info = "EB ERROR FLAGS\n{}\n\n".format("=" * 40)
         info += _format_error_description(error_flags_bits)
-        
+
         text_widget.insert(tk.END, info)
         text_widget.config(state=tk.DISABLED)  # Make read-only
-        
+
     except Exception as e:
         print(f"Error displaying error popup: {e}")
 
 
 def _format_hk_data(hk) -> str:
     """Format HK packet data for display."""
-    info = f"HK Packet Information\n{'='*50}\n\n"
-    
+    info = f"HK Packet Information\n{'=' * 50}\n\n"
+
     # EB Voltages
     info += "EB VOLTAGES:\n"
     info += f"  12V:        {hk.EB_MEAS_MAIN_12V * 0.000400543:.3f} V\n"
@@ -793,43 +779,43 @@ def _format_hk_data(hk) -> str:
     info += f"  3.3V:       {hk.EB_MEAS_3V3 * 0.0000763:.3f} V\n"
     info += f"  TEC Rail:   {hk.EB_MEAS_TEC_RAIL * 0.0000763:.3f} V\n"
     info += f"  TEC Current: {hk.EB_TEC_DRIVE_CURRENT * 0.0000162:.3f} A\n\n"
-    
+
     # EB Temperatures
     info += "EB TEMPERATURES:\n"
     eb_mcu = hk.EB_MCU_INTERNAL_TEMP * 0.01637198 - 273
     info += f"  MCU Internal: {eb_mcu:.2f}°C (ADU: {hk.EB_MCU_INTERNAL_TEMP})\n"
-    
+
     eb_peltier = hk.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
     info += f"  Peltier:      {eb_peltier:.2f}°C (ADU: {hk.EB_PELTIER_TEMP})\n"
-    
+
     eb_internal_trp = eb_sniffer.thermistor_adu_to_temp(hk.EB_INTERNAL_TRP_TEMP)
     info += f"  Internal TRP: {eb_internal_trp:.2f}°C (ADU: {hk.EB_INTERNAL_TRP_TEMP})\n"
-    
+
     eb_psu_board = eb_sniffer.thermistor_adu_to_temp(hk.EB_PSU_BOARD_TEMP)
     info += f"  PSU Board:    {eb_psu_board:.2f}°C (ADU: {hk.EB_PSU_BOARD_TEMP})\n\n"
-    
+
     # OB Voltages
     info += "OB VOLTAGES:\n"
     ob_3v3 = (hk.OB_3V3_VOLTAGE * 2) / 1000
     info += f"  3.3V:  {ob_3v3:.3f} V (ADU: {hk.OB_3V3_VOLTAGE})\n"
-    
+
     ob_1v5 = hk.OB_1V5_VOLTAGE / 1000
     info += f"  1.5V:  {ob_1v5:.3f} V (ADU: {hk.OB_1V5_VOLTAGE})\n\n"
-    
+
     # OB Temperatures
     info += "OB TEMPERATURES:\n"
     ob_dig = eb_sniffer.decode_ob_trps(hk.OB_DIGITAL_TRP)
     info += f"  Digital TRP:    {ob_dig:.2f}°C (ADU: {hk.OB_DIGITAL_TRP})\n"
-    
+
     ob_det = eb_sniffer.decode_ob_trps(hk.OB_DETECTOR_TRP)
     info += f"  Detector TRP:   {ob_det:.2f}°C (ADU: {hk.OB_DETECTOR_TRP})\n"
-    
+
     ob_mech = eb_sniffer.decode_ob_trps(hk.OB_MECHANISM_TRP)
     info += f"  Mechanism TRP:  {ob_mech:.2f}°C (ADU: {hk.OB_MECHANISM_TRP})\n"
-    
+
     ob_mot = eb_sniffer.decode_ob_trps(hk.OB_MOTOR_TRP)
     info += f"  Motor TRP:      {ob_mot:.2f}°C (ADU: {hk.OB_MOTOR_TRP})\n\n"
-    
+
     # State and Flags
     info += "SYSTEM STATE:\n"
     state_name = _get_state_name(hk.CURRENT_OPERATING_STATE)
@@ -838,7 +824,7 @@ def _format_hk_data(hk) -> str:
     info += f"  EB Warning Flags: 0x{hk.WARNING_FLAGS:04X}\n"
 
     info += "\nRAW HK FIELDS:\n"
-    info += f"{'-'*50}\n"
+    info += f"{'-' * 50}\n"
     hk_fields = vars(hk)
     for key in sorted(hk_fields.keys()):
         value = hk_fields[key]
@@ -852,7 +838,7 @@ def _format_hk_data(hk) -> str:
                 info += f"  {key}: {value}\n"
         else:
             info += f"  {key}: {value}\n"
-    
+
     return info
 
 
@@ -885,7 +871,9 @@ def _get_hk_packet_from_pick(event, ts_data: dict):
 
     nearest_index = min(
         range(len(hk_packets)),
-        key=lambda idx: abs((hk_packets[idx].TIME - picked_time).total_seconds()) if getattr(hk_packets[idx], "TIME", None) else float("inf"),
+        key=lambda idx: abs((hk_packets[idx].TIME - picked_time).total_seconds())
+        if getattr(hk_packets[idx], "TIME", None)
+        else float("inf"),
     )
     return hk_packets[nearest_index]
 
@@ -893,20 +881,17 @@ def _get_hk_packet_from_pick(event, ts_data: dict):
 def _show_hk_popup(hk) -> None:
     """Display HK data in a popup window."""
     try:
-        import tkinter as tk
-        from tkinter import scrolledtext
-        
         popup = tk.Toplevel()
         popup.title("HK Packet Information")
         popup.geometry("600x700")
-        
+
         text_widget = scrolledtext.ScrolledText(popup, wrap=tk.WORD, font=("Courier", 9))
         text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
         info = _format_hk_data(hk)
         text_widget.insert(tk.END, info)
         text_widget.config(state=tk.DISABLED)  # Make read-only
-        
+
     except Exception as e:
         print(f"Error displaying HK popup: {e}")
 
@@ -932,37 +917,63 @@ def _create_eb_plot(
     # EB Voltage plot
     ax_volt = axes[0]
     lines = []
-    lines.append(ax_volt.plot(times, ts_data["eb_12v"], label="12V", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_volt.plot(times, ts_data["eb_neg12v"], label="-12V", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_volt.plot(times, ts_data["eb_5v"], label="5V", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_volt.plot(times, ts_data["eb_3v3"], label="3.3V", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_volt.plot(times, ts_data["eb_tec_v"], label="TEC Rail", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    
+    lines.append(
+        ax_volt.plot(times, ts_data["eb_12v"], label="12V", linewidth=2.5, marker=".", markersize=3, picker=5)[0]
+    )
+    lines.append(
+        ax_volt.plot(times, ts_data["eb_neg12v"], label="-12V", linewidth=2.5, marker=".", markersize=3, picker=5)[0]
+    )
+    lines.append(
+        ax_volt.plot(times, ts_data["eb_5v"], label="5V", linewidth=2.5, marker=".", markersize=3, picker=5)[0]
+    )
+    lines.append(
+        ax_volt.plot(times, ts_data["eb_3v3"], label="3.3V", linewidth=2.5, marker=".", markersize=3, picker=5)[0]
+    )
+    lines.append(
+        ax_volt.plot(times, ts_data["eb_tec_v"], label="TEC Rail", linewidth=2.5, marker=".", markersize=3, picker=5)[0]
+    )
+
     ax_volt.set_ylabel("Voltage (V)", fontsize=12, fontweight="bold")
     ax_volt.set_title("EB Voltages", fontsize=13, fontweight="bold")
-    
+
     # Place the voltage legend just above the top-right plot border
     leg_volt = ax_volt.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=10, ncol=2, borderaxespad=0)
     ax_volt.add_artist(leg_volt)
-    
+
     ax_volt.grid(True, alpha=0.3)
     ax_volt.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
 
     # EB Temperature plot
     ax_temp = axes[1]
-    lines.append(ax_temp.plot(times, ts_data["eb_mcu_temp"], label="MCU Internal", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["eb_peltier_temp"], label="Peltier", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["eb_internal_trp"], label="Internal TRP", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["eb_psu_board_temp"], label="PSU Board", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["eb_mcu_temp"], label="MCU Internal", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["eb_peltier_temp"], label="Peltier", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["eb_internal_trp"], label="Internal TRP", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["eb_psu_board_temp"], label="PSU Board", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+
     ax_temp.set_ylabel("Temperature (°C)", fontsize=12, fontweight="bold")
     ax_temp.set_xlabel("Time", fontsize=12, fontweight="bold")
     ax_temp.set_title("EB Temperatures", fontsize=13, fontweight="bold")
-    
+
     # Place the temperature legend just above the top-right plot border
     leg_temp = ax_temp.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=10, ncol=2, borderaxespad=0)
     ax_temp.add_artist(leg_temp)
-    
+
     ax_temp.grid(True, alpha=0.3)
     ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
 
@@ -975,15 +986,24 @@ def _create_eb_plot(
         # Add error flag lines with error descriptions
         for time_val, error_flags_bits, error_code in ts_data["error_flags"]:
             error_text = str(error_code)
-            
+
             line = ax.axvline(time_val, color="red", linestyle=":", alpha=0.8, linewidth=2.5, picker=True)
             # Store error flags object for later reference
             line.error_flags_bits = error_flags_bits
-            
+
             # Add text annotation above the line showing which errors
             y_pos = ax.get_ylim()[1] * 0.95
-            ax.text(time_val, y_pos, error_text, rotation=90, fontsize=8, color="red", 
-                   alpha=0.7, verticalalignment="bottom", horizontalalignment="right")
+            ax.text(
+                time_val,
+                y_pos,
+                error_text,
+                rotation=90,
+                fontsize=8,
+                color="red",
+                alpha=0.7,
+                verticalalignment="bottom",
+                horizontalalignment="right",
+            )
 
     # Add combined legend for state changes and error flags at top-left of the figure window
     if ts_data["state_changes"] or ts_data["error_flags"]:
@@ -992,8 +1012,15 @@ def _create_eb_plot(
         standby_line = plt.Line2D([0], [0], color="green", linestyle="--", linewidth=2, label="Standby")
         acq_line = plt.Line2D([0], [0], color="orange", linestyle="--", linewidth=2, label="Acquisition")
         error_flag_line = plt.Line2D([0], [0], color="red", linestyle=":", linewidth=2, label="Error Flag")
-        fig.legend(handles=[init_line, safe_line, standby_line, acq_line, error_flag_line], 
-                  loc="upper left", bbox_to_anchor=(0.01, 0.995), fontsize=9, title="System States & Events", ncol=1, borderaxespad=0)
+        fig.legend(
+            handles=[init_line, safe_line, standby_line, acq_line, error_flag_line],
+            loc="upper left",
+            bbox_to_anchor=(0.01, 0.995),
+            fontsize=9,
+            title="System States & Events",
+            ncol=1,
+            borderaxespad=0,
+        )
 
     # Rotate x-axis labels
     for ax in axes:
@@ -1002,14 +1029,14 @@ def _create_eb_plot(
     # Add click handler
     def on_pick(event):
         # Check if error line was clicked
-        if hasattr(event.artist, 'error_flags_bits'):
+        if hasattr(event.artist, "error_flags_bits"):
             _show_error_popup(event.artist.error_flags_bits)
         elif event.artist in lines:
             pkt = _get_hk_packet_from_pick(event, ts_data)
             if pkt is not None:
                 _show_hk_popup(pkt)
-    
-    fig.canvas.mpl_connect('pick_event', on_pick)
+
+    fig.canvas.mpl_connect("pick_event", on_pick)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(output_dir / f"eb_system_analysis{file_suffix}.png", dpi=150, bbox_inches="tight")
 
@@ -1035,34 +1062,54 @@ def _create_ob_plot(
     # OB Voltage plot
     ax_volt = axes[0]
     lines = []
-    lines.append(ax_volt.plot(times, ts_data["ob_3v3"], label="3.3V", linewidth=2.5, marker="o", markersize=5, picker=5)[0])
-    lines.append(ax_volt.plot(times, ts_data["ob_1v5"], label="1.5V", linewidth=2.5, marker="s", markersize=5, picker=5)[0])
-    
+    lines.append(
+        ax_volt.plot(times, ts_data["ob_3v3"], label="3.3V", linewidth=2.5, marker="o", markersize=5, picker=5)[0]
+    )
+    lines.append(
+        ax_volt.plot(times, ts_data["ob_1v5"], label="1.5V", linewidth=2.5, marker="s", markersize=5, picker=5)[0]
+    )
+
     ax_volt.set_ylabel("Voltage (V)", fontsize=12, fontweight="bold")
     ax_volt.set_title("OB Voltages", fontsize=13, fontweight="bold")
-    
+
     # Place the voltage legend just above the top-right plot border
     leg_volt = ax_volt.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=11, borderaxespad=0)
     ax_volt.add_artist(leg_volt)
-    
+
     ax_volt.grid(True, alpha=0.3)
     ax_volt.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
 
     # OB Temperature plot
     ax_temp = axes[1]
-    lines.append(ax_temp.plot(times, ts_data["ob_dig_trp"], label="Digital TRP", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["ob_det_trp"], label="Detector TRP", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["ob_mech_trp"], label="Mechanism TRP", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    lines.append(ax_temp.plot(times, ts_data["ob_mot_trp"], label="Motor TRP", linewidth=2.5, marker=".", markersize=3, picker=5)[0])
-    
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["ob_dig_trp"], label="Digital TRP", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["ob_det_trp"], label="Detector TRP", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["ob_mech_trp"], label="Mechanism TRP", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+    lines.append(
+        ax_temp.plot(
+            times, ts_data["ob_mot_trp"], label="Motor TRP", linewidth=2.5, marker=".", markersize=3, picker=5
+        )[0]
+    )
+
     ax_temp.set_ylabel("Temperature (°C)", fontsize=12, fontweight="bold")
     ax_temp.set_xlabel("Time", fontsize=12, fontweight="bold")
     ax_temp.set_title("OB Temperatures", fontsize=13, fontweight="bold")
-    
+
     # Place the temperature legend just above the top-right plot border
     leg_temp = ax_temp.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), fontsize=10, ncol=2, borderaxespad=0)
     ax_temp.add_artist(leg_temp)
-    
+
     ax_temp.grid(True, alpha=0.3)
     ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
 
@@ -1077,15 +1124,24 @@ def _create_ob_plot(
             if error_flags_bits is None:
                 continue
             error_text = str(error_code)
-            
+
             line = ax.axvline(time_val, color="red", linestyle=":", alpha=0.6, linewidth=2, picker=True)
             # Store error flags object for later reference
             line.error_flags_bits = error_flags_bits
-            
+
             # Add text annotation above the line showing which errors
             y_pos = ax.get_ylim()[1] * 0.95
-            ax.text(time_val, y_pos, error_text, rotation=90, fontsize=7, color="red", 
-                   alpha=0.6, verticalalignment="bottom", horizontalalignment="right")
+            ax.text(
+                time_val,
+                y_pos,
+                error_text,
+                rotation=90,
+                fontsize=7,
+                color="red",
+                alpha=0.6,
+                verticalalignment="bottom",
+                horizontalalignment="right",
+            )
 
     # Add combined legend for state changes and error flags at top-left of the figure window
     if ts_data["state_changes"] or ts_data["error_flags"]:
@@ -1094,8 +1150,15 @@ def _create_ob_plot(
         standby_line = plt.Line2D([0], [0], color="green", linestyle="--", linewidth=2, label="Standby")
         acq_line = plt.Line2D([0], [0], color="orange", linestyle="--", linewidth=2, label="Acquisition")
         error_flag_line = plt.Line2D([0], [0], color="red", linestyle=":", linewidth=2, label="Error Flag")
-        fig.legend(handles=[init_line, safe_line, standby_line, acq_line, error_flag_line], 
-                  loc="upper left", bbox_to_anchor=(0.01, 0.995), fontsize=9, title="System States & Events", ncol=1, borderaxespad=0)
+        fig.legend(
+            handles=[init_line, safe_line, standby_line, acq_line, error_flag_line],
+            loc="upper left",
+            bbox_to_anchor=(0.01, 0.995),
+            fontsize=9,
+            title="System States & Events",
+            ncol=1,
+            borderaxespad=0,
+        )
 
     # Rotate x-axis labels for OB plot
     for ax in axes:
@@ -1104,14 +1167,14 @@ def _create_ob_plot(
     # Add click handler
     def on_pick(event):
         # Check if error line was clicked
-        if hasattr(event.artist, 'error_flags_bits'):
+        if hasattr(event.artist, "error_flags_bits"):
             _show_error_popup(event.artist.error_flags_bits)
         elif event.artist in lines:
             pkt = _get_hk_packet_from_pick(event, ts_data)
             if pkt is not None:
                 _show_hk_popup(pkt)
-    
-    fig.canvas.mpl_connect('pick_event', on_pick)
+
+    fig.canvas.mpl_connect("pick_event", on_pick)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(output_dir / f"ob_system_analysis{file_suffix}.png", dpi=150, bbox_inches="tight")
 
@@ -1130,11 +1193,16 @@ def _create_psu_plot(
     times = np.array(psu_data["times"])
 
     if len(times) > 0:
-        ax_curr.plot(times, np.array(psu_data["ch3_i"]) * 1000, label="CH3 Current", linewidth=2.5, marker=".", markersize=4)
-        ax_curr.plot(times, np.array(psu_data["ch4_i"]) * 1000, label="CH4 Current", linewidth=2.5, marker=".", markersize=4)
+        ax_curr.plot(
+            times, np.array(psu_data["ch3_i"]) * 1000, label="CH3 Current", linewidth=2.5, marker=".", markersize=4
+        )
+        ax_curr.plot(
+            times, np.array(psu_data["ch4_i"]) * 1000, label="CH4 Current", linewidth=2.5, marker=".", markersize=4
+        )
     else:
-        ax_curr.text(0.5, 0.5, "No PSU current samples", transform=ax_curr.transAxes,
-                     ha="center", va="center", fontsize=11)
+        ax_curr.text(
+            0.5, 0.5, "No PSU current samples", transform=ax_curr.transAxes, ha="center", va="center", fontsize=11
+        )
 
     ax_curr.set_ylabel("Current (mA)", fontsize=12, fontweight="bold")
     ax_curr.set_xlabel("Time", fontsize=12, fontweight="bold")
@@ -1155,20 +1223,17 @@ def _create_psu_plot(
     filtered_error_flags = ts_data["error_flags"]
     if time_window_start is not None and time_window_end is not None:
         filtered_state_changes = [
-            event for event in ts_data["state_changes"]
-            if time_window_start <= event[0] <= time_window_end
+            event for event in ts_data["state_changes"] if time_window_start <= event[0] <= time_window_end
         ]
         filtered_error_flags = [
-            event for event in ts_data["error_flags"]
-            if time_window_start <= event[0] <= time_window_end
+            event for event in ts_data["error_flags"] if time_window_start <= event[0] <= time_window_end
         ]
 
         if not filtered_state_changes and ts_data["state_changes"]:
             start_tod = time_window_start.time()
             end_tod = time_window_end.time()
             filtered_state_changes = [
-                event for event in ts_data["state_changes"]
-                if start_tod <= event[0].time() <= end_tod
+                event for event in ts_data["state_changes"] if start_tod <= event[0].time() <= end_tod
             ]
             filtered_state_changes = [
                 (datetime.combine(time_window_start.date(), event[0].time()), event[1], event[2])
@@ -1179,8 +1244,17 @@ def _create_psu_plot(
         color = _get_state_color(state_code)
         ax_curr.axvline(time_val, color=color, linestyle="--", alpha=0.6, linewidth=2)
         y_pos = ax_curr.get_ylim()[1] * 0.88
-        ax_curr.text(time_val, y_pos, state_name, rotation=90, fontsize=8, color=color,
-                     alpha=0.7, verticalalignment="bottom", horizontalalignment="right")
+        ax_curr.text(
+            time_val,
+            y_pos,
+            state_name,
+            rotation=90,
+            fontsize=8,
+            color=color,
+            alpha=0.7,
+            verticalalignment="bottom",
+            horizontalalignment="right",
+        )
 
     for time_val, error_flags_bits, error_code in filtered_error_flags:
         if error_flags_bits is None:
@@ -1189,8 +1263,17 @@ def _create_psu_plot(
 
         ax_curr.axvline(time_val, color="red", linestyle=":", alpha=0.6, linewidth=2)
         y_pos = ax_curr.get_ylim()[1] * 0.95
-        ax_curr.text(time_val, y_pos, error_text, rotation=90, fontsize=7, color="red",
-                     alpha=0.6, verticalalignment="bottom", horizontalalignment="right")
+        ax_curr.text(
+            time_val,
+            y_pos,
+            error_text,
+            rotation=90,
+            fontsize=7,
+            color="red",
+            alpha=0.6,
+            verticalalignment="bottom",
+            horizontalalignment="right",
+        )
 
     if filtered_state_changes or filtered_error_flags:
         init_line = plt.Line2D([0], [0], color="grey", linestyle="--", linewidth=2, label="Initialising")
@@ -1198,8 +1281,15 @@ def _create_psu_plot(
         standby_line = plt.Line2D([0], [0], color="green", linestyle="--", linewidth=2, label="Standby")
         acq_line = plt.Line2D([0], [0], color="orange", linestyle="--", linewidth=2, label="Acquisition")
         error_flag_line = plt.Line2D([0], [0], color="red", linestyle=":", linewidth=2, label="Error Flag")
-        fig.legend(handles=[init_line, safe_line, standby_line, acq_line, error_flag_line],
-                   loc="upper left", bbox_to_anchor=(0.01, 0.995), fontsize=9, title="System States & Events", ncol=1, borderaxespad=0)
+        fig.legend(
+            handles=[init_line, safe_line, standby_line, acq_line, error_flag_line],
+            loc="upper left",
+            bbox_to_anchor=(0.01, 0.995),
+            fontsize=9,
+            title="System States & Events",
+            ncol=1,
+            borderaxespad=0,
+        )
 
     plt.setp(ax_curr.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
@@ -1270,10 +1360,30 @@ def _create_ob_abs_steps_plot(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="HK analysis - Generate plots from RS422 logs")
-    parser.add_argument("--log", type=str, default=None, help="Path to RS422 log file (optional - file picker will open if not provided)")
-    parser.add_argument("--psu-log", type=str, default=None, help="Path to PSU log file (optional - file picker will open if not provided)")
-    parser.add_argument("--outdir", type=str, default=None, help="Folder to save plot images (optional - folder picker will open if not provided)")
-    parser.add_argument("--cutoff-time", type=str, default=None, help="Optional time-of-day cutoff (HH:MM or HH:MM:SS); data after this time is removed")
+    parser.add_argument(
+        "--log",
+        type=str,
+        default=None,
+        help="Path to RS422 log file (optional - file picker will open if not provided)",
+    )
+    parser.add_argument(
+        "--psu-log",
+        type=str,
+        default=None,
+        help="Path to PSU log file (optional - file picker will open if not provided)",
+    )
+    parser.add_argument(
+        "--outdir",
+        type=str,
+        default=None,
+        help="Folder to save plot images (optional - folder picker will open if not provided)",
+    )
+    parser.add_argument(
+        "--cutoff-time",
+        type=str,
+        default=None,
+        help="Optional time-of-day cutoff (HH:MM or HH:MM:SS); data after this time is removed",
+    )
     parser.add_argument("--sci-log", type=str, default=None, help="Path to a single *_SCI.LOG file (optional)")
     parser.add_argument("--sci-log-dir", type=str, default=None, help="Folder to search for *_SCI.LOG files (optional)")
     parser.add_argument("--sci-plot-save", action="store_true", help="Save SCI plots into outdir/sci_plots")
