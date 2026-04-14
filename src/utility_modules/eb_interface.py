@@ -29,7 +29,7 @@ info_log = logging.getLogger("info_log")
 
 
 class EGSEInterface:
-    def __init__(self, egse_path: str | Path = r"C:\wdir\IFM\EB"):
+    def __init__(self, egse_path: str | Path = r"C:\wdir\EB\EB_EGSE"):
         """Interface class to manage interactions with the EB EGSE tools, including starting/stopping the tools and sending commands via typecasting."""
         self.egse_path = Path(egse_path)
         self.process_handle = None
@@ -154,7 +154,7 @@ class EGSEInterface:
             return False
 
     def typecast(self, script_path: str | Path, verbose: bool = False) -> bool:
-        """Typecasting function that sends the commands from a script file to the CMDTool window."""
+        """Send the script file path to CmdTool as @filepath, not line by line."""
         try:
             script_file = Path(script_path)
             if not script_file.exists():
@@ -166,28 +166,17 @@ class EGSEInterface:
                 print("[ERROR] Could not find CmdTool window")
                 return False
 
-            # Read and send each line directly to the CmdTool input control.
-            with open(script_file, encoding="utf-8", errors="replace") as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.rstrip("\n\r")
-                    if not line or line.startswith("#"):
-                        continue
-
-                    try:
-                        if not self._send_text_to_cmdtool_input(
-                            cmd_window,
-                            text=line,
-                            send_enter=True,
-                            pause=0.05,
-                        ):
-                            print(f"[ERROR] Failed to send line {line_num}: unable to write to CmdTool input")
-                            return False
-                        time.sleep(0.3)
-                    except Exception as e:
-                        print(f"[ERROR] Failed to send line {line_num}: {e}")
-                        return False
-
-            print(f"[OK] Script completed: {script_file.name}")
+            # Send @filepath (no quotes) to CmdTool input
+            script_cmd = f"@{script_file}"
+            if not self._send_text_to_cmdtool_input(
+                cmd_window,
+                text=script_cmd,
+                send_enter=True,
+                pause=0.05,
+            ):
+                print(f"[ERROR] Failed to send script path to CmdTool input")
+                return False
+            print(f"[OK] Script path sent: {script_cmd}")
             return True
         except Exception as e:
             print(f"[ERROR] Unexpected error in typecast: {e}")

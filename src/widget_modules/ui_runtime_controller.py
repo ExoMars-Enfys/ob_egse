@@ -1,9 +1,10 @@
-
 from __future__ import annotations
+
 
 def notify_script_pause(current: int, total: int) -> None:
     """Notify the user that the script is paused, showing progress."""
     ui.notify(f"Script paused, command {current} of {total}", color="warning")
+
 
 # Std library
 from contextlib import nullcontext
@@ -68,7 +69,7 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
             if isinstance(psu_mode_state, dict):
                 psu_mode_state["ebmode"] = mode == "EB"
             if psu_port:
-                ebmode = (mode == "EB")
+                ebmode = mode == "EB"
                 lock_ctx = psu_lock if psu_lock is not None else nullcontext()
                 with lock_ctx:
                     psu.setChannels(psu_port, ebmode)
@@ -680,7 +681,9 @@ def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool
     # Check OB_5V_ENABLED and SAFE mode
     instr_status_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
     ob_5v_enabled = (instr_status_flags >> 5) & 0x1  # OB_5V_ENABLED is bit 5
-    current_state = int(getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0)
+    current_state = int(
+        getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
+    )
     skip_ob_checks = (not ob_5v_enabled) or (current_state == 0x02)
 
     for label, field_name, limit_key, tec_field in _MMS_FIELDS:
@@ -736,7 +739,9 @@ def _run_mms_actions(
         logger.warning("MMS pre-action: TEC current should be forced to 0 (TC not yet implemented).")
 
     # Only attempt OB 5V disable when EB is not already in SAFE.
-    current_state = int(getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0)
+    current_state = int(
+        getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
+    )
     if ob5v_pre_action and current_state != 0x02:
         mms_cfg["ob5v_disable_requested"] = True
         _disable_ob5v(logger)
@@ -828,9 +833,20 @@ def create_poll_tm(
                     logger.error(f"Failed to read packet log: {e}")
 
         processed_hk = False
+        last_hk_time = state.setdefault("latest_hk_time", None)
         while not const.hk_queue.empty():
             processed_hk = True
             hk = const.hk_queue.get()
+            now = datetime.now()
+            # Calculate time since last HK
+            if last_hk_time is not None:
+                hk_delta = (now - last_hk_time).total_seconds()
+            else:
+                hk_delta = 0.0
+            state["hk_time_since_last"] = hk_delta
+            state["latest_hk_time"] = now
+            last_hk_time = now
+
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
             _update_hk_alarm_lights(state, hk)
@@ -851,9 +867,18 @@ def create_poll_tm(
         if replay.get("enabled") and replay.get("hk_anchor") is not None and not processed_hk:
             replay["latest_hk_time"] = datetime.now()
 
+        # Only increment post packet counter when a new post packet is received
+        def post_packet_handler(post_hk):
+            # Only increment if this is a new post packet (by unique identifier, e.g., timestamp or counter)
+            last_post_id = state.setdefault("last_post_id", None)
+            post_id = getattr(post_hk, "PACKET_NUMBER", None) or getattr(post_hk, "TIME", None)
+            if post_id != last_post_id:
+                packet_viewer_controllers["EB_POST"].update_from_packet(post_hk)
+                state["last_post_id"] = post_id
+
         _drain_packet_queue(
             const.eb_post_queue,
-            lambda post_hk: mode == "EB" and packet_viewer_controllers["EB_POST"].update_from_packet(post_hk),
+            lambda post_hk: mode == "EB" and post_packet_handler(post_hk),
         )
         _drain_packet_queue(
             const.sci_queue,

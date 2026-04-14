@@ -84,6 +84,7 @@ def create_menu(
                     "Stop EB EGSE Tools",
                     on_click=lambda: _stop_egse_tools(state, _sync_egse_tools_buttons),
                 ).classes("w-full whitespace-nowrap")
+
                 def _select_log_and_sync() -> None:
                     state["log_search"]["enabled"] = app.state.eb_interface.select_rs422_log(state["logger"])
                     _sync_egse_tools_buttons(state.get("mode", "EB"))
@@ -103,14 +104,23 @@ def create_menu(
 
                 with ui.column().classes("w-full gap-1") as scripts_controls:
                     ui.label("Scripts").classes("text-xs")
+
+                    def on_script_select_change(e):
+                        # If user selects Text Script, open file dialog immediately
+                        if e.value == "txt_script":
+                            _run_txt_script(state)
+
                     script_select = ui.select(
                         options={"fft": "FFT", "txt_script": "Text Script (.txt)"},
                         value="fft",
+                        on_change=on_script_select_change,
                     ).classes("w-full")
                     with ui.row().classes("w-full justify-end gap-2") as script_buttons_row:
                         ui.button(
                             icon="play_arrow",
-                            on_click=lambda: _run_selected_script(state, str(script_select.value or ""), script_buttons_row),
+                            on_click=lambda: _run_selected_script(
+                                state, str(script_select.value or ""), script_buttons_row
+                            ),
                         ).props("flat round dense")
                         ui.button(
                             icon="pause", on_click=lambda: _pause_selected_script(state, str(script_select.value or ""))
@@ -121,9 +131,9 @@ def create_menu(
                     ui.keyboard(on_key=lambda e: _handle_script_hotkeys(state, str(script_select.value or ""), e))
 
                 ui.button("Log Snapshot", on_click=lambda: _log_snapshot(state)).classes("w-full whitespace-nowrap")
-                ui.button("Stop", color="negative", on_click=lambda: stop_and_shutdown(state, state["stop_event"])).classes(
-                    "w-full whitespace-nowrap"
-                )
+                ui.button(
+                    "Stop", color="negative", on_click=lambda: stop_and_shutdown(state, state["stop_event"])
+                ).classes("w-full whitespace-nowrap")
 
     def _sync_egse_tools_buttons(mode: str) -> None:
         eb_mode = mode == "EB"
@@ -296,7 +306,8 @@ def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: An
 
             state["logger"].info("Starting FFT script from menu")
             ebtcs.configure_send_flow_control(
-                should_pause=lambda: bool(script_control["pause_event"].is_set()) or ui_runtime_controller.is_force_paused(),
+                should_pause=lambda: bool(script_control["pause_event"].is_set())
+                or ui_runtime_controller.is_force_paused(),
                 should_abort=lambda: bool(script_control["abort_event"].is_set()),
             )
             fft_script.run_fft()
