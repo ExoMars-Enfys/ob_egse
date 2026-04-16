@@ -23,6 +23,7 @@ class PlotCardController:
     set_mode: Callable[[str], None]
     push: Callable[[list[Any], list[list[float]]], None]
     set_series_labels: Callable[[list[str]], None]
+    set_stream_enabled: Callable[[bool], None]
 
 
 def create_plot_card(
@@ -95,6 +96,8 @@ def create_plot_card(
     for line, cfg in zip(lines, series):
         line.set_color(cfg.color)
         line.set_visible(cfg.visible)
+        line.set_marker("*")
+        line.set_markersize(5)
 
     legend_visible = (n_series > 1) if show_legend is None else bool(show_legend)
     series_labels = [cfg.label for cfg in series]
@@ -139,6 +142,15 @@ def create_plot_card(
         series_labels = list(labels)
         _refresh_legend()
 
+    stream_enabled = True
+
+    def _reset_series() -> None:
+        for line in lines:
+            line.set_data([], [])
+        ax.relim()
+        ax.autoscale_view(scalex=True, scaley=False)
+        _redraw_plot()
+
     _set_legend(series_labels)
     if y_limits is not None:
         ax.set_ylim(*y_limits)
@@ -169,10 +181,24 @@ def create_plot_card(
             ax.set_title("")
         plot.update()
 
+    def set_stream_enabled(enabled: bool) -> None:
+        nonlocal stream_enabled
+        enabled = bool(enabled)
+        if stream_enabled == enabled:
+            return
+        stream_enabled = enabled
+        _reset_series()
+
     def push(time_points: list[Any], series_values: list[list[float]]) -> None:
         """Push one sample per series.  series_values[i] is the list of y-values
         for series i at the corresponding time_points."""
-        if time_points:
+        if stream_enabled and time_points:
             plot.push(time_points, series_values)
 
-    return PlotCardController(plot=plot, set_mode=set_mode, push=push, set_series_labels=_set_legend)
+    return PlotCardController(
+        plot=plot,
+        set_mode=set_mode,
+        push=push,
+        set_series_labels=_set_legend,
+        set_stream_enabled=set_stream_enabled,
+    )

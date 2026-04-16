@@ -41,19 +41,45 @@ class LogElementHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record to the ui.log element."""
+        # Format message first (this should not touch UI)
         try:
             msg = self.format(record)
-            color_map = {
-                logging.DEBUG: "text-grey",
-                logging.INFO: "text-blue",
-                logging.WARNING: "text-orange",
-                logging.ERROR: "text-red",
-                logging.CRITICAL: "text-red font-bold",
-            }
-            log_class = color_map.get(record.levelno, "")
-            self.element.push(msg, classes=log_class)
         except Exception:
-            self.handleError(record)
+            # If formatting itself fails, fallback to a simple representation
+            try:
+                msg = f"{record.levelname}: {record.getMessage()}"
+            except Exception:
+                msg = "<log format error>"
+
+        color_map = {
+            logging.DEBUG: "text-grey",
+            logging.INFO: "text-blue",
+            logging.WARNING: "text-orange",
+            logging.ERROR: "text-red",
+            logging.CRITICAL: "text-red font-bold",
+        }
+        log_class = color_map.get(record.levelno, "")
+
+        # Attempt to push to the UI log element. If the NiceGUI client/slot
+        # has been deleted or UI creation is not allowed from this thread,
+        # fall back to printing to the console to avoid recursive logging
+        # errors.
+        try:
+            self.element.push(msg, classes=log_class)
+        except RuntimeError:
+            # Client removed or invalid UI context; fallback to console
+            try:
+                print(msg)
+            except Exception:
+                pass
+        except Exception:
+            # Any other exception — avoid calling handleError which may
+            # re-enter logging and cause recursion; instead fallback to
+            # console output.
+            try:
+                print(msg)
+            except Exception:
+                pass
 
     def bind_level_radio(self, radio: Any) -> None:
         """Bind the log level radio button to this handler for dynamic level changes."""

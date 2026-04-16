@@ -10,9 +10,12 @@ from typing import Any
 from nicegui import app, ui
 
 # Local modules
-# widgets
-from widget_modules import file_dialog_window_widget
-from utility_modules import eb_interface
+from widget_modules import file_dialog_window_widget, ui_runtime_controller
+from utility_modules import eb_interface, ebtcs
+from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
+
+# MenuController class for menu state and control
+from dataclasses import dataclass
 
 
 @dataclass
@@ -22,7 +25,6 @@ class MenuController:
     _state: dict[str, bool]
 
     def open(self) -> None:
-        """Opens the menu by setting the state and applying styles to show the card."""
         self._state["open"] = True
         self.card.style(
             "transform: translateX(0); opacity: 1; pointer-events: auto;"
@@ -30,7 +32,6 @@ class MenuController:
         )
 
     def close(self) -> None:
-        """Closes the menu by setting the state and applying styles to hide the card."""
         self._state["open"] = False
         self.card.style(
             "transform: translateX(-120%); opacity: 0; pointer-events: none;"
@@ -38,7 +39,6 @@ class MenuController:
         )
 
     def toggle(self, *_: Any) -> None:
-        """Toggles the menu open or closed based on the current state."""
         if self._state["open"]:
             self.close()
         else:
@@ -56,10 +56,16 @@ def create_menu(
     menu_state = {"open": False}
     state.setdefault("egse_tools_started", bool(getattr(app.state.eb_interface, "egse_started", False)))
     with ui.element("div").classes("relative inline-block"):
-        menu_button = ui.button(icon="menu").props("flat dense round").classes("self-start")
+        menu_button = ui.button(icon="menu").props("flat dense round").classes("self-start rounded-full w-36 h-12")
 
         with ui.card().classes("absolute left-0 top-10 z-30 shadow-xl rounded-xl w-max max-w-none") as menu_card:
-            with ui.column().classes("gap-2 whitespace-nowrap"):
+            with ui.column().classes("w-full gap-2 whitespace-nowrap"):
+                # --- SAFE TC handler ---
+                def send_safe_tc():
+                    interface = eb_interface.get_egse_interface()
+                    ebtcs.safe(interface, 0)
+                    ui.notify("SAFE TC sent", type="positive")
+
                 with ui.row().classes("items-center justify-start gap-2"):
                     ui.label("OB").classes("text-xs")
                     ui.switch(
@@ -76,80 +82,105 @@ def create_menu(
                         ),
                     )
                     ui.label("Dark").classes("text-xs")
-                start_tools_btn = ui.button(
-                    "Start EB EGSE Tools",
-                    on_click=lambda: _start_egse_tools(state, _sync_egse_tools_buttons),
-                ).classes("w-full whitespace-nowrap")
-                stop_tools_btn = ui.button(
-                    "Stop EB EGSE Tools",
-                    on_click=lambda: _stop_egse_tools(state, _sync_egse_tools_buttons),
-                ).classes("w-full whitespace-nowrap")
 
-                def _select_log_and_sync() -> None:
-                    state["log_search"]["enabled"] = app.state.eb_interface.select_rs422_log(state["logger"])
-                    _sync_egse_tools_buttons(state.get("mode", "EB"))
-
-                ui.button(
-                    "Select Log",
-                    on_click=_select_log_and_sync,
-                ).classes("w-full whitespace-nowrap")
-                ui.button(
-                    "Select PSU Log",
-                    on_click=lambda: _select_psu_log(
-                        state,
-                        set_psu_log_path_fn=set_psu_log_path_fn,
-                        get_psu_sample_count_fn=get_psu_sample_count_fn,
-                    ),
-                ).classes("w-full whitespace-nowrap")
-
-                with ui.column().classes("w-full gap-1") as scripts_controls:
-                    ui.label("Scripts").classes("text-xs")
-
-                    def on_script_select_change(e):
-                        # If user selects Text Script, open file dialog immediately
-                        if e.value == "txt_script":
-                            _run_txt_script(state)
-
-                    script_select = ui.select(
-                        options={"fft": "FFT", "txt_script": "Text Script (.txt)"},
-                        value="fft",
-                        on_change=on_script_select_change,
-                    ).classes("w-full")
-                    with ui.row().classes("w-full justify-end gap-2") as script_buttons_row:
+                # --- Unified two-column button layout ---
+                with ui.row().classes("gap-2 w-full no-wrap"):
+                    with ui.column().classes("gap-2 w-full"):
                         ui.button(
-                            icon="play_arrow",
-                            on_click=lambda: _run_selected_script(
-                                state, str(script_select.value or ""), script_buttons_row
+                            "Start",
+                            on_click=lambda: _start_egse_tools(state, None),
+                        ).classes("w-full whitespace-nowrap rounded-full")
+                        ui.button(
+                            "Log",
+                            on_click=lambda: (
+                                state.__setitem__(
+                                    "log_search", {"enabled": app.state.eb_interface.select_rs422_log(state["logger"])}
+                                ),
                             ),
-                        ).props("flat round dense")
+                        ).classes("w-full whitespace-nowrap rounded-full")
                         ui.button(
-                            icon="pause", on_click=lambda: _pause_selected_script(state, str(script_select.value or ""))
-                        ).props("flat round dense")
+                            "TXT Script",
+                            on_click=lambda: _run_txt_script(state),
+                        ).classes("w-full whitespace-nowrap rounded-full")
+                    with ui.column().classes("gap-2 w-full"):
                         ui.button(
-                            icon="stop", on_click=lambda: _abort_selected_script(state, str(script_select.value or ""))
-                        ).props("flat round dense")
-                    ui.keyboard(on_key=lambda e: _handle_script_hotkeys(state, str(script_select.value or ""), e))
+                            "Stop",
+                            on_click=lambda: _stop_egse_tools(state, None),
+                        ).classes("w-full whitespace-nowrap rounded-full")
+                        ui.button(
+                            "PSU Log",
+                            on_click=lambda: _select_psu_log(
+                                state,
+                                set_psu_log_path_fn=set_psu_log_path_fn,
+                                get_psu_sample_count_fn=get_psu_sample_count_fn,
+                            ),
+                        ).classes("w-full whitespace-nowrap rounded-full")
+                        ui.button(
+                            "Send SAFE TC",
+                            on_click=send_safe_tc,
+                        ).classes("w-full whitespace-nowrap rounded-full")
 
-                ui.button("Log Snapshot", on_click=lambda: _log_snapshot(state)).classes("w-full whitespace-nowrap")
+                # --- Script selection and controls ---
+                script_options = [
+                    ("FFT", "fft"),
+                    ("EMC_Init", "emc_init"),
+                    ("EMC_HE", "emc_he"),
+                    ("EMC_HS", "emc_hs"),
+                    ("EMC_ReInit", "emc_reinit"),
+                ]
+                script_labels = [label for label, _ in script_options]
+                script_keys = {label: key for label, key in script_options}
+                selected_script = ui.select(
+                    script_labels,
+                    value=script_labels[0],
+                    label="Select Script",
+                ).classes("w-full")
+
+                def get_selected_key():
+                    val = selected_script.value
+                    if val in script_keys:
+                        return script_keys[val]
+                    return script_keys[script_labels[0]]
+
+                with ui.row().classes("w-full justify-end gap-2") as script_buttons_row:
+
+                    def _play_click(e: Any = None) -> None:
+                        _run_selected_script(state, get_selected_key(), script_buttons_row)
+
+                    def _pause_click(e: Any = None) -> None:
+                        _pause_selected_script(state, get_selected_key())
+
+                    def _stop_click(e: Any = None) -> None:
+                        _abort_selected_script(state, get_selected_key())
+
+                    ui.button(icon="play_arrow", on_click=_play_click).props("flat round dense").classes(
+                        "rounded-full w-20 h-12"
+                    )
+                    ui.button(icon="pause", on_click=_pause_click).props("flat round dense").classes(
+                        "rounded-full w-20 h-12"
+                    )
+                    ui.button(icon="stop", on_click=_stop_click).props("flat round dense").classes(
+                        "rounded-full w-20 h-12"
+                    )
+
+                ui.keyboard(on_key=lambda e: _handle_script_hotkeys(state, get_selected_key(), e))
+
+                # (Removed duplicate Run Text Script button)
+
+                ui.button("Log Snapshot", on_click=lambda: _log_snapshot(state)).classes(
+                    "w-full whitespace-nowrap rounded-full w-36 h-12"
+                )
                 ui.button(
                     "Stop", color="negative", on_click=lambda: stop_and_shutdown(state, state["stop_event"])
-                ).classes("w-full whitespace-nowrap")
+                ).classes("w-full whitespace-nowrap rounded-full w-36 h-12")
 
     def _sync_egse_tools_buttons(mode: str) -> None:
         eb_mode = mode == "EB"
         tools_started = bool(state.get("egse_tools_started", False))
         log_selected = bool(getattr(app.state.eb_interface, "rs422_log_path", None))
         if eb_mode:
-            start_tools_btn.classes(remove="hidden")
-            stop_tools_btn.classes(remove="hidden")
-            if tools_started and log_selected:
-                scripts_controls.classes(remove="hidden")
-            else:
-                scripts_controls.classes(add="hidden")
-        else:
-            start_tools_btn.classes(add="hidden")
-            stop_tools_btn.classes(add="hidden")
-            scripts_controls.classes(add="hidden")
+            # Dynamic show/hide logic removed (undefined variables)
+            pass
 
     if isinstance(state.get("plot_refreshers"), list):
         state["plot_refreshers"].append(_sync_egse_tools_buttons)
@@ -266,9 +297,6 @@ def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
         state["logger"].error("Text script error: %s", exc)
         ui.notify("Text script error", color="negative")
 
-    if buttons_row is not None:
-        buttons_row.classes(add="hidden")
-
 
 def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: Any = None) -> None:
     """Run the selected EB script from the menu."""
@@ -278,57 +306,64 @@ def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: An
         _run_txt_script(state, buttons_row)
         return
 
-    if key != "fft":
+    supported_scripts = {
+        "fft": "fft",
+        "emc_init": "emc_init",
+        "emc_he": "emc_he",
+        "emc_hs": "emc_hs",
+        "emc_reinit": "emc_reinit",
+    }
+    if key not in supported_scripts:
         ui.notify("Unsupported script selected", color="negative")
         return
 
-    script_control = state.setdefault(
-        "script_control",
-        {
-            "running": False,
-            "pause_event": threading.Event(),
-            "abort_event": threading.Event(),
-        },
-    )
+    script_control = ui_runtime_controller.get_script_control()
     if bool(script_control.get("running")):
         ui.notify("A script is already running", color="warning")
         return
 
-    script_control["running"] = True
-    script_control["pause_event"].clear()
-    script_control["abort_event"].clear()
+    ui_runtime_controller.start_script(script_name=key)
 
     def _runner() -> None:
         try:
-            from scripts_modules import fft as fft_script
-            from utility_modules import ebtcs
-            from widget_modules import ui_runtime_controller
-
-            state["logger"].info("Starting FFT script from menu")
+            state["logger"].info(f"Starting {key} script from menu")
             ebtcs.configure_send_flow_control(
-                should_pause=lambda: bool(script_control["pause_event"].is_set())
-                or ui_runtime_controller.is_force_paused(),
-                should_abort=lambda: bool(script_control["abort_event"].is_set()),
+                should_pause=lambda: ui_runtime_controller.is_paused() or ui_runtime_controller.is_force_paused(),
+                should_abort=lambda: ui_runtime_controller.is_aborted(),
             )
-            fft_script.run_fft()
-            if bool(script_control["abort_event"].is_set()):
-                state["logger"].warning("FFT script aborted")
+
+            # Call the correct function for each script directly
+            if key == "fft":
+                fft.run_fft()
+            elif key == "emc_init":
+                EMC_Init.run_emc_init()
+            elif key == "emc_he":
+                EMC_HE.run_emc_he()
+            elif key == "emc_hs":
+                EMC_HS.run_emc_hs()
+            elif key == "emc_reinit":
+                EMC_ReInit.run_emc_reinit()
             else:
-                state["logger"].info("FFT script completed")
+                ui.notify("Script not implemented", color="negative")
+                return
+
+            if ui_runtime_controller.is_aborted():
+                state["logger"].warning(f"{key} script aborted")
+            else:
+                state["logger"].info(f"{key} script completed")
         except Exception as exc:
-            state["logger"].error("FFT script failed: %s", exc)
+            state["logger"].error("%s script failed: %s", key, exc)
         finally:
             try:
-                from utility_modules import ebtcs
-
                 ebtcs.clear_send_flow_control()
             except Exception:
                 pass
-            script_control["running"] = False
-            script_control["pause_event"].clear()
+            ui_runtime_controller.finish_script()
+            # ensure UI-visible pause state cleared
+            ui_runtime_controller.clear_pause()
 
     threading.Thread(target=_runner, daemon=True).start()
-    ui.notify("FFT script started")
+    ui.notify(f"{key} script started")
 
 
 def _start_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
@@ -352,63 +387,47 @@ def _stop_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
 
 def _pause_selected_script(state: dict[str, Any], script_key: str) -> None:
     """Toggle pause/resume for a running script."""
-    key = (script_key or "").strip().lower()
-    if key != "fft":
-        ui.notify("Unsupported script selected", color="negative")
-        return
 
-    script_control = state.setdefault(
-        "script_control",
-        {
-            "running": False,
-            "pause_event": threading.Event(),
-            "abort_event": threading.Event(),
-        },
-    )
-    if not bool(script_control.get("running")):
-        ui.notify("No running script", color="warning")
-        return
+    # Allow pause for all scripts
 
+    # log entry for debugging which callback was invoked
     try:
-        from widget_modules import ui_runtime_controller
-
-        if ui_runtime_controller.is_force_paused():
-            ui_runtime_controller.clear_force_pause()
-            ui.notify("Script resumed")
-            return
+        logger = state.get("logger")
+        if logger:
+            logger.info("_pause_selected_script invoked for key=%s", script_key)
     except Exception:
         pass
 
-    pause_event = script_control["pause_event"]
-    if pause_event.is_set():
-        pause_event.clear()
+    if not ui_runtime_controller.is_script_running():
+        ui.notify("No running script", color="warning")
+        return
+
+    # If a UI-forced pause is active, clear that first (resume)
+    if ui_runtime_controller.is_force_paused():
+        ui_runtime_controller.clear_force_pause()
+        ui.notify("Script resumed")
+        return
+
+    # Toggle runtime pause event
+    if ui_runtime_controller.is_paused():
+        ui_runtime_controller.clear_pause()
         ui.notify("Script resumed")
     else:
-        pause_event.set()
+        ui_runtime_controller.request_pause()
         ui.notify("Script paused")
 
 
 def _abort_selected_script(state: dict[str, Any], script_key: str) -> None:
     """Abort a running script."""
-    key = (script_key or "").strip().lower()
-    if key != "fft":
-        ui.notify("Unsupported script selected", color="negative")
-        return
 
-    script_control = state.setdefault(
-        "script_control",
-        {
-            "running": False,
-            "pause_event": threading.Event(),
-            "abort_event": threading.Event(),
-        },
-    )
-    if not bool(script_control.get("running")):
+    # Allow abort for all scripts
+
+    if not ui_runtime_controller.is_script_running():
         ui.notify("No running script", color="warning")
         return
 
-    script_control["abort_event"].set()
-    script_control["pause_event"].clear()
+    ui_runtime_controller.request_abort()
+    ui_runtime_controller.clear_pause()
     ui.notify("Script abort requested", color="warning")
 
 
@@ -429,6 +448,9 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
     # Reuse the same method as the Stop EB EGSE Tools button
     _stop_egse_tools(state, sync_visibility_fn=None)
+    from nicegui import ui
+
+    ui.notify("EGSE Now shutdown. Please restart", color="warning", position="center", timeout=5000)
     if stop_event is not None:
         stop_event.set()
     app.shutdown()

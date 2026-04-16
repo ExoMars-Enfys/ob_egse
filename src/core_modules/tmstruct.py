@@ -1,3 +1,12 @@
+# Packet ID breakdown (see doc table 5-5)
+packet_id_struct = [
+    ("BLOCK_TYPE", "u1"),
+    ("TM_CRITICALITY", "u2"),
+    ("MMS_DEST", "u1"),
+    ("INSTR_ID", "u4"),
+    ("TM_TYPE_ID", "u6"),
+    ("SEQ_FLAG", "u2"),
+]
 # Get packing formats print(''.join(i[1] for i in hk))
 # Get names print(''.join(i[1] for i in hk))
 

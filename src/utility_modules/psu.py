@@ -2,9 +2,11 @@
 from contextlib import nullcontext
 from datetime import datetime
 import logging
+
 # Added packages
 import serial
 import time
+
 # Local modules
 from core_modules import config as config
 from core_modules import constants as const
@@ -14,6 +16,7 @@ info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
 psu_log = logging.getLogger("psu_log")
 
+
 def init_psu_comms(psu_com: str) -> serial.Serial:
     """Initialise an unopened PSU serial port handle."""
     psuport = serial.Serial(port=None, timeout=1.0)
@@ -21,7 +24,8 @@ def init_psu_comms(psu_com: str) -> serial.Serial:
     print(f"Initialized PSU COM port: {psu_com}")
     return psuport
 
-def open_psu_comms(port: serial.Serial , psu_not_required):
+
+def open_psu_comms(port: serial.Serial, psu_not_required):
     """Open PSU serial comms and verify the expected IDN response."""
     try:
         port.open()
@@ -46,6 +50,7 @@ def open_psu_comms(port: serial.Serial , psu_not_required):
 
     return port
 
+
 def close_psu_comms(port: serial.Serial) -> None:
     """Return PSU to local mode, clear buffers, and close the serial port."""
     if port:
@@ -55,6 +60,7 @@ def close_psu_comms(port: serial.Serial) -> None:
         time.sleep(0.5)
         port.close()
     return
+
 
 def psuRead(port, channel, type, output=False):
     """Read a PSU value for a channel and command type."""
@@ -69,6 +75,7 @@ def psuRead(port, channel, type, output=False):
     port.reset_input_buffer()
     return response
 
+
 def parse_psu_reading(raw_value: str) -> float:
     """Parse raw PSU text readings into float values with safe fallback to 0.0."""
     value = raw_value.strip()
@@ -80,6 +87,7 @@ def parse_psu_reading(raw_value: str) -> float:
         return float(value)
     except ValueError:
         return 0.0
+
 
 def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode_state=None, port_lock=None):
     """Monitor PSU channels, log telemetry, and shut down on limit violations."""
@@ -99,6 +107,17 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
     while not stop_event.is_set():
         try:
             active_ebmode = bool(mode_state.get("ebmode", ebmode)) if isinstance(mode_state, dict) else ebmode
+            # Try to get LISN check state from mode_state if present (from UI state)
+            lisn_check_enabled = False
+            if isinstance(mode_state, dict):
+                # Expecting: mode_state["channels"]["psu_ch4"]["lisn_check_enabled"]
+                try:
+                    lisn_check_enabled = bool(
+                        mode_state.get("channels", {}).get("psu_ch4", {}).get("lisn_check_enabled", False)
+                    )
+                except Exception:
+                    lisn_check_enabled = False
+
             if last_mode_is_eb is None or last_mode_is_eb != active_ebmode:
                 # Reset edge detectors on mode transition so first ON in new mode gets transient delay.
                 last_status = 0
@@ -145,8 +164,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                     const.psu_queue.put(psu_readings)
 
                     psu_log.info(
-                        f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\t"
-                        f"CH4(status={ebstatus}) {eb_v}\t{eb_i}"
+                        f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\tCH4(status={ebstatus}) {eb_v}\t{eb_i}"
                     )
 
                     ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
@@ -155,21 +173,24 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                     if on_since is not None and time.monotonic() - on_since < 0.5:
                         continue
 
+                    # CH3 (ROV HTR) checks always apply
                     if rov_htr_status and not (26 < rov_htr_v < 30):
                         psu_log.error(f"Voltage out of bounds Ch3 :  {rov_htr_v}")
-                        emergencyShutDown(port)
-
-                    if ebstatus and not (26 < eb_v < 30):
-                        psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
                         emergencyShutDown(port)
 
                     if rov_htr_status and (rov_htr_i >= 150):
                         psu_log.error(f"Current out of bounds Ch3 :  {rov_htr_i}")
                         emergencyShutDown(port)
 
-                    if ebstatus and (eb_i >= 500):
-                        psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
-                        emergencyShutDown(port)
+                    # CH4 (EB) checks only if LISN check is enabled
+                    if lisn_check_enabled:
+                        if ebstatus and not (26 < eb_v < 30):
+                            psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
+                            emergencyShutDown(port)
+
+                        if ebstatus and (eb_i >= 500):
+                            psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
+                            emergencyShutDown(port)
 
                 else:
                     ch1_status = int(psuRead(port, "1", "OP", False).rstrip())
@@ -233,11 +254,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         psu_log.error(f"Voltage out of bounds Ch1 :  {ch1_v}\t Ch2 : {ch2_v}\t Ch3 : {ch3_v} ")
                         emergencyShutDown(port)
 
-                    if (
-                        (float(ch1_i) >= 150)
-                        or (float(ch2_i) >= 90)
-                        or (float(ch3_i) >= 150)
-                    ):
+                    if (float(ch1_i) >= 150) or (float(ch2_i) >= 90) or (float(ch3_i) >= 150):
                         psu_log.error(f"Current out of bounds Ch1 :  {ch1_i}\t Ch2 : {ch2_i}\t Ch3 : {ch3_i} ")
                         emergencyShutDown(port)
 
@@ -245,6 +262,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
             psu_log.error(f"Error in PSU monitor thread: {e}")
 
         stop_event.wait(1 / freq)
+
 
 def setChannels(port, ebmode):
     """Configure PSU channel voltage/current/OVP limits for OB or EB mode."""
@@ -314,11 +332,13 @@ def setChannels(port, ebmode):
             port.reset_output_buffer()  # Clear stale bytes after transactions
             port.reset_input_buffer()
 
+
 def switch_psu_channel(port, channel, state):
     """Switch a PSU channel on or off."""
     if port:
         event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
         port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
+
 
 def emergencyShutDown(port):
     """Perform emergency PSU shutdown and hand control back to local front panel."""

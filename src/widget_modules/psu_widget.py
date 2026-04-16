@@ -77,6 +77,10 @@ def create_psu_channel_card(
 ) -> PsuChannelController:
     """Create a PSU channel card with a plot and enable switch."""
     channel = state.setdefault("channels", {}).setdefault(key, {"enabled": True})
+    # Add LISN check toggle state for CH4 in EB mode
+    is_ch4 = key == "psu_ch4"
+    if is_ch4:
+        channel.setdefault("lisn_check_enabled", False)  # Default: disabled
     # Refresh card-channel config from current code while preserving runtime UI state.
     channel["live_voltage_key"] = live_voltage_key
     channel["live_current_key"] = live_current_key
@@ -119,11 +123,30 @@ def create_psu_channel_card(
 
     with ui.card().classes("flex-1 min-w-0") as card:
         title_label = ui.label(title).classes("text-sm font-bold")
-        enabled_switch = ui.switch(
-            "Enabled",
-            value=bool(channel["enabled"]),
-            on_change=_on_toggle,
-        )
+        with ui.row().classes("items-center"):
+            enabled_switch = ui.switch(
+                "Enabled",
+                value=bool(channel["enabled"]),
+                on_change=_on_toggle,
+            )
+            # LISN check toggle (only for CH4, only visible in EB mode)
+            if is_ch4:
+
+                def _on_lisn_toggle(e: Any) -> None:
+                    channel["lisn_check_enabled"] = bool(e.value)
+
+                lisn_toggle = ui.switch(
+                    "LISN check",
+                    value=bool(channel["lisn_check_enabled"]),
+                    on_change=_on_lisn_toggle,
+                ).classes("ml-2")
+
+                # Only show LISN toggle in EB mode
+                def _sync_lisn_toggle(mode: str) -> None:
+                    lisn_toggle.set_visibility(mode == "EB")
+
+                state["plot_refreshers"].append(_sync_lisn_toggle)
+                _sync_lisn_toggle(state.get("mode", "EB"))
         value_label = ui.label("mA: ---")
         plot = plot_widget.create_plot_card(
             title,

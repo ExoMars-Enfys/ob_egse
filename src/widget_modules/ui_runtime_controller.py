@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-
-def notify_script_pause(current: int, total: int) -> None:
-    """Notify the user that the script is paused, showing progress."""
-    ui.notify(f"Script paused, command {current} of {total}", color="warning")
-
-
 # Std library
 from contextlib import nullcontext
 from datetime import datetime
@@ -32,6 +26,196 @@ from core_modules import tmstruct
 _FORCE_PAUSE_EVENT = threading.Event()
 
 
+# --- HK and POST check for scripts (ported from ebgui) ---
+def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> dict:
+    """
+    Perform HK or POST check as in ebgui, returning a result dict.
+    Args:
+        hk: Housekeeping packet object (for regular HK)
+        post: POST packet object (for post HK)
+        hk_type: 'hk' for regular HK, 'post' for POST check
+    Returns:
+        dict with keys: 'passed' (bool), 'details' (list of str)
+    """
+    result = {"passed": True, "details": []}
+
+    if hk_type == "hk":
+        if hk is None:
+            result["passed"] = False
+            result["details"].append("No HK data available.")
+            return result
+        # Values are already decoded, just check ranges
+
+        # Extract, convert, and check for None before formatting
+        try:
+            eb_12v_raw = hk.EB_MEAS_MAIN_12V
+            eb_neg12v_raw = hk.EB_MEAS_MAIN_NEG12V
+            eb_5v_raw = hk.EB_MEAS_5V
+            eb_3v3_raw = hk.EB_MEAS_3V3
+            eb_tec_v_raw = hk.EB_MEAS_TEC_RAIL
+            eb_0v_raw = hk.EB_0V_ADC_READING
+            eb_tec_i_raw = hk.EB_TEC_DRIVE_CURRENT
+        except Exception as e:
+            result["passed"] = False
+            result["details"].append(f"Missing HK field: {e}")
+            return result
+
+        value_fields = [
+            (eb_12v_raw, "EB_MEAS_MAIN_12V"),
+            (eb_neg12v_raw, "EB_MEAS_MAIN_NEG12V"),
+            (eb_5v_raw, "EB_MEAS_5V"),
+            (eb_3v3_raw, "EB_MEAS_3V3"),
+            (eb_tec_v_raw, "EB_MEAS_TEC_RAIL"),
+            (eb_0v_raw, "EB_0V_ADC_READING"),
+            (eb_tec_i_raw, "EB_TEC_DRIVE_CURRENT"),
+        ]
+        for val, name in value_fields:
+            if val is None:
+                result["passed"] = False
+                result["details"].append(f"{name} is None")
+
+        # Only check ranges if all values are present
+        if all(val is not None for val, _ in value_fields):
+            eb_12v = eb_12v_raw * 0.000400543
+            eb_neg12v = eb_neg12v_raw * -0.00038147
+            eb_5v = eb_5v_raw * 0.000152829
+            eb_3v3 = eb_3v3_raw * 0.0000763
+            eb_tec_v = eb_tec_v_raw * 0.0000763
+            eb_0v = eb_0v_raw * 0.0000763
+            eb_tec_i = eb_tec_i_raw * 0.0000162
+            checks = [
+                (11.0 <= eb_12v <= 13.0, f"EB 12V out of range: {eb_12v:.2f} V"),
+                (-13.0 <= eb_neg12v <= -11.0, f"EB -12V out of range: {eb_neg12v:.2f} V"),
+                (4.5 <= eb_5v <= 5.5, f"EB 5V out of range: {eb_5v:.2f} V"),
+                (2.8 <= eb_3v3 <= 3.8, f"EB 3V3 out of range: {eb_3v3:.2f} V"),
+                (-0.5 <= eb_tec_v <= 0.5, f"EB TEC V out of range: {eb_tec_v:.2f} V"),
+                (-0.5 <= eb_0v <= 0.5, f"EB 0V out of range: {eb_0v:.2f} V"),
+                (-0.1 <= eb_tec_i <= 0.1, f"EB TEC I out of range: {eb_tec_i:.4f} A"),
+            ]
+            for ok, msg in checks:
+                if not ok:
+                    result["passed"] = False
+                    result["details"].append(msg)
+
+        if getattr(hk, "TCS_ACCEPTED", None) != 2:
+            result["passed"] = False
+            result["details"].append(f"TCS_ACCEPTED not 2: {getattr(hk, 'TCS_ACCEPTED', None)}")
+        if getattr(hk, "TCS_REJECTED", None) != 0:
+            result["passed"] = False
+            result["details"].append(f"TCS_REJECTED not 0: {getattr(hk, 'TCS_REJECTED', None)}")
+        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 25604:
+            result["passed"] = False
+            result["details"].append(f"INSTRUMENT_STATUS_FLAGS not 6: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}")
+        if getattr(hk, "ERROR_FLAGS", None) != 0:
+            result["passed"] = False
+            result["details"].append(f"ERROR_FLAGS not 0: {getattr(hk, 'ERROR_FLAGS', None)}")
+        if getattr(hk, "WARNING_FLAGS", None) != 0:
+            result["passed"] = False
+            result["details"].append(f"WARNING_FLAGS not 0: {getattr(hk, 'WARNING_FLAGS', None)}")
+        if getattr(hk, "FDIR_ALARM_FLAGS", None) != 0:
+            result["passed"] = False
+            result["details"].append(f"FDIR_ALARM_FLAGS not 0: {getattr(hk, 'FDIR_ALARM_FLAGS', None)}")
+        if getattr(hk, "FDIR_WARNING_FLAGS", None) != 0:
+            result["passed"] = False
+            result["details"].append(f"FDIR_WARNING_FLAGS not 0: {getattr(hk, 'FDIR_WARNING_FLAGS', None)}")
+        return result
+
+    elif hk_type == "post":
+        if post is None:
+            result["passed"] = False
+            result["details"].append("No POST data available.")
+            return result
+        # Convert POST voltages/temps if present
+        try:
+            tm_12v = post.TM_12V * 0.000400543 if hasattr(post, "TM_12V") else None
+            tm_neg12v = post.TM_NEG12V * -0.00038147 if hasattr(post, "TM_NEG12V") else None
+            tm_5v = post.TM_5V * 0.000152829 if hasattr(post, "TM_5V") else None
+            tm_3v3 = post.TM_3V3 * 0.0000763 if hasattr(post, "TM_3V3") else None
+            eb_processor_temp = (
+                post.EB_PROCESSOR_TEMP * 0.01637198 - 273 if hasattr(post, "EB_PROCESSOR_TEMP") else None
+            )
+            tec_detector_temp = (
+                post.TEC_DETECTOR_TEMP * -0.001830011 + 51.27039922 if hasattr(post, "TEC_DETECTOR_TEMP") else None
+            )
+        except Exception as e:
+            result["passed"] = False
+            result["details"].append(f"POST conversion error: {e}")
+            return result
+
+        # POST checks as in ebgui
+        all_post_passed = (
+            getattr(post, "POST_WARNING_FLAGS", None) == 0
+            and getattr(post, "POST_ERROR_FLAGS", None) == 0
+            and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
+            and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
+            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
+            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0x5C55
+            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0x01CB
+            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x5318
+            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xDCAE
+            and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
+            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x9D9B
+        )
+        if not all_post_passed:
+            result["passed"] = False
+            # Add details for each failed check
+            if getattr(post, "POST_WARNING_FLAGS", None) != 0:
+                result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
+            if getattr(post, "POST_ERROR_FLAGS", None) != 0:
+                result["details"].append(f"POST_ERROR_FLAGS: {getattr(post, 'POST_ERROR_FLAGS', None)}")
+            if getattr(post, "NUM_BAD_FLASH_BLOCKS", None) != 0:
+                result["details"].append(f"NUM_BAD_FLASH_BLOCKS: {getattr(post, 'NUM_BAD_FLASH_BLOCKS', None)}")
+            if getattr(post, "NUM_BAD_SRAM_BLOCKS", None) != 0:
+                result["details"].append(f"NUM_BAD_SRAM_BLOCKS: {getattr(post, 'NUM_BAD_SRAM_BLOCKS', None)}")
+            if getattr(post, "ASW_IMAGE_1_CRC", None) != 0xBAF7:
+                result["details"].append(f"ASW_IMAGE_1_CRC: {getattr(post, 'ASW_IMAGE_1_CRC', None):#06x}")
+            if getattr(post, "ASW_IMAGE_2_CRC", None) != 0x5C55:
+                result["details"].append(f"ASW_IMAGE_2_CRC: {getattr(post, 'ASW_IMAGE_2_CRC', None):#06x}")
+            if getattr(post, "ASW_IMAGE_3_CRC", None) != 0x01CB:
+                result["details"].append(f"ASW_IMAGE_3_CRC: {getattr(post, 'ASW_IMAGE_3_CRC', None):#06x}")
+            if getattr(post, "ASW_IMAGE_4_CRC", None) != 0x5318:
+                result["details"].append(f"ASW_IMAGE_4_CRC: {getattr(post, 'ASW_IMAGE_4_CRC', None):#06x}")
+            if getattr(post, "ASW_IMAGE_5_CRC", None) != 0xDCAE:
+                result["details"].append(f"ASW_IMAGE_5_CRC: {getattr(post, 'ASW_IMAGE_5_CRC', None):#06x}")
+            if getattr(post, "BSW_IMAGE_CRC", None) != 0xD2D7:
+                result["details"].append(f"BSW_IMAGE_CRC: {getattr(post, 'BSW_IMAGE_CRC', None):#06x}")
+            if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0x9D9B:
+                result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
+            # Optionally, add converted values to details for debugging
+            if tm_12v is not None:
+                result["details"].append(f"TM_12V: {tm_12v:.2f} V")
+            if tm_neg12v is not None:
+                result["details"].append(f"TM_NEG12V: {tm_neg12v:.2f} V")
+            if tm_5v is not None:
+                result["details"].append(f"TM_5V: {tm_5v:.2f} V")
+            if tm_3v3 is not None:
+                result["details"].append(f"TM_3V3: {tm_3v3:.2f} V")
+            if eb_processor_temp is not None:
+                result["details"].append(f"EB_PROCESSOR_TEMP: {eb_processor_temp:.2f} C")
+            if tec_detector_temp is not None:
+                result["details"].append(f"TEC_DETECTOR_TEMP: {tec_detector_temp:.2f} C")
+        return result
+
+    else:
+        result["passed"] = False
+        result["details"].append(f"Unknown hk_type: {hk_type}")
+        return result
+
+
+def notify_script_pause(current: int, total: int) -> None:
+    """Notify the user that the script is paused, showing progress."""
+    msg = f"Script paused, command {current} of {total}"
+    try:
+        ui.notify(msg, color="warning")
+    except Exception:
+        # If UI notify cannot be created from this context (background
+        # thread or client deleted), fall back to console output.
+        try:
+            print(msg)
+        except Exception:
+            pass
+
+
 def request_force_pause() -> None:
     """Request a forced pause — blocks script execution until released."""
     _FORCE_PAUSE_EVENT.set()
@@ -45,6 +229,93 @@ def clear_force_pause() -> None:
 def is_force_paused() -> bool:
     """Return True when script execution is held by a forced pause."""
     return _FORCE_PAUSE_EVENT.is_set()
+
+
+def notify_script_done() -> None:
+    """Notify the user that the script has completed."""
+    msg = "Script execution complete."
+    try:
+        ui.notify(msg, color="positive")
+    except Exception:
+        try:
+            print(msg)
+        except Exception:
+            pass
+
+
+# Central script runtime control (play / pause / abort)
+_SCRIPT_CONTROL = {
+    "running": False,
+    "pause_event": threading.Event(),
+    "abort_event": threading.Event(),
+    "current_script": None,
+}
+
+
+def get_script_control() -> dict:
+    """Return the runtime script control dictionary.
+
+    Keys: `running` (bool), `pause_event` (threading.Event),
+    `abort_event` (threading.Event), `current_script` (optional name).
+    """
+    return _SCRIPT_CONTROL
+
+
+def start_script(script_name: str | None = None) -> None:
+    """Mark a script as running and clear control events."""
+    _SCRIPT_CONTROL["running"] = True
+    _SCRIPT_CONTROL["current_script"] = script_name
+    _SCRIPT_CONTROL["pause_event"].clear()
+    _SCRIPT_CONTROL["abort_event"].clear()
+    # Ensure any UI-forced pause is released when starting a new script
+    _FORCE_PAUSE_EVENT.clear()
+
+
+def finish_script() -> None:
+    """Clear running state and reset control events."""
+    _SCRIPT_CONTROL["running"] = False
+    _SCRIPT_CONTROL["pause_event"].clear()
+    _SCRIPT_CONTROL["abort_event"].clear()
+    _SCRIPT_CONTROL["current_script"] = None
+
+
+def is_script_running() -> bool:
+    return bool(_SCRIPT_CONTROL.get("running"))
+
+
+def request_pause() -> None:
+    _SCRIPT_CONTROL["pause_event"].set()
+
+
+def clear_pause() -> None:
+    _SCRIPT_CONTROL["pause_event"].clear()
+
+
+def is_paused() -> bool:
+    return _SCRIPT_CONTROL["pause_event"].is_set()
+
+
+def toggle_pause() -> None:
+    if is_force_paused():
+        # If a UI-forced pause was active, clear it first
+        clear_force_pause()
+        return
+    if is_paused():
+        clear_pause()
+    else:
+        request_pause()
+
+
+def request_abort() -> None:
+    _SCRIPT_CONTROL["abort_event"].set()
+
+
+def clear_abort() -> None:
+    _SCRIPT_CONTROL["abort_event"].clear()
+
+
+def is_aborted() -> bool:
+    return _SCRIPT_CONTROL["abort_event"].is_set()
 
 
 # General controllers
@@ -611,6 +882,14 @@ def _update_plot_cards(state: dict[str, Any], hk: Any, ob_trp_card: Any, voltage
     if replay.get("hk_anchor") is None:
         replay["hk_anchor"] = time_value
 
+    instr_flags = getattr(hk, "INSTR_STATUS_FLAGS", None)
+    ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
+    ob_trp_card.set_stream_enabled(ob_enabled)
+    voltage_3v3_card.set_stream_enabled(ob_enabled)
+
+    if not ob_enabled:
+        return
+
     ob_trp_vals = _decode_tuple(hk, _OB_TRP_FIELDS)
     if ob_trp_vals is not None:
         ob_trp_card.push([time_value], [[v] for v in ob_trp_vals])
@@ -727,10 +1006,9 @@ def _run_mms_actions(
         return
 
     # Abort any running script before taking safety actions.
-    script_control = state.get("script_control")
-    if isinstance(script_control, dict) and script_control.get("running"):
-        script_control["abort_event"].set()
-        script_control["pause_event"].clear()
+    if is_script_running():
+        request_abort()
+        clear_pause()
         clear_force_pause()
         logger.warning("MMS action: running script aborted.")
 
@@ -811,6 +1089,8 @@ def create_poll_tm(
     """Create TM polling callback bound to current controllers and state."""
 
     def poll_tm() -> None:
+        # Independent packet counters
+        counts = state.setdefault("packet_counts", {"hk": 0, "post": 0, "sci": 0})
         mode = state.get("mode", "EB")
         if mode == "EB":
             rs422_log_path = getattr(app.state.eb_interface, "rs422_log_path", None)
@@ -847,6 +1127,13 @@ def create_poll_tm(
             state["latest_hk_time"] = now
             last_hk_time = now
 
+            # Increment HK counter only for new HK packets
+            last_hk_id = state.setdefault("last_hk_id", None)
+            hk_id = getattr(hk, "PACKET_NUMBER", None) or getattr(hk, "TIME", None)
+            if hk_id != last_hk_id:
+                counts["hk"] += 1
+                state["last_hk_id"] = hk_id
+
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
             _update_hk_alarm_lights(state, hk)
@@ -873,6 +1160,7 @@ def create_poll_tm(
             last_post_id = state.setdefault("last_post_id", None)
             post_id = getattr(post_hk, "PACKET_NUMBER", None) or getattr(post_hk, "TIME", None)
             if post_id != last_post_id:
+                counts["post"] += 1
                 packet_viewer_controllers["EB_POST"].update_from_packet(post_hk)
                 state["last_post_id"] = post_id
 
@@ -880,11 +1168,18 @@ def create_poll_tm(
             const.eb_post_queue,
             lambda post_hk: mode == "EB" and post_packet_handler(post_hk),
         )
+
+        def sci_packet_handler(sci_packet):
+            last_sci_id = state.setdefault("last_sci_id", None)
+            sci_id = getattr(sci_packet, "PACKET_NUMBER", None) or getattr(sci_packet, "TIME", None)
+            if sci_id != last_sci_id:
+                counts["sci"] += 1
+                state["last_sci_id"] = sci_id
+            packet_viewer_controllers["OB_SCI" if mode == "OB" else "EB_SCI"].update_from_packet(sci_packet)
+
         _drain_packet_queue(
             const.sci_queue,
-            lambda sci_packet: packet_viewer_controllers["OB_SCI" if mode == "OB" else "EB_SCI"].update_from_packet(
-                sci_packet
-            ),
+            sci_packet_handler,
         )
 
         packet_metrics_card.refresh()
