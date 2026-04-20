@@ -242,6 +242,23 @@ def notify_script_done() -> None:
         except Exception:
             pass
 
+def notify_positive(msg) -> None:
+    try:
+        ui.notify(msg, color="positive")
+    except Exception:
+        try:
+            print(msg)
+        except Exception:
+            pass
+
+def notify_negative(msg) -> None:
+    try:
+        ui.notify(msg, color="negative")
+    except Exception:
+        try:
+            print(msg)
+        except Exception:
+            pass
 
 # Central script runtime control (play / pause / abort)
 _SCRIPT_CONTROL = {

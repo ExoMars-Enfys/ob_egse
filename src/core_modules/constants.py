@@ -41,3 +41,5 @@ WLIM_TPR = (-45, +35)
 WLIM_TPR_ADU = (1848, 2177)
 ALIM_TPR = (-50, +40)
 ALIM_TPR_ADU = (1823, 2211)
+
+# ----Power State Limits based on Model-------------------------------------------------------------

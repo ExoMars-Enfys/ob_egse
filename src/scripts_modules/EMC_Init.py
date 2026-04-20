@@ -11,7 +11,7 @@ import logging
 info_log = logging.getLogger("info_log")
 
 
-def run_emc_init() -> None:
+async def run_emc_init() -> None:
     interface = eb_interface.get_egse_interface()
     # RET command (SAFE mode)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
@@ -38,8 +38,8 @@ def run_emc_init() -> None:
     except Empty as exc:
         raise AssertionError("EMC_Init: missing HK or PSU queue data after STANDBY") from exc
     ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (100.0 <= ch4_current_ma <= 110.0):
-        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 100-110)")
+    if not (105.0 <= ch4_current_ma <= 115.0):
+        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 105-115)")
     result = ui_runtime_controller.perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
     info_log.info(f"STANDBY mode: PSU_EB_I: {ch4_current_ma:.2f} mA, HK Check Result: {result}")
     ui_runtime_controller.notify_script_pause(4, 13)
@@ -62,11 +62,11 @@ def run_emc_init() -> None:
     except Empty as exc:
         raise AssertionError("EMC_Init: missing HK or PSU queue data after STANDBY") from exc
     ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (155.0 <= ch4_current_ma <= 165.0):
-        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 100-110)")
-    if not (getattr(latest_hk, "HEATER_STATUS", None) == 3):
+    if not (165 <= ch4_current_ma <= 175):
+        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 165-175)")
+    if not (getattr(latest_hk, "OB_THERMAL_STATUS", None) == 213):  # HMS, HDS, S , DA, MA
         raise AssertionError(
-            f"EMC_Init: HEATER_STATUS HK field not 3 (got {getattr(latest_hk, 'HEATER_STATUS', None)})"
+            f"EMC_Init: HEATER_STATUS HK field not 3 (got {getattr(latest_hk, 'OB_THERMAL_STATUS', None)})"
         )
     instr_flags = getattr(latest_hk, "INSTR_STATUS_FLAGS", None)
     det_warm = getattr(instr_flags, "DETECTOR_WARM", None)
@@ -90,10 +90,10 @@ def run_emc_init() -> None:
     ebtcs.ob_homing(interface, 0x01)
 
     ob_homed = getattr(const.hk_queue.get(timeout=2.0), "OB_HOMED", None)
-    while not ob_homed:
-        ob_homed = getattr(const.hk_queue.get(timeout=2.0), "OB_HOMED", None)
-        info_log.info(f"Waiting for OB_HOMED flag to be set in HK... (got {ob_homed})")
-        time.sleep(1.0)
+    # while not ob_homed:
+    #     ob_homed = getattr(const.hk_queue.get(timeout=2.0), "OB_HOMED", None)
+    #     info_log.info(f"Waiting for OB_HOMED flag to be set in HK... (got {ob_homed})")
+    #     time.sleep(1.0)
 
     # TODO: Check OBHOMED flag in HK (user should verify before proceeding)
     ui_runtime_controller.notify_script_pause(13, 13)

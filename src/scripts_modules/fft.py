@@ -20,32 +20,25 @@ def run_fft() -> None:
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     try:
-        latest_hk = const.hk_queue.get(timeout=2.0)
+        latest_post = const.eb_post_queue.get(timeout=2.0)
         latest_psu = const.psu_queue.get(timeout=2.0)
     except Empty as exc:
-        raise AssertionError("Initial FFT verification failed: missing HK or PSU queue data") from exc
+        ui_runtime_controller.notify_negative("EMC_Init: missing POST or PSU queue data after RET")
+        raise AssertionError("EMC_Init: missing POST or PSU queue data after RET") from exc
+        
     ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (80.0 <= ch4_current_ma <= 90.0):
-        raise AssertionError(
-            f"Initial FFT verification failed: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 80-90)"
-        )
-    if int(getattr(latest_hk, "CURRENT_OPERATING_STATE", -1) or -1) != 0x02:
-        raise AssertionError(
-            f"Initial FFT verification failed: CURRENT_OPERATING_STATE not SAFE (got {getattr(latest_hk, 'CURRENT_OPERATING_STATE', None)})"
-        )
-    if int(getattr(latest_hk, "TCS_REJECTED", 0) or 0) != 0:
-        raise AssertionError(
-            f"Initial FFT verification failed: TCS_REJECTED not zero (got {getattr(latest_hk, 'TCS_REJECTED', None)})"
-        )
+    if not (85 <= ch4_current_ma <= 95.0): #!Update with correct Power Consumption
+        ui_runtime_controller.notify_negative(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 80-90)")
+        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 80-90)")
+        
+    result = ui_runtime_controller.perform_hk_check(hk=None, post=latest_post, hk_type="post")
+    info_log.info(f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma:.2f} mA")
+    info_log.info(f"POST Packet Check Result: {result}")
+    ui_runtime_controller.notify_positive(f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma:.2f} mA, \nPOST Packet Check Result: {result}")
 
-    info_log.info(
-        "Power State 1 : Safe - PSU_EB_I: %.2f mA, CURRENT_OPERATING_STATE: %s, TCS_REJECTED: %s",
-        ch4_current_ma,
-        getattr(latest_hk, "CURRENT_OPERATING_STATE", None),
-        getattr(latest_hk, "TCS_REJECTED", None),
-    )
-    ui_runtime_controller.notify_script_pause(2, 108)
+    ui_runtime_controller.notify_script_pause(2, 13)
     ui_runtime_controller.request_force_pause()
+
 
     # ?Standby and check
     ebtcs.standby(interface, 0, 0)

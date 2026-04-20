@@ -185,7 +185,7 @@ class EGSEInterface:
     def send_command_to_cmdtool(
         self,
         command: str,
-        wait_for_window: float = 2.0,
+        wait_for_window: float = 0.1,
         send_enter: bool = True,
         verbose: bool = False,
     ) -> bool:
@@ -205,7 +205,7 @@ class EGSEInterface:
                 cmd_window,
                 text=text,
                 send_enter=send_enter,
-                pause=0.03,
+                pause=0.001,
             )
             if not sent:
                 info_log.error("[ERROR] Failed to send command to CmdTool input control")
@@ -218,7 +218,7 @@ class EGSEInterface:
             return False
 
     def _connect_cmdtool_window(self, wait_for_window: float) -> Any | None:
-        end_time = time.time() + max(wait_for_window, 0.1)
+        end_time = time.time() + max(wait_for_window, 0.01)
         last_error = None
 
         while time.time() < end_time:
