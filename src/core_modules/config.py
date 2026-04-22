@@ -41,3 +41,57 @@ MEASUREMENT_TABLES = [
     # Uneven steps for testing
     list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10)),
 ]
+
+# List of supported OB models
+MODELS = ["DEM", "EM", "PFM", "FS"]
+
+# Power consumption (mA) per state for each model
+MODEL_CONSUMPTION = {
+    "DEM": {
+        "State1": 100,
+        "State2": 120,
+        "State3": 140,
+        "State4": 160,
+        "State5": 180,
+        "State6": 200,
+        "State7": 220,
+        "Standby": 110,
+    },
+    "EM": {
+        "State1": 90,
+        "State2": 170,
+        "State3": 190,
+        "State4": 340,
+        "State5": 277,
+        "State7": 394,
+        "Standby": 110,
+        "Mech": 4,
+        "Det": 10,
+        "DetHTR": 19,
+        "MechHTR": 38,
+        "Moving": 50,
+        "TEC1A": 150,
+        "TEC35": 100,
+        "TEC65": 140,
+    },
+    "PFM": {
+        "State1": 90,
+        "State2": 110,
+        "State3": 130,
+        "State4": 150,
+        "State5": 170,
+        "State6": 190,
+        "State7": 210,
+        "Standby": 100,
+    },
+    "FS": {
+        "State1": 85,
+        "State2": 105,
+        "State3": 125,
+        "State4": 145,
+        "State5": 165,
+        "State6": 185,
+        "State7": 205,
+        "Standby": 95,
+    },
+}

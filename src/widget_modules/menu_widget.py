@@ -5,17 +5,17 @@ from dataclasses import dataclass
 from datetime import datetime
 import threading
 from typing import Any
+import queue
+
 
 # Added packages
 from nicegui import app, ui
 
 # Local modules
+from core_modules import config
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
 from utility_modules import eb_interface, ebtcs
 from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
-
-# MenuController class for menu state and control
-from dataclasses import dataclass
 
 
 @dataclass
@@ -82,6 +82,25 @@ def create_menu(
                         ),
                     )
                     ui.label("Dark").classes("text-xs")
+                model_options = config.MODELS
+                model_labels = list(model_options)
+                model_keys = {label: label for label in model_options}
+
+                def on_model_change(e):
+                    state["model"] = e.value
+                    app.state.current_model = e.value
+
+                selected_model = ui.select(
+                    model_labels,
+                    value=state.get("model", model_labels[0]),
+                    label="Select Model",
+                    on_change=on_model_change,
+                ).classes("w-full")
+                # Initialize state and app.state with default model if not set
+                if "model" not in state:
+                    state["model"] = model_labels[0]
+                if not hasattr(app.state, "current_model"):
+                    app.state.current_model = state["model"]
 
                 # --- Unified two-column button layout ---
                 with ui.row().classes("gap-2 w-full no-wrap"):
@@ -176,8 +195,8 @@ def create_menu(
 
     def _sync_egse_tools_buttons(mode: str) -> None:
         eb_mode = mode == "EB"
-        tools_started = bool(state.get("egse_tools_started", False))
-        log_selected = bool(getattr(app.state.eb_interface, "rs422_log_path", None))
+        bool(state.get("egse_tools_started", False))
+        bool(getattr(app.state.eb_interface, "rs422_log_path", None))
         if eb_mode:
             # Dynamic show/hide logic removed (undefined variables)
             pass

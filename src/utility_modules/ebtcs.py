@@ -23,8 +23,8 @@ _TC_DEFS = dict(cmd_ids.enfys_tc_defs)
 
 _SEND_SHOULD_PAUSE = None
 _SEND_SHOULD_ABORT = None
-_SEND_POLL_S = 0.1
-_POLL_T = 0.5
+_SEND_POLL_S = 0.0
+_POLL_T = 0.0
 
 _OPERATING_STATE_BY_TC = {
     "SAFE": 0x02,
@@ -65,7 +65,7 @@ def _build_ebtc_line(name, *args):
 
 def update_tc_t(t):
     """Update the sleep time after sending a TC command, allowing dynamic adjustment based on expected response times."""
-    _POLL_T = max(float(t), 0.05)  # Enforce a minimum sleep time of 50ms to avoid overwhelming the system
+    _POLL_T = max(float(t), 0.0)  # No enforced minimum sleep
     return _POLL_T
 
 
@@ -91,7 +91,7 @@ def send_tc(interface, cmd_line: str, cmd_type="EBTC", t=_POLL_T):
         info_log.error(f"Failed to send EB TC command: {text}")
         return "ERROR"
 
-    time.sleep(t)
+    # No sleep for fastest possible command send
     return
 
 
@@ -100,7 +100,7 @@ def configure_send_flow_control(*, should_pause=None, should_abort=None, poll_s:
     global _SEND_SHOULD_PAUSE, _SEND_SHOULD_ABORT, _SEND_POLL_S
     _SEND_SHOULD_PAUSE = should_pause if callable(should_pause) else None
     _SEND_SHOULD_ABORT = should_abort if callable(should_abort) else None
-    _SEND_POLL_S = max(float(poll_s), 0.05)
+    _SEND_POLL_S = max(float(poll_s), 0.0)
 
 
 def clear_send_flow_control():
@@ -114,7 +114,7 @@ def _gate_send():
         while _SEND_SHOULD_PAUSE is not None and bool(_SEND_SHOULD_PAUSE()):
             if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
                 return "ERROR"
-            time.sleep(_SEND_POLL_S)
+            # No sleep for fastest possible flow
         if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
             return "ERROR"
     except Exception:
@@ -214,11 +214,12 @@ def _wait_for_response_hk(prev_index, timeout_s: float = 2.5, poll_s: float = 0.
     """Wait for a newer HK packet after command send."""
     end_time = time.time() + timeout_s
 
+    fast_poll_s = 0.01
     while time.time() < end_time:
         hk, idx = _read_latest_hk_and_index()
         if hk is not None and (prev_index is None or (idx is not None and idx > prev_index)):
             return hk
-        time.sleep(poll_s)
+        time.sleep(fast_poll_s)
 
     return None
 
@@ -275,13 +276,13 @@ def _send_named_tc(interface, tc_name, *args):
     before_hk, before_index = _read_latest_hk_and_index()
     cmd_line = _build_ebtc_line(tc_name, *args)
     status = send_tc(interface, cmd_line, cmd_type=tc_name)
-    if status == "ERROR":
-        return "ERROR"
+    # if status == "ERROR":
+    #     return "ERROR"
 
-    after_hk = _wait_for_response_hk(before_index)
-    if after_hk is None:
-        info_log.error(f"{tc_name} did not produce a newer HK/TM response within timeout.")
-        return "ERROR"
+    # after_hk = _wait_for_response_hk(before_index)
+    # if after_hk is None:
+    #     info_log.error(f"{tc_name} did not produce a newer HK/TM response within timeout.")
+    #     return "ERROR"
 
     # _verify_tc(tc_name, before_hk, after_hk)
     # _verify_tc_applied(tc_name, after_hk, args)

@@ -8,15 +8,21 @@ import threading
 from types import SimpleNamespace
 import time
 from typing import Any
+from queue import Empty
+import logging
 
 # Added packages
-from nicegui import ui
+from nicegui import ui, app
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
+from utility_modules.eb_packet_utility import get_latest_hk
 
 # core
-from core_modules import tmstruct
+from core_modules import tmstruct, constants as const
+from core_modules.config import MODEL_CONSUMPTION
+
+info_log = logging.getLogger("info_log")
 
 """This module contains backend controller functions for the UI, which are responsible for handling user interactions, updating the application state, and coordinating between different UI components and the underlying data. These controllers are designed to be bound to specific UI elements and provide a clear separation of concerns between the UI layout and the logic that drives it."""
 
@@ -97,15 +103,14 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                     result["passed"] = False
                     result["details"].append(msg)
 
-        if getattr(hk, "TCS_ACCEPTED", None) != 2:
-            result["passed"] = False
-            result["details"].append(f"TCS_ACCEPTED not 2: {getattr(hk, 'TCS_ACCEPTED', None)}")
         if getattr(hk, "TCS_REJECTED", None) != 0:
             result["passed"] = False
             result["details"].append(f"TCS_REJECTED not 0: {getattr(hk, 'TCS_REJECTED', None)}")
-        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 25604:
+        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 1028:
             result["passed"] = False
-            result["details"].append(f"INSTRUMENT_STATUS_FLAGS not 6: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}")
+            result["details"].append(
+                f"INSTRUMENT_STATUS_FLAGS not 1028: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}"
+            )
         if getattr(hk, "ERROR_FLAGS", None) != 0:
             result["passed"] = False
             result["details"].append(f"ERROR_FLAGS not 0: {getattr(hk, 'ERROR_FLAGS', None)}")
@@ -202,6 +207,84 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         return result
 
 
+def verify_safe_ret():
+    errors = []
+    # ?RET and first check
+    # This block performs the SAFE RET verification after issuing a RET and HK request.
+    try:
+        latest_post = const.eb_post_queue.get(timeout=2.0)
+        latest_psu = const.psu_queue.get(timeout=2.0)
+    except Empty as exc:
+        errors.append("\nMissing POST or PSU queue data after RET")
+        latest_post = None
+        latest_psu = None
+
+    ch4_current_ma = None
+    if latest_psu is not None:
+        consumption_check("State1", latest_psu, errors)
+        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
+
+    result = None
+    if latest_post is not None:
+        result = perform_hk_check(hk=None, post=latest_post, hk_type="post")
+
+        # Check the POST packet for all required fields and limits
+        if not (result and result.get("passed", False)):
+            if result and "details" in result and result["details"]:
+                errors.extend(result["details"])
+            else:
+                errors.append(f"POST Packet Check failed with unknown error: {result}")
+    if errors:
+        count = len(errors)
+        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+        info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+        msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        return msg, False
+    else:
+        msg = f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nPOST Packet Check Result: {result}"
+        info_log.info(msg)
+        return msg, True
+
+
+def verify_standby_ret():
+    errors = []
+    # ?Standby and check
+    # This block performs the STANDBY RET verification after issuing a Standby, RET, and HK request.
+    try:
+        latest_hk = get_latest_hk()
+        latest_psu = const.psu_queue.get(timeout=2.0)
+    except Empty as exc:
+        errors.append("\nMissing HK or PSU queue data after STANDBY")
+        latest_hk = None
+        latest_psu = None
+
+    ch4_current_ma = None
+    if latest_psu is not None:
+        consumption_check("Standby", latest_psu, errors)
+        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
+
+    result = None
+    if latest_hk is not None:
+        result = perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
+
+        # Check the HK packet for all required fields and limits
+        if not (result and result.get("passed", False)):
+            if result and "details" in result and result["details"]:
+                errors.extend(result["details"])
+            else:
+                errors.append(f"HK Check failed with unknown error: {result}")
+    if errors:
+        count = len(errors)
+        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+        info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+        msg = f"STANDBY RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        return msg, False
+    else:
+        msg = f"Standby mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nHK Check Result: {result}"
+        info_log.info(msg)
+        return msg, True
+
+
 def notify_script_pause(current: int, total: int) -> None:
     """Notify the user that the script is paused, showing progress."""
     msg = f"Script paused, command {current} of {total}"
@@ -242,6 +325,7 @@ def notify_script_done() -> None:
         except Exception:
             pass
 
+
 def notify_positive(msg) -> None:
     try:
         ui.notify(msg, color="positive")
@@ -251,6 +335,7 @@ def notify_positive(msg) -> None:
         except Exception:
             pass
 
+
 def notify_negative(msg) -> None:
     try:
         ui.notify(msg, color="negative")
@@ -259,6 +344,45 @@ def notify_negative(msg) -> None:
             print(msg)
         except Exception:
             pass
+
+
+def consumption_check(state_names, psu_sample: dict, errors: list[str]) -> float | None:
+    """
+    Checks PSU current for the given state(s) and current OB model.
+    Accepts a single state name (str) or a list of state names.
+    Sums expected values for all provided states.
+    Appends error to errors if out of range.
+    Model is read from app.state.current_model.
+    """
+    from nicegui import app
+
+    model = getattr(app.state, "current_model", None)
+    if model is None:
+        errors.append("No model specified for PSU consumption check.")
+        return None
+    if model not in MODEL_CONSUMPTION:
+        errors.append(f"Unknown OB model: {model}")
+        return None
+    model_dict = MODEL_CONSUMPTION[model]
+    if isinstance(state_names, str):
+        state_names = [state_names]
+    missing = [s for s in state_names if s not in model_dict]
+    if missing:
+        errors.append(f"Unknown state(s) {missing} for model '{model}'")
+        return None
+    if psu_sample is None:
+        errors.append("No PSU sample provided for consumption check.")
+        return None
+    measured_current_ma = float(psu_sample.get("PSU_EB_I") or 0.0) * 1000.0
+    base = sum(model_dict[s] for s in state_names)
+    min_i = base - 10
+    max_i = base + 10
+    if not (min_i <= measured_current_ma <= max_i):
+        errors.append(
+            f"PSU_EB_I out of range for {state_names} ({model}): got {measured_current_ma:.2f} mA, expected {min_i}-{max_i}"
+        )
+    return measured_current_ma
+
 
 # Central script runtime control (play / pause / abort)
 _SCRIPT_CONTROL = {

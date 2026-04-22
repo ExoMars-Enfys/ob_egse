@@ -32,7 +32,7 @@ Once it has completed you can then run `uv sync --active` to install the appropr
 
 ```gitbash =
 cd c:/wdir/EB
-git clone https://github.com/ExoMars-Enfys/EB_EGSE
+git clone --recurse-submodules https://github.com/ExoMars-Enfys/EB_EGSE
 git cd EB_EGSE
 ```
 
@@ -66,8 +66,12 @@ git cd ob_egse
 git checkout "insert final branch here"
 ```
 
-2. Open the file <span style="color: #2ECC71;">.\src\core_modules\config.py</span>  
+2. Open the project folder in VSCode <span style="color: #2ECC71;">c:/wdir/OB_EGSE/ob_egse</span> 
+ 
+3. Open the file <span style="color: #2ECC71;">.\src\core_modules\config.py</span>  
    change the following lines to the device COM-Ports needed and appropriate model ID
+
+<span style="color: #cc532e;">Note that for EB mode the DEFAULT_COM_PORT should not be changed</span>
 
 ```python =
 EXP_MODEL_ID = 0x07
@@ -87,7 +91,7 @@ The EGSE software tools can now be ran by running through the following:
 1. Run the EGSE software by executing the terminal command in a new terminal in VSCode
 
 ```python=
-uv run main.py
+uv run .\src\main.py
 ```
 
 <span style="color: #cc532e;">Decorator Options:</span>
@@ -95,19 +99,19 @@ uv run main.py
 **No Programmable PSU available to run `-np`**
 
 ```python=
-uv run main.py -np
+uv run .\src\main.py -np
 ```
 
 **Script mode `-s`**
 
 ```python=
-uv run main.py -s
+uv run .\src\main.py -s
 ```
 
 **Debugging mode that allows gui reload automatically at code save `-reload`**
 
 ```python=
-uv run main.py -reload
+uv run .\src\main.py -reload
 ```
 
 ![Alt IMG](Documentation\menu.png)

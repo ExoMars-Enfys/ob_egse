@@ -22,11 +22,11 @@ from widget_modules import ui_runtime_controller
 
 
 PACKET_PROFILE_FIELDS: dict[str, list[str]] = {
-    "EB_HK": [name for name, _ in tmstruct.eb_hk],
-    "EB_POST": [name for name, _ in tmstruct.post_hk],
-    "EB_SCI": [name for name, _ in tmstruct.eb_sci_header],
-    "OB_HK": [name for name, _ in tmstruct.eb_hk if name.startswith("OB_")],
-    "OB_SCI": [name for name, _ in tmstruct.sci],
+    "EB_HK": [name for name, _ in tmstruct.eb_hk if name != "PADDING"],
+    "EB_POST": [name for name, _ in tmstruct.post_hk if name != "PADDING"],
+    "EB_SCI": [name for name, _ in tmstruct.eb_sci_header if name != "PADDING"],
+    "OB_HK": [name for name, _ in tmstruct.eb_hk if name.startswith("OB_") and name != "PADDING"],
+    "OB_SCI": [name for name, _ in tmstruct.sci if name != "PADDING"],
 }
 
 # Legacy counter keys mapped to reusable packet profile names.

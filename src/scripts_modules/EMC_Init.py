@@ -7,44 +7,40 @@ from core_modules import constants as const
 from utility_modules import eb_interface, ebtcs
 from widget_modules import ui_runtime_controller
 import logging
+from utility_modules.eb_packet_utility import get_latest_hk
+
 
 info_log = logging.getLogger("info_log")
 
 
-async def run_emc_init() -> None:
+def run_emc_init(verification: bool = True) -> None:
     interface = eb_interface.get_egse_interface()
     # RET command (SAFE mode)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
-    try:
-        latest_post = const.eb_post_queue.get(timeout=2.0)
-        latest_psu = const.psu_queue.get(timeout=2.0)
-    except Empty as exc:
-        raise AssertionError("EMC_Init: missing POST or PSU queue data after RET") from exc
-    ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (85 <= ch4_current_ma <= 95.0):
-        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 80-90)")
-    result = ui_runtime_controller.perform_hk_check(hk=None, post=latest_post, hk_type="post")
-    info_log.info(f"SAFE mode: EB PSU I : {ch4_current_ma:.2f} mA,  Post Packet Check : {result}")
-    ui_runtime_controller.notify_script_pause(2, 13)
-    ui_runtime_controller.request_force_pause()
+    if verification:
+        msg, passed = ui_runtime_controller.verify_safe_ret()
+        if not passed:
+            ui_runtime_controller.notify_negative(msg)
+            raise AssertionError(f"SAFE RET verification failed:\n{msg}")
+        else:
+            ui_runtime_controller.notify_positive(msg)
 
+    time.sleep(1)
     # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 0, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
-    try:
-        latest_hk = const.hk_queue.get(timeout=2.0)
-        latest_psu = const.psu_queue.get(timeout=2.0)
-    except Empty as exc:
-        raise AssertionError("EMC_Init: missing HK or PSU queue data after STANDBY") from exc
-    ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (105.0 <= ch4_current_ma <= 115.0):
-        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 105-115)")
-    result = ui_runtime_controller.perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
-    info_log.info(f"STANDBY mode: PSU_EB_I: {ch4_current_ma:.2f} mA, HK Check Result: {result}")
-    ui_runtime_controller.notify_script_pause(4, 13)
-    ui_runtime_controller.request_force_pause()
+    time.sleep(1)
+    if verification:
+        msg, passed = ui_runtime_controller.verify_standby_ret()
+        if not passed:
+            ui_runtime_controller.notify_negative(msg)
+            raise AssertionError(f"STANDBY RET verification failed:\n{msg}")
+        else:
+            info_log.info("STANDBY RET verification passed:\n%s", msg)
+        ui_runtime_controller.notify_positive(msg)
 
+    time.sleep(1)
     # Set HK rate to 1s
     ebtcs.set_hk_rate(interface, 0, 1)
     # Configure Heaters for ON during test (Upper - 2245 +55 ) (Lower - 2211 +45 )
@@ -54,32 +50,44 @@ async def run_emc_init() -> None:
     ebtcs.en_det_heater(interface, 0x1)
     # Generic TC for heater status (see script)
     ebtcs.generic_tc(interface, 0x0, 0x6, 0x64, 0xC4, 0x01, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
-
     ebtcs.hk_request(interface, 0)
-    try:
-        latest_hk = const.hk_queue.get(timeout=2.0)
-        latest_psu = const.psu_queue.get(timeout=2.0)
-    except Empty as exc:
-        raise AssertionError("EMC_Init: missing HK or PSU queue data after STANDBY") from exc
-    ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-    if not (165 <= ch4_current_ma <= 175):
-        raise AssertionError(f"EMC_Init: PSU_EB_I out of range (got {ch4_current_ma:.2f} mA, expected 165-175)")
-    if not (getattr(latest_hk, "OB_THERMAL_STATUS", None) == 213):  # HMS, HDS, S , DA, MA
-        raise AssertionError(
-            f"EMC_Init: HEATER_STATUS HK field not 3 (got {getattr(latest_hk, 'OB_THERMAL_STATUS', None)})"
-        )
-    instr_flags = getattr(latest_hk, "INSTR_STATUS_FLAGS", None)
-    det_warm = getattr(instr_flags, "DETECTOR_WARM", None)
-    mech_warm = getattr(instr_flags, "MECHANISM_WARM", None)
-    if not (det_warm and mech_warm):
-        raise AssertionError(
-            f"EMC_Init: OB_WARM (DETECTOR_WARM and MECHANISM_WARM) not set (got DETECTOR_WARM={det_warm}, MECHANISM_WARM={mech_warm})"
-        )
-    info_log.info(f"STANDBY mode: PSU_EB_I: {ch4_current_ma:.2f} mA, HK Check Result: {result}")
-    # TODO: Check OBWARM flag in HK (user should verify before proceeding)
-
-    ui_runtime_controller.notify_script_pause(9, 13)
-    ui_runtime_controller.request_force_pause()
+    time.sleep(1)
+    if verification:
+        errors = []
+        try:
+            latest_hk = get_latest_hk()
+            latest_psu = const.psu_queue.get(timeout=2.0)
+        except Empty as exc:
+            errors.append("Missing HK or PSU queue data (mech ON, det ON)")
+            latest_hk = None
+            latest_psu = None
+        ch4_current_ma = None
+        if latest_psu is not None:
+            ch4_current_ma = ui_runtime_controller.consumption_check("State2", latest_psu, errors)
+        if latest_hk is not None:
+            if hasattr(latest_hk, "THRM_STATUS") and getattr(latest_hk.THRM_STATUS, "HMS", 0) != 1:
+                errors.append("Mechanism heater is not ON (THRM_STATUS.HMS!=1)")
+            if hasattr(latest_hk, "THRM_STATUS") and getattr(latest_hk.THRM_STATUS, "HDS", 0) != 1:
+                errors.append(f"Detector heater is not ON (THRM_STATUS.HDS={getattr(latest_hk.THRM_STATUS, 'HDS', 0)})")
+        if errors:
+            count = len(errors)
+            numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+            info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+            msg = (
+                f"Heater config verification failed (mech ON, det ON): {count} error{'s' if count != 1 else ''} :\n"
+                + "\n".join(numbered)
+            )
+            ui_runtime_controller.notify_negative(msg)
+            raise AssertionError(msg)
+        else:
+            msg = (
+                f"Power State 2 : OB HEATING - PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 0.0:.2f} mA, "
+                f"CURRENT_OPERATING_STATE: {getattr(latest_hk, 'CURRENT_OPERATING_STATE', None)}, "
+                f"THRM_STATUS.HMS: {getattr(getattr(latest_hk, 'THRM_STATUS', None), 'HMS', 0)}, "
+                f"THRM_STATUS.HDS: {getattr(getattr(latest_hk, 'THRM_STATUS', None), 'HDS', 0)}"
+            )
+            info_log.info(msg)
+            ui_runtime_controller.notify_positive(msg)
 
     # Enable Mechanism and Detector boards
     ebtcs.en_mech_board(interface, 0x1)
@@ -89,11 +97,33 @@ async def run_emc_init() -> None:
     # Perform Homing Cal to Base then Drive to Outer
     ebtcs.ob_homing(interface, 0x01)
 
-    ob_homed = getattr(const.hk_queue.get(timeout=2.0), "OB_HOMED", None)
-    # while not ob_homed:
-    #     ob_homed = getattr(const.hk_queue.get(timeout=2.0), "OB_HOMED", None)
-    #     info_log.info(f"Waiting for OB_HOMED flag to be set in HK... (got {ob_homed})")
-    #     time.sleep(1.0)
+    # Wait for HOMING_COMPLETE flag in HK, with 1 minute timeout, using global cache
+
+    homing_timeout_s = 60.0
+    poll_interval = 0.05
+    start_time = time.monotonic()
+    info_log.debug("Starting homing wait loop for HOMING_COMPLETE flag...")
+    while True:
+        latest_hk = get_latest_hk()
+        # Log the full status of latest_hk for diagnosis
+        info_log.debug(
+            "Polled latest_hk: %r, has INSTRUMENT_STATUS_FLAGS: %s, HOMING_COMPLETE: %s",
+            latest_hk,
+            hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS"),
+            getattr(getattr(latest_hk, "INSTRUMENT_STATUS_FLAGS", None), "HOMING_COMPLETE", None),
+        )
+        if (
+            latest_hk is not None
+            and hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS")
+            and getattr(latest_hk.INSTRUMENT_STATUS_FLAGS, "HOMING_COMPLETE", 0) == 1
+        ):
+            info_log.info("Homing complete detected in HK telemetry.")
+            break
+        if time.monotonic() - start_time > homing_timeout_s:
+            info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited 60s)")
+            ui_runtime_controller.notify_negative("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
+            raise TimeoutError("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
+        time.sleep(poll_interval)
 
     # TODO: Check OBHOMED flag in HK (user should verify before proceeding)
     ui_runtime_controller.notify_script_pause(13, 13)

@@ -1,3 +1,4 @@
+_sci_data_short_warning_shown = False
 # Std library
 import bitstruct
 import logging
@@ -8,11 +9,43 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
+
 # Local modules
 # core
 from core_modules import config as config
 from core_modules import constants as const
 from core_modules import tmstruct as tmstruct
+
+# --- Global latest HK/PSU cache (thread-safe) ---
+import threading
+
+_latest_hk = None
+_latest_psu = None
+_hk_lock = threading.Lock()
+_psu_lock = threading.Lock()
+
+
+def set_latest_hk(hk):
+    global _latest_hk
+    with _hk_lock:
+        _latest_hk = hk
+
+
+def get_latest_hk():
+    with _hk_lock:
+        return _latest_hk
+
+
+def set_latest_psu(psu):
+    global _latest_psu
+    with _psu_lock:
+        _latest_psu = psu
+
+
+def get_latest_psu():
+    with _psu_lock:
+        return _latest_psu
+
 
 # utilities
 from utility_modules import comms as comms
@@ -64,6 +97,7 @@ def read_pkt(file_path, latest_only: bool = False):
             hk = parse_eb_hk(byte_array)
             hk.TIME = datetime.now()
             const.hk_queue.put(hk)
+            set_latest_hk(hk)
             last_hk = hk
             last_index = tm_index
             if latest_only:
@@ -405,12 +439,15 @@ def decode_sci_data_points(param) -> list[SimpleNamespace]:
     else:
         sci_payload = bytes(raw_data)
 
+    global _sci_data_short_warning_shown
     if len(sci_payload) < sci_bytes_len:
-        info_log.warning(
-            "SCI_DATA shorter than one point. Got %d bytes, expected at least %d.",
-            len(sci_payload),
-            sci_bytes_len,
-        )
+        if not _sci_data_short_warning_shown:
+            info_log.warning(
+                "SCI_DATA shorter than one point. Got %d bytes, expected at least %d.",
+                len(sci_payload),
+                sci_bytes_len,
+            )
+            _sci_data_short_warning_shown = True
         return []
 
     point_count = len(sci_payload) // sci_bytes_len
