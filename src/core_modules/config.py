@@ -48,15 +48,23 @@ MODELS = ["DEM", "EM", "PFM", "FS"]
 # Power consumption (mA) per state for each model
 MODEL_CONSUMPTION = {
     "DEM": {
-        "State1": 100,
-        "State2": 120,
-        "State3": 140,
-        "State4": 160,
-        "State5": 180,
-        "State6": 200,
-        "State7": 220,
-        "Standby": 110,
+        "State1": 87,
+        "State2": 160,
+        "State3": 179,
+        "State4": 327,
+        "State5": 266,
+        "State7": 380,
+        "Standby": 101,
+        "Mech": 4,
+        "Det": 12,
+        "DetHTR": 21,
+        "MechHTR": 42,
+        "Moving": 53,
+        "TEC1A": 153,
+        "TEC35": 100,
+        "TEC65": 140,
     },
+    
     "EM": {
         "State1": 90,
         "State2": 170,
