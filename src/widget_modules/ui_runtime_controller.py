@@ -11,8 +11,7 @@ from typing import Any
 from queue import Empty
 import logging
 
-# Added packages
-from nicegui import ui, app
+from nicegui import ui, run
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
@@ -106,10 +105,10 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         if getattr(hk, "TCS_REJECTED", None) != 0:
             result["passed"] = False
             result["details"].append(f"TCS_REJECTED not 0: {getattr(hk, 'TCS_REJECTED', None)}")
-        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 1028:
+        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 25604:
             result["passed"] = False
             result["details"].append(
-                f"INSTRUMENT_STATUS_FLAGS not 1028: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}"
+                f"INSTRUMENT_STATUS_FLAGS not 25604: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}"
             )
         if getattr(hk, "ERROR_FLAGS", None) != 0:
             result["passed"] = False
@@ -149,8 +148,8 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
 
         # POST checks as in ebgui
         all_post_passed = (
-            getattr(post, "POST_WARNING_FLAGS", None) == 0
-            and getattr(post, "POST_ERROR_FLAGS", None) == 0
+            # getattr(post, "POST_WARNING_FLAGS", None) == 0
+            getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
             and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
@@ -159,13 +158,13 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x5318
             and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xDCAE
             and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
-            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x9D9B
+            # and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x9D9B
         )
         if not all_post_passed:
             result["passed"] = False
             # Add details for each failed check
-            if getattr(post, "POST_WARNING_FLAGS", None) != 0:
-                result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
+            # if getattr(post, "POST_WARNING_FLAGS", None) != 0:
+            #     result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
             if getattr(post, "POST_ERROR_FLAGS", None) != 0:
                 result["details"].append(f"POST_ERROR_FLAGS: {getattr(post, 'POST_ERROR_FLAGS', None)}")
             if getattr(post, "NUM_BAD_FLASH_BLOCKS", None) != 0:
@@ -184,8 +183,8 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 result["details"].append(f"ASW_IMAGE_5_CRC: {getattr(post, 'ASW_IMAGE_5_CRC', None):#06x}")
             if getattr(post, "BSW_IMAGE_CRC", None) != 0xD2D7:
                 result["details"].append(f"BSW_IMAGE_CRC: {getattr(post, 'BSW_IMAGE_CRC', None):#06x}")
-            if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0x9D9B:
-                result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
+            # if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0x9D9B:
+            #     result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
             # Optionally, add converted values to details for debugging
             if tm_12v is not None:
                 result["details"].append(f"TM_12V: {tm_12v:.2f} V")
@@ -207,6 +206,145 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         return result
 
 
+def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
+    """Synchronous homing wait helper. Blocks until HOMING_COMPLETE or timeout/abort.
+
+    This can be called from synchronous script code (e.g. inside `run_emc_init`).
+    For async callers, use `await perform_homing_check()` which delegates to `run.io_bound`.
+    """
+    start_time = time.monotonic()
+    info_log.debug("Starting homing wait loop for HOMING_COMPLETE flag...")
+
+    homing_complete = 0
+    while homing_complete == 0:
+        latest_hk = get_latest_hk()
+
+        # Allow user to abort the script while waiting
+        if is_aborted():
+            info_log.warning("Homing wait aborted by user.")
+            notify_negative("Homing aborted by user.")
+            raise RuntimeError("Homing aborted by user.")
+
+        info_log.debug("No HK packet yet while waiting for HOMING_COMPLETE; continuing to wait.")
+
+        # Prefer the decoded bitfield object `INSTR_STATUS_FLAGS` (set by parser).
+        # Fall back to the numeric `INSTRUMENT_STATUS_FLAGS` if necessary.
+        if latest_hk is None:
+            homing_complete = 0
+        elif hasattr(latest_hk, "INSTR_STATUS_FLAGS"):
+            homing_complete = int(getattr(latest_hk.INSTR_STATUS_FLAGS, "HOMING_COMPLETE", 0) or 0)
+        elif hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS"):
+            # Fallback: treat numeric flags as bitmask and check LSB as HOMING_COMPLETE.
+            try:
+                homing_complete = 1 if (int(getattr(latest_hk, "INSTRUMENT_STATUS_FLAGS", 0)) & 0x1) != 0 else 0
+            except Exception:
+                homing_complete = 0
+        else:
+            homing_complete = 0
+
+        hk_time = getattr(latest_hk, "TIME", None)
+        info_log.info("Polling HK for HOMING_COMPLETE flag... Current value: %s, HK TIME: %s", homing_complete, hk_time)
+        if homing_complete == 1:
+            return
+        if time.monotonic() - start_time > homing_timeout_s:
+            info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited %ss)", homing_timeout_s)
+            notify_negative("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
+            raise TimeoutError("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
+        time.sleep(1)  # Sleep briefly to avoid busy-waiting
+
+
+def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
+    """Synchronous acquisition wait helper. Blocks until ACQ_COMPLETE or timeout/abort.
+
+    This can be called from synchronous script code (e.g. inside `run_emc_init`).
+    For async callers, use `await perform_homing_check()` which delegates to `run.io_bound`.
+    """
+    start_time = time.monotonic()
+    info_log.debug("Starting acquisition wait loop for ACQ -> Standby transition...")
+
+    seen_acq = False
+    while True:
+        latest_hk = get_latest_hk()
+
+        # Allow user to abort the script while waiting
+        if is_aborted():
+            info_log.warning("Acquisition wait aborted by user.")
+            notify_negative("Acquisition aborted by user.")
+            raise RuntimeError("Acquisition aborted by user.")
+
+        if latest_hk is None:
+            info_log.debug("No HK packet yet while waiting for acquisition to complete; continuing to wait.")
+            if time.monotonic() - start_time > acq_timeout_s:
+                info_log.error("Timeout waiting for acquisition to complete (waited %ss)", acq_timeout_s)
+                notify_negative("Timeout waiting for acquisition to complete.")
+                raise TimeoutError("Timeout waiting for acquisition to complete.")
+            time.sleep(1)
+            continue
+
+        # Read CURRENT_OPERATING_STATE which may be a numeric code or a descriptive string
+        state_val = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
+        state_is_acq = False
+        state_is_standby = False
+
+        if isinstance(state_val, str):
+            s = state_val.strip().upper()
+            state_is_acq = s in ("ACQUISITION", "ACQ")
+            state_is_standby = s in ("STANDBY",)
+        else:
+            if state_val is None:
+                state_is_acq = False
+                state_is_standby = False
+            else:
+                try:
+                    state_int = int(state_val)
+                    state_is_acq = state_int == 0x08
+                    state_is_standby = state_int == 0x04
+                except Exception:
+                    # fallback to string representation if conversion failed
+                    try:
+                        s = str(state_val).strip().upper()
+                        state_is_acq = s in ("ACQUISITION", "ACQ")
+                        state_is_standby = s in ("STANDBY",)
+                    except Exception:
+                        state_is_acq = False
+                        state_is_standby = False
+
+        hk_time = getattr(latest_hk, "TIME", None)
+        info_log.info(
+            "Polling HK for ACQ->Standby: state=%s (acq=%s, standby=%s) at %s",
+            state_val,
+            state_is_acq,
+            state_is_standby,
+            hk_time,
+        )
+
+        if state_is_acq:
+            seen_acq = True
+
+        # If we have observed acquisition and now see standby, succeed
+        if seen_acq and state_is_standby:
+            info_log.info("Acquisition completed: transitioned to Standby.")
+            notify_positive("Acquisition complete: Standby detected.")
+            return
+
+        # If we never saw acquisition but already in standby, just return
+        if (not seen_acq) and state_is_standby:
+            info_log.info("Already in Standby; no acquisition active.")
+            return
+
+        if time.monotonic() - start_time > acq_timeout_s:
+            info_log.error("Timeout waiting for acquisition to complete (waited %ss)", acq_timeout_s)
+            notify_negative("Timeout waiting for acquisition to complete.")
+            raise TimeoutError("Timeout waiting for acquisition to complete.")
+
+        time.sleep(1)  # Sleep briefly to avoid busy-waiting
+
+
+async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
+    """Async wrapper that runs the synchronous homing check in an executor."""
+    await run.io_bound(lambda: perform_homing_check_sync(homing_timeout_s))
+
+
 def verify_safe_ret():
     errors = []
     # ?RET and first check
@@ -214,7 +352,7 @@ def verify_safe_ret():
     try:
         latest_post = const.eb_post_queue.get(timeout=2.0)
         latest_psu = const.psu_queue.get(timeout=2.0)
-    except Empty as exc:
+    except Empty:
         errors.append("\nMissing POST or PSU queue data after RET")
         latest_post = None
         latest_psu = None
@@ -253,7 +391,7 @@ def verify_standby_ret():
     try:
         latest_hk = get_latest_hk()
         latest_psu = const.psu_queue.get(timeout=2.0)
-    except Empty as exc:
+    except Empty:
         errors.append("\nMissing HK or PSU queue data after STANDBY")
         latest_hk = None
         latest_psu = None

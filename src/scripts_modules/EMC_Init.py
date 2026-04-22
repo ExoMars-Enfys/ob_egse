@@ -30,6 +30,7 @@ def run_emc_init(verification: bool = True) -> None:
     # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 0, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+    ebtcs.set_hk_rate(interface, 0, 1)
     time.sleep(1)
     if verification:
         msg, passed = ui_runtime_controller.verify_standby_ret()
@@ -41,8 +42,6 @@ def run_emc_init(verification: bool = True) -> None:
         ui_runtime_controller.notify_positive(msg)
 
     time.sleep(1)
-    # Set HK rate to 1s
-    ebtcs.set_hk_rate(interface, 0, 1)
     # Configure Heaters for ON during test (Upper - 2245 +55 ) (Lower - 2211 +45 )
     ebtcs.set_heater_configs(interface, 0x00, 0x08C5, 0x08A3, 0x08C5, 0x08A3)
     # Activate both heaters
@@ -57,7 +56,7 @@ def run_emc_init(verification: bool = True) -> None:
         try:
             latest_hk = get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
-        except Empty as exc:
+        except Empty:
             errors.append("Missing HK or PSU queue data (mech ON, det ON)")
             latest_hk = None
             latest_psu = None
@@ -98,32 +97,10 @@ def run_emc_init(verification: bool = True) -> None:
     ebtcs.ob_homing(interface, 0x01)
 
     # Wait for HOMING_COMPLETE flag in HK, with 1 minute timeout, using global cache
-
-    homing_timeout_s = 60.0
-    poll_interval = 0.05
-    start_time = time.monotonic()
-    info_log.debug("Starting homing wait loop for HOMING_COMPLETE flag...")
-    while True:
-        latest_hk = get_latest_hk()
-        # Log the full status of latest_hk for diagnosis
-        info_log.debug(
-            "Polled latest_hk: %r, has INSTRUMENT_STATUS_FLAGS: %s, HOMING_COMPLETE: %s",
-            latest_hk,
-            hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS"),
-            getattr(getattr(latest_hk, "INSTRUMENT_STATUS_FLAGS", None), "HOMING_COMPLETE", None),
-        )
-        if (
-            latest_hk is not None
-            and hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS")
-            and getattr(latest_hk.INSTRUMENT_STATUS_FLAGS, "HOMING_COMPLETE", 0) == 1
-        ):
-            info_log.info("Homing complete detected in HK telemetry.")
-            break
-        if time.monotonic() - start_time > homing_timeout_s:
-            info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited 60s)")
-            ui_runtime_controller.notify_negative("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
-            raise TimeoutError("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
-        time.sleep(poll_interval)
+    info_log.info("Test 1")
+    # Call the synchronous homing check helper so this blocking script
+    # waits correctly for homing to complete.
+    ui_runtime_controller.perform_homing_check_sync()
 
     # TODO: Check OBHOMED flag in HK (user should verify before proceeding)
     ui_runtime_controller.notify_script_pause(13, 13)
