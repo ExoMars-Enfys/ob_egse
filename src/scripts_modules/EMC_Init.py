@@ -26,12 +26,12 @@ def run_emc_init(verification: bool = True) -> None:
         else:
             ui_runtime_controller.notify_positive(msg)
 
-    time.sleep(1)
+    time.sleep(2)
     # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 0, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
-    time.sleep(1)
+    time.sleep(2)
     if verification:
         msg, passed = ui_runtime_controller.verify_standby_ret()
         if not passed:

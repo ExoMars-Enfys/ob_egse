@@ -121,11 +121,8 @@ class PacketViewerController:
         telemetry_last = self.packet_state.setdefault("telemetry_last", {})
         telemetry_last[profile] = packet_dict
 
-        # Keep old packet counters alive for existing UI/logic.
-        for count_key, mapped_profile in COUNT_KEY_TO_PROFILE.items():
-            if mapped_profile == profile:
-                self.increment(count_key)
-                break
+        # Counters are updated centrally in the TM poll loop to ensure
+        # they only increment for genuinely new packets (unique by ID/time).
 
         # Selection is telemetry-driven: track the latest incoming packet profile.
         self.packet_type = profile

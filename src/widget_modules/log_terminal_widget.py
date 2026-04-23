@@ -41,6 +41,22 @@ class LogElementHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record to the ui.log element."""
+        # Prevent re-entrant logging from causing recursion (e.g., when the
+        # NiceGUI client has been deleted and client.check_existence() logs).
+        if getattr(self, "_in_emit", False):
+            try:
+                msg = self.format(record)
+            except Exception:
+                try:
+                    msg = f"{record.levelname}: {record.getMessage()}"
+                except Exception:
+                    msg = "<log format error>"
+            try:
+                print(msg)
+            except Exception:
+                pass
+            return
+
         # Format message first (this should not touch UI)
         try:
             msg = self.format(record)
@@ -62,24 +78,18 @@ class LogElementHandler(logging.Handler):
 
         # Attempt to push to the UI log element. If the NiceGUI client/slot
         # has been deleted or UI creation is not allowed from this thread,
-        # fall back to printing to the console to avoid recursive logging
-        # errors.
+        # avoid printing again to the console (other handlers already print to
+        # console) to prevent duplicate log lines. Swallow UI delivery errors
+        # silently to keep logging stable.
+        self._in_emit = True
         try:
             self.element.push(msg, classes=log_class)
-        except RuntimeError:
-            # Client removed or invalid UI context; fallback to console
-            try:
-                print(msg)
-            except Exception:
-                pass
         except Exception:
-            # Any other exception — avoid calling handleError which may
-            # re-enter logging and cause recursion; instead fallback to
-            # console output.
-            try:
-                print(msg)
-            except Exception:
-                pass
+            # Do not print to console here to avoid duplicate messages when
+            # console handlers are present; simply drop the UI push failure.
+            pass
+        finally:
+            self._in_emit = False
 
     def bind_level_radio(self, radio: Any) -> None:
         """Bind the log level radio button to this handler for dynamic level changes."""
@@ -125,10 +135,27 @@ def create_log_terminal(
             )
         log = ui.log(max_lines=max_lines).classes("w-full h-56")
 
-    handler = LogElementHandler(log, level=level)
-    handler.bind_level_radio(radio)
-    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    logger.addHandler(handler)
+    # Reuse an existing LogElementHandler on the logger if present (prevents
+    # multiple UI handlers being attached during reloads). If found, update
+    # its UI element reference and radio binding; otherwise create and attach
+    # a new one.
+    existing_handler: LogElementHandler | None = None
+    for h in logger.handlers:
+        if isinstance(h, LogElementHandler):
+            existing_handler = h
+            break
+
+    if existing_handler is not None:
+        handler = existing_handler
+        handler.element = log
+        handler.bind_level_radio(radio)
+        handler.setLevel(level)
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    else:
+        handler = LogElementHandler(log, level=level)
+        handler.bind_level_radio(radio)
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        logger.addHandler(handler)
 
     return LogTerminalController(log=log, handler=handler)
 

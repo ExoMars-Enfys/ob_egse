@@ -186,7 +186,7 @@ enfys_tc_defs = {
     },
     "EN_OB5V": {
         "block_id": 0x14,
-        "cmdtool_name": "ENFYS_EN_OB5V",
+        "cmdtool_name": "ENFYS_OB5V_TOGGLE",
         "aliases": (),
         "arg_count": (1, 1),
         "valid_states": ("STANDBY",),

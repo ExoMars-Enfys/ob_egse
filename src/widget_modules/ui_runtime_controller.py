@@ -10,7 +10,7 @@ import time
 from typing import Any
 from queue import Empty
 import logging
-
+import asyncio
 from nicegui import ui, run
 
 # utilities
@@ -243,8 +243,8 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
             homing_complete = 0
 
         hk_time = getattr(latest_hk, "TIME", None)
-        info_log.info("Polling HK for HOMING_COMPLETE flag... Current value: %s, HK TIME: %s", homing_complete, hk_time)
         if homing_complete == 1:
+            info_log.info("HOMING_COMPLETE detected in HK at %s", hk_time)
             return
         if time.monotonic() - start_time > homing_timeout_s:
             info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited %ss)", homing_timeout_s)
@@ -260,84 +260,54 @@ def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
     For async callers, use `await perform_homing_check()` which delegates to `run.io_bound`.
     """
     start_time = time.monotonic()
-    info_log.debug("Starting acquisition wait loop for ACQ -> Standby transition...")
+    info_log.debug("Starting acquisition wait: waiting for SCI packet...")
+    latest_hk = get_latest_hk()
+    sci_count = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
+    new_sci_count = sci_count
+    state_val = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
+    info_log.info("Initial SCI packet count: %s, CURRENT_OPERATING_STATE: %s", sci_count, state_val)
+    if int(new_sci_count) - int(sci_count) == 0:
+        while int(new_sci_count) - int(sci_count) == 0:
+            latest_hk = get_latest_hk()
+            new_sci_count = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
 
-    seen_acq = False
-    while True:
-        latest_hk = get_latest_hk()
+            # Allow user to abort the script while waiting
+            if is_aborted():
+                info_log.warning("Acquisition wait aborted by user.")
+                notify_negative("Acquisition aborted by user.")
+                raise RuntimeError("Acquisition aborted by user.")
 
-        # Allow user to abort the script while waiting
-        if is_aborted():
-            info_log.warning("Acquisition wait aborted by user.")
-            notify_negative("Acquisition aborted by user.")
-            raise RuntimeError("Acquisition aborted by user.")
-
-        if latest_hk is None:
-            info_log.debug("No HK packet yet while waiting for acquisition to complete; continuing to wait.")
             if time.monotonic() - start_time > acq_timeout_s:
                 info_log.error("Timeout waiting for acquisition to complete (waited %ss)", acq_timeout_s)
                 notify_negative("Timeout waiting for acquisition to complete.")
                 raise TimeoutError("Timeout waiting for acquisition to complete.")
-            time.sleep(1)
-            continue
+            info_log.info("No new SCI packet yet (SCIENCE_PACKETS_SENT: %s); continuing to wait.", new_sci_count)
+            time.sleep(10)
 
+        info_log.info(
+            "SCI packet detected (count %s -> %s) at %s", sci_count, new_sci_count, getattr(latest_hk, "TIME", None)
+        )
         # Read CURRENT_OPERATING_STATE which may be a numeric code or a descriptive string
         state_val = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
-        state_is_acq = False
-        state_is_standby = False
+        try:
+            if state_val is not None:
+                if state_val == 0x02:
+                    sci_packet = const.sci_queue.get(timeout=2.0)
+                    info_log.info(
+                        "Acquisition Finished with CURRENT_OPERATING_STATE: %s (0x02), SCI packet received: %s",
+                        state_val,
+                        sci_packet,
+                    )
+        except Exception:
+            info_log.warning(
+                "Error During Acquisition Check: Unable to read SCI packet after acquisition. CURRENT_OPERATING_STATE was %s.",
+                state_val,
+            )
 
-        if isinstance(state_val, str):
-            s = state_val.strip().upper()
-            state_is_acq = s in ("ACQUISITION", "ACQ")
-            state_is_standby = s in ("STANDBY",)
-        else:
-            if state_val is None:
-                state_is_acq = False
-                state_is_standby = False
-            else:
-                try:
-                    state_int = int(state_val)
-                    state_is_acq = state_int == 0x08
-                    state_is_standby = state_int == 0x04
-                except Exception:
-                    # fallback to string representation if conversion failed
-                    try:
-                        s = str(state_val).strip().upper()
-                        state_is_acq = s in ("ACQUISITION", "ACQ")
-                        state_is_standby = s in ("STANDBY",)
-                    except Exception:
-                        state_is_acq = False
-                        state_is_standby = False
 
-        hk_time = getattr(latest_hk, "TIME", None)
-        info_log.info(
-            "Polling HK for ACQ->Standby: state=%s (acq=%s, standby=%s) at %s",
-            state_val,
-            state_is_acq,
-            state_is_standby,
-            hk_time,
-        )
-
-        if state_is_acq:
-            seen_acq = True
-
-        # If we have observed acquisition and now see standby, succeed
-        if seen_acq and state_is_standby:
-            info_log.info("Acquisition completed: transitioned to Standby.")
-            notify_positive("Acquisition complete: Standby detected.")
-            return
-
-        # If we never saw acquisition but already in standby, just return
-        if (not seen_acq) and state_is_standby:
-            info_log.info("Already in Standby; no acquisition active.")
-            return
-
-        if time.monotonic() - start_time > acq_timeout_s:
-            info_log.error("Timeout waiting for acquisition to complete (waited %ss)", acq_timeout_s)
-            notify_negative("Timeout waiting for acquisition to complete.")
-            raise TimeoutError("Timeout waiting for acquisition to complete.")
-
-        time.sleep(1)  # Sleep briefly to avoid busy-waiting
+async def perform_acq_check(acq_timeout_s: float = 300) -> None:
+    """Async wrapper that runs the synchronous acquisition check in an executor."""
+    await run.io_bound(lambda: perform_acq_check_sync(acq_timeout_s))
 
 
 async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
@@ -1271,7 +1241,7 @@ def _disable_ob5v(logger: Any) -> None:
         logger.error(f"MMS pre-action failed while disabling OB 5V over EB link: {exc}")
 
 
-def _run_mms_actions(
+async def mms(
     app: Any,
     state: dict[str, Any],
     logger: Any,
@@ -1279,77 +1249,84 @@ def _run_mms_actions(
     reasons: list[str],
     tec_pre_action: bool,
     ob5v_pre_action: bool,
-) -> None:
-    mms_cfg = state.get("mms") or {}
-    if mms_cfg.get("latched"):
-        return
+):
+    def _run_mms_actions() -> None:
+        mms_cfg = state.get("mms") or {}
+        if mms_cfg.get("latched"):
+            return
 
-    # Abort any running script before taking safety actions.
-    if is_script_running():
-        request_abort()
-        clear_pause()
-        clear_force_pause()
-        logger.warning("MMS action: running script aborted.")
+        # Abort any running script before taking safety actions.
+        if is_script_running():
+            request_abort()
+            clear_pause()
+            clear_force_pause()
+            logger.warning("MMS action: running script aborted.")
 
-    if tec_pre_action:
-        mms_cfg["tec_shutdown_requested"] = True
-        logger.warning("MMS pre-action: TEC current should be forced to 0 (TC not yet implemented).")
+        if tec_pre_action:
+            mms_cfg["tec_shutdown_requested"] = True
+            logger.warning("MMS pre-action: TEC current should be forced to 0 (TC not yet implemented).")
 
-    # Only attempt OB 5V disable when EB is not already in SAFE.
-    current_state = int(
-        getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
-    )
-    if ob5v_pre_action and current_state != 0x02:
-        mms_cfg["ob5v_disable_requested"] = True
-        _disable_ob5v(logger)
-    elif ob5v_pre_action:
-        logger.info("MMS pre-action: OB 5V disable skipped — EB already in SAFE state.")
+        # Only attempt OB 5V disable when EB is not already in SAFE.
+        current_state = int(
+            getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
+        )
+        if ob5v_pre_action and current_state != 0x02:
+            mms_cfg["ob5v_disable_requested"] = True
+            _disable_ob5v(logger)
+        elif ob5v_pre_action:
+            logger.info("MMS pre-action: OB 5V disable skipped — EB already in SAFE state.")
 
-    logger.warning("MMS trigger detected: attempting SET SAFE then PSU shutdown. Reasons: %s", "; ".join(reasons))
-    safe_confirmed = False
-    try:
-        interface = eb_interface.get_egse_interface()
-        safe_status = ebtcs.safe(interface, 0)
-        if safe_status != "ERROR":
-            time.sleep(2)
-            ret_status = ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
-        else:
-            ret_status = "ERROR"
-
-        if safe_status != "ERROR" and ret_status != "ERROR":
-            logger.warning("MMS action: SAFE and RET commands sent via ebtcs.")
-            rs422_log_path = getattr(app.state.eb_interface, "rs422_log_path", None)
-            safe_confirmed = interface.wait_for_safe_state(rs422_log_path, timeout_s=10.0, poll_s=0.5)
-            logger.warning(
-                "MMS action: %s",
-                "SAFE operating state confirmed from HK."
-                if safe_confirmed
-                else "SAFE operating state could not be confirmed from HK.",
-            )
-        else:
-            logger.warning("MMS action: SAFE/RET command sequence failed.")
-    except Exception as exc:
-        logger.error(f"MMS action failed while sending SET SAFE command: {exc}")
-
-    psu_port = state.get("psu_port")
-    if safe_confirmed and psu_port is not None:
-        lock = state.get("port_lock")
-        lock_ctx = lock if lock is not None else nullcontext()
+        logger.warning("MMS trigger detected: attempting SET SAFE then PSU shutdown. Reasons: %s", "; ".join(reasons))
+        safe_confirmed = False
         try:
-            with lock_ctx:
-                psu.emergencyShutDown(psu_port)
-            logger.warning("MMS action: PSU emergency shutdown executed (all channels OFF).")
-        except Exception as exc:
-            logger.error(f"MMS action failed during PSU emergency shutdown: {exc}")
-    elif not safe_confirmed:
-        logger.warning("MMS action: PSU shutdown skipped because SAFE state was not confirmed.")
-    else:
-        logger.warning("MMS action: PSU emergency shutdown skipped because PSU port is unavailable.")
+            interface = eb_interface.get_egse_interface()
+            safe_status = ebtcs.safe(interface, 0)
+            if safe_status != "ERROR":
+                time.sleep(2)
+                ret_status = ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+            else:
+                ret_status = "ERROR"
 
-    mms_cfg["latched"] = True
-    mms_cfg["mode_at_trigger"] = state.get("mode")
-    mms_cfg["triggered_at"] = datetime.now().isoformat(timespec="seconds")
-    mms_cfg["reasons"] = reasons
+            if safe_status != "ERROR" and ret_status != "ERROR":
+                logger.warning("MMS action: SAFE and RET commands sent via ebtcs.")
+                rs422_log_path = getattr(app.state.eb_interface, "rs422_log_path", None)
+                safe_confirmed = interface.wait_for_safe_state(rs422_log_path, timeout_s=10.0, poll_s=0.5)
+                logger.warning(
+                    "MMS action: %s",
+                    "SAFE operating state confirmed from HK."
+                    if safe_confirmed
+                    else "SAFE operating state could not be confirmed from HK.",
+                )
+            else:
+                logger.warning("MMS action: SAFE/RET command sequence failed.")
+        except Exception as exc:
+            logger.error(f"MMS action failed while sending SET SAFE command: {exc}")
+
+        psu_port = state.get("psu_port")
+
+        # Latch MMS state first so trigger information is recorded even if shutdown fails.
+        mms_cfg["latched"] = True
+        mms_cfg["mode_at_trigger"] = state.get("mode")
+        mms_cfg["triggered_at"] = datetime.now().isoformat(timespec="seconds")
+        mms_cfg["reasons"] = reasons
+
+        # Always attempt PSU emergency shutdown if PSU port is available, regardless of SAFE confirmation.
+        if psu_port is not None:
+            if not safe_confirmed:
+                logger.warning("MMS action: SAFE state was not confirmed; proceeding with PSU shutdown anyway.")
+            lock = state.get("port_lock")
+            lock_ctx = lock if lock is not None else nullcontext()
+            try:
+                with lock_ctx:
+                    psu.emergencyShutDown(psu_port)
+                logger.warning("MMS action: PSU emergency shutdown executed (all channels OFF).")
+            except Exception as exc:
+                logger.error(f"MMS action failed during PSU emergency shutdown: {exc}")
+        else:
+            logger.warning("MMS action: PSU emergency shutdown skipped because PSU port is unavailable.")
+
+    await asyncio.sleep(0)  # Yield control to ensure this runs asynchronously
+    return _run_mms_actions
 
 
 def create_poll_tm(
@@ -1393,6 +1370,8 @@ def create_poll_tm(
 
         processed_hk = False
         last_hk_time = state.setdefault("latest_hk_time", None)
+
+        # Process HK packets (match legacy `ebgui` behaviour: increment on every HK pop)
         while not const.hk_queue.empty():
             processed_hk = True
             hk = const.hk_queue.get()
@@ -1406,12 +1385,11 @@ def create_poll_tm(
             state["latest_hk_time"] = now
             last_hk_time = now
 
-            # Increment HK counter only for new HK packets
-            last_hk_id = state.setdefault("last_hk_id", None)
-            hk_id = getattr(hk, "PACKET_NUMBER", None) or getattr(hk, "TIME", None)
-            if hk_id != last_hk_id:
-                counts["hk"] += 1
-                state["last_hk_id"] = hk_id
+            # Legacy behaviour: increment HK counter for each HK packet popped from the queue
+            counts["hk"] = int(counts.get("hk", 0)) + 1
+
+            if not hasattr(hk, "TIME"):
+                hk.TIME = now
 
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
@@ -1422,7 +1400,29 @@ def create_poll_tm(
             if state.get("mode") == "EB" and bool(mms_cfg.get("enabled", True)):
                 reasons, tec_pre_action, ob5v_pre_action = _mms_reasons(hk, mms_cfg.get("limits") or {})
                 if reasons:
-                    _run_mms_actions(app, state, logger, hk, reasons, tec_pre_action, ob5v_pre_action)
+
+                    async def _schedule_mms_call() -> None:
+                        try:
+                            action = await mms(app, state, logger, hk, reasons, tec_pre_action, ob5v_pre_action)
+                            if action is None:
+                                return
+                            # Run the returned (synchronous) action in a thread to avoid blocking the event loop
+                            try:
+                                await run.io_bound(action)
+                            except Exception:
+                                # Fallback: if action itself is a coroutine function
+                                if asyncio.iscoroutinefunction(action):
+                                    await action()
+                                else:
+                                    raise
+                        except Exception as exc:
+                            logger.exception("Failed to execute MMS actions: %s", exc)
+
+                    try:
+                        asyncio.create_task(_schedule_mms_call())
+                    except Exception as exc:
+                        # In case creating a task fails, log and attempt synchronous fallback
+                        logger.exception("Could not schedule MMS task: %s", exc)
 
             _update_plot_cards(state, hk, ob_trp_card, voltage_3v3_card)
             _update_packet_viewer(mode, packet_viewer_controllers, hk)
@@ -1433,33 +1433,118 @@ def create_poll_tm(
         if replay.get("enabled") and replay.get("hk_anchor") is not None and not processed_hk:
             replay["latest_hk_time"] = datetime.now()
 
-        # Only increment post packet counter when a new post packet is received
-        def post_packet_handler(post_hk):
-            # Only increment if this is a new post packet (by unique identifier, e.g., timestamp or counter)
-            last_post_id = state.setdefault("last_post_id", None)
-            post_id = getattr(post_hk, "PACKET_NUMBER", None) or getattr(post_hk, "TIME", None)
-            if post_id != last_post_id:
-                counts["post"] += 1
-                packet_viewer_controllers["EB_POST"].update_from_packet(post_hk)
-                state["last_post_id"] = post_id
+        # Process one POST packet per cycle, matching ebgui behaviour and dedupe by identity
+        if not const.eb_post_queue.empty():
+            post = const.eb_post_queue.get()
+            required_post_fields = (
+                "POST_WARNING_FLAGS",
+                "POST_ERROR_FLAGS",
+                "NUM_BAD_FLASH_BLOCKS",
+                "NUM_BAD_SRAM_BLOCKS",
+                "ASW_IMAGE_1_CRC",
+                "ASW_IMAGE_2_CRC",
+                "ASW_IMAGE_3_CRC",
+                "ASW_IMAGE_4_CRC",
+                "ASW_IMAGE_5_CRC",
+                "BSW_IMAGE_CRC",
+                "MEASUREMENT_TABLE_CRC",
+            )
+            if not all(hasattr(post, field_name) for field_name in required_post_fields):
+                logger.debug("Ignoring non-POST packet in POST queue")
+            else:
+                post_identity = tuple(getattr(post, field_name, None) for field_name in required_post_fields)
+                last_post_identity = state.setdefault("last_post_identity", {"value": None})
+                if post_identity == last_post_identity.get("value"):
+                    logger.debug("Ignoring duplicate POST packet in POST queue")
+                else:
+                    last_post_identity["value"] = post_identity
+                    counts["post"] = int(counts.get("post", 0)) + 1
+                    state.setdefault("packet_counts", counts)
+                    state["last_post"] = post
+                    # Update POST viewer if present
+                    if "EB_POST" in packet_viewer_controllers:
+                        try:
+                            packet_viewer_controllers["EB_POST"].update_from_packet(post)
+                        except Exception:
+                            logger.debug("Failed to update EB_POST packet viewer")
 
-        _drain_packet_queue(
-            const.eb_post_queue,
-            lambda post_hk: mode == "EB" and post_packet_handler(post_hk),
-        )
+        # Process SCI packets: drain, dedupe by identity, append and increment per new unique SCI
+        if not const.sci_queue.empty():
+            new_sci_packets = 0
+            required_sci_fields = (
+                "PACKET_NUMBER",
+                "SCI_POINT_COUNT",
+                "SCI_PACKET_CRITICALITY",
+            )
+            sci_packets = state.setdefault("sci_packets", [])
+            sci_packet_identities = state.setdefault("sci_packet_identities", set())
+            while not const.sci_queue.empty():
+                latest_sci = const.sci_queue.get()
+                if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
+                    logger.debug("Ignoring non-SCI packet in SCI queue")
+                    continue
+                if not hasattr(latest_sci, "TIME"):
+                    latest_sci.TIME = datetime.now()
+                # Build identity tuple (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+                packet_number = getattr(latest_sci, "PACKET_NUMBER", None)
+                criticality = getattr(latest_sci, "SCI_PACKET_CRITICALITY", None)
+                point_count = int(getattr(latest_sci, "SCI_POINT_COUNT", 0) or 0)
+                first_abs_step = None
+                last_abs_step = None
+                sci_points = getattr(latest_sci, "SCI_POINTS", None)
+                if sci_points:
+                    first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
+                    last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
+                elif hasattr(latest_sci, "ABS_STEPS"):
+                    first_abs_step = getattr(latest_sci, "ABS_STEPS", None)
+                    last_abs_step = first_abs_step
+                sci_identity = (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+                if sci_identity in sci_packet_identities:
+                    logger.debug("Ignoring duplicate science packet in SCI queue")
+                    continue
+                sci_packets.append(latest_sci)
+                sci_packet_identities.add(sci_identity)
+                counts["sci"] = int(counts.get("sci", 0)) + 1
+                new_sci_packets += 1
 
-        def sci_packet_handler(sci_packet):
-            last_sci_id = state.setdefault("last_sci_id", None)
-            sci_id = getattr(sci_packet, "PACKET_NUMBER", None) or getattr(sci_packet, "TIME", None)
-            if sci_id != last_sci_id:
-                counts["sci"] += 1
-                state["last_sci_id"] = sci_id
-            packet_viewer_controllers["OB_SCI" if mode == "OB" else "EB_SCI"].update_from_packet(sci_packet)
+            # Sort and trim buffer as legacy GUI
+            try:
+                sci_packets.sort(key=lambda p: int(getattr(p, "PACKET_NUMBER", 0)))
+            except Exception:
+                pass
 
-        _drain_packet_queue(
-            const.sci_queue,
-            sci_packet_handler,
-        )
+            max_sci_packets = 12
+            if len(sci_packets) > max_sci_packets:
+                del sci_packets[:-max_sci_packets]
+
+            # Rebuild identity set from retained packets
+            state["sci_packet_identities"] = {
+                (
+                    getattr(p, "PACKET_NUMBER", None),
+                    getattr(p, "SCI_PACKET_CRITICALITY", None),
+                    int(getattr(p, "SCI_POINT_COUNT", 0) or 0),
+                    (
+                        getattr(p.SCI_POINTS[0], "ABS_STEPS", None)
+                        if getattr(p, "SCI_POINTS", None)
+                        else getattr(p, "ABS_STEPS", None)
+                    ),
+                    (
+                        getattr(p.SCI_POINTS[-1], "ABS_STEPS", None)
+                        if getattr(p, "SCI_POINTS", None)
+                        else getattr(p, "ABS_STEPS", None)
+                    ),
+                )
+                for p in sci_packets
+            }
+
+            if new_sci_packets > 0:
+                # Show latest in viewer if present
+                viewer_key = "OB_SCI" if mode == "OB" else "EB_SCI"
+                if viewer_key in packet_viewer_controllers and sci_packets:
+                    try:
+                        packet_viewer_controllers[viewer_key].update_from_packet(sci_packets[-1])
+                    except Exception:
+                        logger.debug("Failed to update SCI packet viewer")
 
         packet_metrics_card.refresh()
 

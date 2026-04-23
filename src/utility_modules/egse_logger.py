@@ -40,33 +40,40 @@ def get_loggers(
     # ----Loggers---------------------------------------------------------------------------------------
     # -- Initiate event_log streamer --
     event_log = logging.getLogger("event_log")
-    event_log.setLevel(debug_level)
-    event_log.addHandler(ecl_hdlr)
-    event_log.addHandler(info_fh)
-    error_fh_event = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
-    error_fh_event.setFormatter(fh_formatter)
-    error_fh_event.setLevel(logging.ERROR)
-    event_log.addHandler(error_fh_event)
+    # Avoid duplicating handlers if this function is called multiple times
+    if not event_log.handlers:
+        event_log.setLevel(debug_level)
+        event_log.addHandler(ecl_hdlr)
+        event_log.addHandler(info_fh)
+        error_fh_event = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
+        error_fh_event.setFormatter(fh_formatter)
+        error_fh_event.setLevel(logging.ERROR)
+        event_log.addHandler(error_fh_event)
+    event_log.propagate = False
 
     # -- Initiate info writer --
     info_log = logging.getLogger("info_log")
-    info_log.setLevel(logging.INFO)
-    info_log.addHandler(info_fh)
-    info_log.addHandler(cl_hdlr)
+    if not info_log.handlers:
+        info_log.setLevel(logging.INFO)
+        info_log.addHandler(info_fh)
+        info_log.addHandler(cl_hdlr)
 
-    error_fh_info = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
-    error_fh_info.setFormatter(fh_formatter)
-    error_fh_info.setLevel(logging.ERROR)
-    info_log.addHandler(error_fh_info)
+        error_fh_info = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
+        error_fh_info.setFormatter(fh_formatter)
+        error_fh_info.setLevel(logging.ERROR)
+        info_log.addHandler(error_fh_info)
+    info_log.propagate = False
 
     # -- Initiate psu writer --
     psu_log = logging.getLogger("psu_log")
-    psu_log.setLevel(logging.INFO)
-    psu_log.addHandler(psu_fh)
-    psu_log.addHandler(cl_hdlr)
-    error_fh_psu = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
-    error_fh_psu.setFormatter(fh_formatter)
-    error_fh_psu.setLevel(logging.ERROR)
-    psu_log.addHandler(error_fh_psu)
+    if not psu_log.handlers:
+        psu_log.setLevel(logging.INFO)
+        psu_log.addHandler(psu_fh)
+        psu_log.addHandler(cl_hdlr)
+        error_fh_psu = logging.FileHandler(basedir / (prefix + "_ERROR.log"))
+        error_fh_psu.setFormatter(fh_formatter)
+        error_fh_psu.setLevel(logging.ERROR)
+        psu_log.addHandler(error_fh_psu)
+    psu_log.propagate = False
 
     return (event_log, info_log, psu_log)

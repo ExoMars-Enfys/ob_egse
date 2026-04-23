@@ -3,13 +3,11 @@ from __future__ import annotations
 # Std library
 from dataclasses import dataclass
 from datetime import datetime
-import threading
 from typing import Any
-import queue
 
 
 # Added packages
-from nicegui import app, ui
+from nicegui import app, ui, run
 
 # Local modules
 from core_modules import config
@@ -163,18 +161,16 @@ def create_menu(
 
                 with ui.row().classes("w-full justify-end gap-2") as script_buttons_row:
 
-                    def _play_click(e: Any = None) -> None:
-                        _run_selected_script(state, get_selected_key(), script_buttons_row)
-
                     def _pause_click(e: Any = None) -> None:
                         _pause_selected_script(state, get_selected_key())
 
                     def _stop_click(e: Any = None) -> None:
                         _abort_selected_script(state, get_selected_key())
 
-                    ui.button(icon="play_arrow", on_click=_play_click).props("flat round dense").classes(
-                        "rounded-full w-20 h-12"
-                    )
+                    ui.button(
+                        icon="play_arrow",
+                        on_click=lambda: (_run_selected_script(state, get_selected_key(), script_buttons_row)),
+                    ).props("flat round dense").classes("rounded-full w-20 h-12")
                     ui.button(icon="pause", on_click=_pause_click).props("flat round dense").classes(
                         "rounded-full w-20 h-12"
                     )
@@ -317,7 +313,7 @@ def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
         ui.notify("Text script error", color="negative")
 
 
-def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: Any = None) -> None:
+async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: Any = None) -> None:
     """Run the selected EB script from the menu."""
     key = (script_key or "").strip().lower()
 
@@ -381,8 +377,8 @@ def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: An
             # ensure UI-visible pause state cleared
             ui_runtime_controller.clear_pause()
 
-    threading.Thread(target=_runner, daemon=True).start()
     ui.notify(f"{key} script started")
+    await run.io_bound(_runner)
 
 
 def _start_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:

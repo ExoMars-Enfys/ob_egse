@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+import time
 
 # Added packages
 from nicegui import ui
@@ -164,12 +165,26 @@ class PacketMetricsCardController:
         eb_hk = telemetry_last.get("EB_HK", {})
 
         hk_time = eb_hk.get("TIME")
-        if isinstance(hk_time, datetime):
-            hk_time_text = hk_time.strftime("%H:%M:%S")
-        elif hk_time is None:
+        if hk_time is None:
             hk_time_text = "---"
+        elif isinstance(hk_time, datetime):
+            delta = datetime.now() - hk_time
+            total_seconds = int(delta.total_seconds())
+            # Format elapsed time as HH:MM:SS
+            hk_time_text = time.strftime("%H:%M:%S", time.gmtime(total_seconds))
         else:
-            hk_time_text = str(hk_time)
+            # Fallback for numeric timestamps (epoch seconds or monotonic floats)
+            try:
+                hk_time_val = float(hk_time)
+                # Prefer epoch-based difference where plausible
+                now_epoch = time.time()
+                delta_seconds = int(now_epoch - hk_time_val)
+                if delta_seconds < 0:
+                    # If negative, try monotonic-based difference
+                    delta_seconds = int(time.monotonic() - hk_time_val)
+                hk_time_text = time.strftime("%H:%M:%S", time.gmtime(max(delta_seconds, 0)))
+            except Exception:
+                hk_time_text = str(hk_time)
 
         values = {
             "tc_rejected": eb_hk.get("TCS_REJECTED", "---"),
