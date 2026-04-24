@@ -849,7 +849,6 @@ def _update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
             card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
 
 
-
 def _apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
     _update_psu_readings(state, psu_sample)
     _update_psu_cards(psu_cards, psu_sample)
@@ -1258,8 +1257,16 @@ async def mms(
     tec_pre_action: bool,
     ob5v_pre_action: bool,
 ):
+    mms_cfg = state.setdefault("mms", {})
+    if mms_cfg.get("latched"):
+        return
+    if mms_cfg.get("in_progress"):
+        return
+
+    mms_cfg["in_progress"] = True
+
     def _run_mms_actions() -> None:
-        mms_cfg = state.get("mms") or {}
+        mms_cfg = state.setdefault("mms", {})
         if mms_cfg.get("latched"):
             return
 
@@ -1333,8 +1340,13 @@ async def mms(
         else:
             logger.warning("MMS action: PSU emergency shutdown skipped because PSU port is unavailable.")
 
-    await asyncio.sleep(0)  # Yield control to ensure this runs asynchronously
-    return _run_mms_actions
+    try:
+        await run.io_bound(_run_mms_actions)
+    except Exception as exc:
+        mms_cfg["last_error"] = str(exc)
+        raise
+    finally:
+        mms_cfg["in_progress"] = False
 
 
 def create_poll_tm(
@@ -1408,29 +1420,33 @@ def create_poll_tm(
             if state.get("mode") == "EB" and bool(mms_cfg.get("enabled", True)):
                 reasons, tec_pre_action, ob5v_pre_action = _mms_reasons(hk, mms_cfg.get("limits") or {})
                 if reasons:
+                    if mms_cfg.get("latched") or mms_cfg.get("in_progress") or mms_cfg.get("pending"):
+                        pass
+                    else:
+                        mms_cfg["pending"] = True
 
-                    async def _schedule_mms_call() -> None:
-                        try:
-                            action = await mms(app, state, logger, hk, reasons, tec_pre_action, ob5v_pre_action)
-                            if action is None:
-                                return
-                            # Run the returned (synchronous) action in a thread to avoid blocking the event loop
+                        async def _schedule_mms_call() -> None:
                             try:
-                                await run.io_bound(action)
-                            except Exception:
-                                # Fallback: if action itself is a coroutine function
-                                if asyncio.iscoroutinefunction(action):
-                                    await action()
-                                else:
-                                    raise
-                        except Exception as exc:
-                            logger.exception("Failed to execute MMS actions: %s", exc)
+                                await mms(
+                                    app,
+                                    state,
+                                    logger,
+                                    hk,
+                                    list(reasons),
+                                    tec_pre_action,
+                                    ob5v_pre_action,
+                                )
+                            except Exception as exc:
+                                logger.exception("Failed to execute MMS actions: %s", exc)
+                            finally:
+                                current_cfg = state.setdefault("mms", {})
+                                current_cfg["pending"] = False
 
-                    try:
-                        asyncio.create_task(_schedule_mms_call())
-                    except Exception as exc:
-                        # In case creating a task fails, log and attempt synchronous fallback
-                        logger.exception("Could not schedule MMS task: %s", exc)
+                        try:
+                            asyncio.create_task(_schedule_mms_call())
+                        except Exception as exc:
+                            mms_cfg["pending"] = False
+                            logger.exception("Could not schedule MMS task: %s", exc)
 
             _update_plot_cards(state, hk, ob_trp_card, voltage_3v3_card)
             _update_packet_viewer(mode, packet_viewer_controllers, hk)

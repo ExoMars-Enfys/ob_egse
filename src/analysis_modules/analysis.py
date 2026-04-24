@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
+from typing import Any, Callable, cast
 import tkinter as tk
 from tkinter import Tk, filedialog
 from tkinter import scrolledtext
@@ -18,8 +19,8 @@ import numpy as np
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import eb_sniffer
-import constants as const
+from utility_modules import eb_packet_utility as eb_sniffer
+from core_modules import constants as const
 import sci_plot
 
 
@@ -38,6 +39,35 @@ _TIME_ONLY_FORMATS = (
     "%H:%M:%S.%f",
     "%H:%M:%S",
 )
+
+
+def _decode_hk_flags_if_available(hk: Any) -> Any:
+    """Apply optional decode helpers when exposed by eb_packet_utility."""
+    for helper_name in (
+        "decode_warning_flags",
+        "decode_error_flags",
+        "decode_fdir_alarms",
+        "decode_fdir_warnings",
+    ):
+        helper = getattr(eb_sniffer, helper_name, None)
+        if callable(helper):
+            hk = helper(hk)
+    return hk
+
+
+def _eb_thermistor_to_temp(adu: Any) -> float:
+    """Convert EB thermistor ADU to degC with backward-compatible helper lookup."""
+    converter = getattr(eb_sniffer, "thermistor_adu_to_temp", None)
+    if callable(converter):
+        typed_converter = cast(Callable[[Any], Any], converter)
+        return float(typed_converter(adu))
+
+    converter = getattr(eb_sniffer, "decode_eb_trps", None)
+    if callable(converter):
+        typed_converter = cast(Callable[[Any], Any], converter)
+        return float(typed_converter(int(adu)))
+
+    raise AttributeError("No EB thermistor conversion helper found in eb_packet_utility")
 
 
 def analysis(
@@ -253,10 +283,7 @@ def _read_all_packets(log_path: Path) -> list:
 
             if tm_type_id in (0x1, 0x2):
                 hk = eb_sniffer.parse_eb_hk(byte_array)
-                hk = eb_sniffer.decode_warning_flags(hk)
-                hk = eb_sniffer.decode_error_flags(hk)
-                hk = eb_sniffer.decode_fdir_alarms(hk)
-                hk = eb_sniffer.decode_fdir_warnings(hk)
+                hk = _decode_hk_flags_if_available(hk)
 
                 parsed_timestamp = _extract_packet_timestamp(
                     all_lines=all_lines,
@@ -320,10 +347,7 @@ def _read_hk_line_log_packets(all_lines: list[str]) -> list:
 
         try:
             hk = eb_sniffer.parse_eb_hk(byte_array)
-            hk = eb_sniffer.decode_warning_flags(hk)
-            hk = eb_sniffer.decode_error_flags(hk)
-            hk = eb_sniffer.decode_fdir_alarms(hk)
-            hk = eb_sniffer.decode_fdir_warnings(hk)
+            hk = _decode_hk_flags_if_available(hk)
         except Exception:
             continue
 
@@ -616,10 +640,10 @@ def _build_timeseries(packets: list) -> dict:
         eb_peltier_temp = pkt.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
         ts_data["eb_peltier_temp"].append(sanitize_temp(eb_peltier_temp))
 
-        eb_internal_trp = eb_sniffer.thermistor_adu_to_temp(pkt.EB_INTERNAL_TRP_TEMP)
+        eb_internal_trp = _eb_thermistor_to_temp(pkt.EB_INTERNAL_TRP_TEMP)
         ts_data["eb_internal_trp"].append(sanitize_temp(eb_internal_trp))
 
-        eb_psu_board_temp = eb_sniffer.thermistor_adu_to_temp(pkt.EB_PSU_BOARD_TEMP)
+        eb_psu_board_temp = _eb_thermistor_to_temp(pkt.EB_PSU_BOARD_TEMP)
         ts_data["eb_psu_board_temp"].append(sanitize_temp(eb_psu_board_temp))
 
         # OB Voltages
@@ -788,10 +812,10 @@ def _format_hk_data(hk) -> str:
     eb_peltier = hk.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
     info += f"  Peltier:      {eb_peltier:.2f}°C (ADU: {hk.EB_PELTIER_TEMP})\n"
 
-    eb_internal_trp = eb_sniffer.thermistor_adu_to_temp(hk.EB_INTERNAL_TRP_TEMP)
+    eb_internal_trp = _eb_thermistor_to_temp(hk.EB_INTERNAL_TRP_TEMP)
     info += f"  Internal TRP: {eb_internal_trp:.2f}°C (ADU: {hk.EB_INTERNAL_TRP_TEMP})\n"
 
-    eb_psu_board = eb_sniffer.thermistor_adu_to_temp(hk.EB_PSU_BOARD_TEMP)
+    eb_psu_board = _eb_thermistor_to_temp(hk.EB_PSU_BOARD_TEMP)
     info += f"  PSU Board:    {eb_psu_board:.2f}°C (ADU: {hk.EB_PSU_BOARD_TEMP})\n\n"
 
     # OB Voltages

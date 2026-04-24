@@ -9,6 +9,7 @@ from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
 
 from utility_modules import eb_packet_utility
 
@@ -94,11 +95,13 @@ def _parse_rs422_science(
             continue
 
         tm_type_id = (byte_array[5] >> 2) & 0x3F
-        if tm_type_id not in (0x5, 0x6):
+        if tm_type_id not in (0x4, 0x5, 0x6):
             continue
 
         try:
-            if tm_type_id == 0x5:
+            if tm_type_id == 0x4:
+                sci_pkt = eb_packet_utility.decode_dump_data(byte_array)
+            elif tm_type_id == 0x5:
                 sci_pkt = eb_packet_utility.decode_cscience_data(byte_array)
             else:
                 sci_pkt = eb_packet_utility.decode_ncscience_data(byte_array)
@@ -130,6 +133,111 @@ def _parse_rs422_science(
         mwir_low.append(int(sci_data.MWIR_LOW))
 
     return abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high
+
+
+def _decode_rs422_sci_packet(byte_array: bytes, tm_type_id: int) -> SimpleNamespace | None:
+    try:
+        if tm_type_id == 0x4:
+            sci_pkt = eb_packet_utility.decode_dump_data(byte_array)
+        elif tm_type_id == 0x5:
+            sci_pkt = eb_packet_utility.decode_cscience_data(byte_array)
+        elif tm_type_id == 0x6:
+            sci_pkt = eb_packet_utility.decode_ncscience_data(byte_array)
+        else:
+            return None
+        return eb_packet_utility.merge_sci_data_packet(sci_pkt)
+    except Exception:
+        return None
+
+
+def _extract_packet_series(
+    sci_data: SimpleNamespace,
+) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int], list[int]] | None:
+    abs_steps: list[int] = []
+    swir_low: list[int] = []
+    swir_med: list[int] = []
+    swir_high: list[int] = []
+    mwir_low: list[int] = []
+    mwir_med: list[int] = []
+    mwir_high: list[int] = []
+
+    sci_points = getattr(sci_data, "SCI_POINTS", None)
+    if sci_points:
+        for point in sci_points:
+            abs_steps.append(int(point.ABS_STEPS))
+            swir_high.append(int(point.SWIR_HIGH))
+            swir_med.append(int(point.SWIR_MED))
+            swir_low.append(int(point.SWIR_LOW))
+            mwir_high.append(int(point.MWIR_HIGH))
+            mwir_med.append(int(point.MWIR_MED))
+            mwir_low.append(int(point.MWIR_LOW))
+        return abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high
+
+    if not hasattr(sci_data, "ABS_STEPS"):
+        return None
+
+    abs_steps.append(int(sci_data.ABS_STEPS))
+    swir_high.append(int(sci_data.SWIR_HIGH))
+    swir_med.append(int(sci_data.SWIR_MED))
+    swir_low.append(int(sci_data.SWIR_LOW))
+    mwir_high.append(int(sci_data.MWIR_HIGH))
+    mwir_med.append(int(sci_data.MWIR_MED))
+    mwir_low.append(int(sci_data.MWIR_LOW))
+    return abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high
+
+
+def _plot_single_rs422_packet(
+    *,
+    sci_name: str,
+    packet_index: int,
+    packet_type_label: str,
+    abs_steps: list[int],
+    swir_low: list[int],
+    swir_med: list[int],
+    swir_high: list[int],
+    mwir_low: list[int],
+    mwir_med: list[int],
+    mwir_high: list[int],
+    output_dir: Path | None,
+    save: bool,
+    show: bool,
+) -> None:
+    abs_steps_array = np.asarray(abs_steps)
+    title_prefix = f"{sci_name} - Packet {packet_index:04d} ({packet_type_label})"
+    file_prefix = f"{sci_name}_pkt{packet_index:04d}_{packet_type_label}"
+
+    plt.figure()
+    plt.scatter(abs_steps_array, swir_low, s=5, label="SWIR_LOW")
+    plt.plot(abs_steps_array, swir_low, linewidth=0.5)
+    plt.scatter(abs_steps_array, swir_med, s=5, label="SWIR_MED")
+    plt.plot(abs_steps_array, swir_med, linewidth=0.5)
+    plt.scatter(abs_steps_array, swir_high, s=5, label="SWIR_HIGH")
+    plt.plot(abs_steps_array, swir_high, linewidth=0.5)
+    plt.xlabel("Absolute Motor Steps")
+    plt.ylabel("Intensity")
+    plt.title(f"{title_prefix} - SWIR")
+    plt.legend()
+    if save and output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_dir / f"{file_prefix}_SWIR_Plotted.png")
+
+    plt.figure()
+    plt.scatter(abs_steps_array, mwir_low, s=5, label="MWIR_LOW")
+    plt.plot(abs_steps_array, mwir_low, linewidth=0.5)
+    plt.scatter(abs_steps_array, mwir_med, s=5, label="MWIR_MED")
+    plt.plot(abs_steps_array, mwir_med, linewidth=0.5)
+    plt.scatter(abs_steps_array, mwir_high, s=5, label="MWIR_HIGH")
+    plt.plot(abs_steps_array, mwir_high, linewidth=0.5)
+    plt.ylabel("Intensity")
+    plt.title(f"{title_prefix} - MWIR")
+    plt.xlabel("Absolute Motor Steps")
+    plt.legend()
+    if save and output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_dir / f"{file_prefix}_MWIR_Plotted.png")
+
+    if not show:
+        plt.close("all")
 
 
 def plot_sci_log_file(
@@ -227,57 +335,71 @@ def plot_sci_from_rs422(
 ) -> None:
     sci_name = log_path.stem.replace(" ", "_")
 
-    (
-        abs_steps,
-        swir_low,
-        swir_med,
-        swir_high,
-        mwir_low,
-        mwir_med,
-        mwir_high,
-    ) = _parse_rs422_science(log_path)
+    with open(log_path, "r", encoding="utf-8") as handle:
+        all_lines = [line.strip() for line in handle]
 
-    if not abs_steps:
-        return
+    tm_indices = [i for (i, line) in enumerate(all_lines) if line.startswith("Telemetry Data:")]
 
-    abs_steps_array = np.asarray(abs_steps)
+    packet_counter = 0
+    packet_type_labels = {
+        0x4: "dump",
+        0x5: "critical",
+        0x6: "noncritical",
+    }
 
-    # RS422 packets can legitimately contain repeated ABS_STEPS values with
-    # different detector readings. Keep all points so the packet content is
-    # faithfully visualized.
+    for tm_index in tm_indices:
+        if tm_index + 1 >= len(all_lines):
+            continue
+        byte_string = all_lines[tm_index + 1]
+        if not byte_string:
+            continue
 
-    plt.figure()
-    plt.scatter(abs_steps_array, swir_low, s=5, label="SWIR_LOW")
-    plt.plot(abs_steps_array, swir_low, linewidth=0.5)
-    plt.scatter(abs_steps_array, swir_med, s=5, label="SWIR_MED")
-    plt.plot(abs_steps_array, swir_med, linewidth=0.5)
-    plt.scatter(abs_steps_array, swir_high, s=5, label="SWIR_HIGH")
-    plt.plot(abs_steps_array, swir_high, linewidth=0.5)
-    plt.xlabel("Absolute Motor Steps")
-    plt.ylabel("Intensity")
-    plt.title(f"{sci_name} - SWIR")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{sci_name}_SWIR_Plotted.png")
+        try:
+            byte_array = bytes(int(x, 16) for x in byte_string.split())
+        except ValueError:
+            continue
 
-    plt.figure()
-    plt.scatter(abs_steps_array, mwir_low, s=5, label="MWIR_LOW")
-    plt.plot(abs_steps_array, mwir_low, linewidth=0.5)
-    plt.scatter(abs_steps_array, mwir_med, s=5, label="MWIR_MED")
-    plt.plot(abs_steps_array, mwir_med, linewidth=0.5)
-    plt.scatter(abs_steps_array, mwir_high, s=5, label="MWIR_HIGH")
-    plt.plot(abs_steps_array, mwir_high, linewidth=0.5)
-    plt.ylabel("Intensity")
-    plt.title(f"{sci_name} - MWIR")
-    plt.xlabel("Absolute Motor Steps")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{sci_name}_MWIR_Plotted.png")
+        if len(byte_array) < 6:
+            continue
 
-    if not show:
-        plt.close("all")
+        tm_type_id = (byte_array[5] >> 2) & 0x3F
+        if tm_type_id not in (0x4, 0x5, 0x6):
+            continue
+
+        sci_data = _decode_rs422_sci_packet(byte_array, tm_type_id)
+        if sci_data is None:
+            continue
+
+        series = _extract_packet_series(sci_data)
+        if series is None:
+            continue
+
+        (
+            abs_steps,
+            swir_low,
+            swir_med,
+            swir_high,
+            mwir_low,
+            mwir_med,
+            mwir_high,
+        ) = series
+        packet_counter += 1
+
+        _plot_single_rs422_packet(
+            sci_name=sci_name,
+            packet_index=packet_counter,
+            packet_type_label=packet_type_labels.get(tm_type_id, "unknown"),
+            abs_steps=abs_steps,
+            swir_low=swir_low,
+            swir_med=swir_med,
+            swir_high=swir_high,
+            mwir_low=mwir_low,
+            mwir_med=mwir_med,
+            mwir_high=mwir_high,
+            output_dir=output_dir,
+            save=save,
+            show=show,
+        )
 
 
 def plot_sci_packets(
@@ -465,6 +587,230 @@ def render_sci_packets_data_urls(
     plt.close(fig_mwir)
 
     return image_urls
+
+
+def render_sci_packets_interactive_html(
+    sci_packets: list[SimpleNamespace],
+    title_prefix: str = "SCI Buffer",
+) -> list[str]:
+    """Render SWIR/MWIR science plots as interactive Plotly HTML snippets."""
+    abs_steps: list[int] = []
+    swir_low: list[int] = []
+    swir_med: list[int] = []
+    swir_high: list[int] = []
+    mwir_low: list[int] = []
+    mwir_med: list[int] = []
+    mwir_high: list[int] = []
+
+    for packet in sci_packets:
+        sci_points = getattr(packet, "SCI_POINTS", None)
+        if sci_points:
+            for point in sci_points:
+                abs_steps.append(int(point.ABS_STEPS))
+                swir_high.append(int(point.SWIR_HIGH))
+                swir_med.append(int(point.SWIR_MED))
+                swir_low.append(int(point.SWIR_LOW))
+                mwir_high.append(int(point.MWIR_HIGH))
+                mwir_med.append(int(point.MWIR_MED))
+                mwir_low.append(int(point.MWIR_LOW))
+            continue
+
+        if not hasattr(packet, "ABS_STEPS"):
+            continue
+
+        abs_steps.append(int(packet.ABS_STEPS))
+        swir_high.append(int(packet.SWIR_HIGH))
+        swir_med.append(int(packet.SWIR_MED))
+        swir_low.append(int(packet.SWIR_LOW))
+        mwir_high.append(int(packet.MWIR_HIGH))
+        mwir_med.append(int(packet.MWIR_MED))
+        mwir_low.append(int(packet.MWIR_LOW))
+
+    if not abs_steps:
+        return []
+
+    abs_steps_array = np.asarray(abs_steps)
+    sort_idx = np.argsort(abs_steps_array)
+    abs_steps_sorted = abs_steps_array[sort_idx]
+
+    swir_low_array = np.asarray(swir_low)
+    swir_med_array = np.asarray(swir_med)
+    swir_high_array = np.asarray(swir_high)
+    mwir_low_array = np.asarray(mwir_low)
+    mwir_med_array = np.asarray(mwir_med)
+    mwir_high_array = np.asarray(mwir_high)
+
+    def _create_figure(
+        channel_prefix: str,
+        low_values: np.ndarray,
+        med_values: np.ndarray,
+        high_values: np.ndarray,
+    ) -> str:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=low_values,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_LOW",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=med_values,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_MED",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=high_values,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_HIGH",
+            )
+        )
+
+        fig.update_layout(
+            title=f"{title_prefix} - {channel_prefix}",
+            xaxis_title="Absolute Motor Steps",
+            yaxis_title="Intensity",
+            template="plotly_white",
+            height=420,
+            margin={"l": 60, "r": 20, "t": 55, "b": 55},
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+            hovermode="x unified",
+        )
+
+        return fig.to_html(
+            include_plotlyjs="cdn",
+            full_html=False,
+            config={"responsive": True, "displaylogo": False, "scrollZoom": True},
+        )
+
+    # Keep x monotonic for line rendering while still showing all points.
+    swir_html = _create_figure(
+        "SWIR",
+        swir_low_array[sort_idx],
+        swir_med_array[sort_idx],
+        swir_high_array[sort_idx],
+    )
+    mwir_html = _create_figure(
+        "MWIR",
+        mwir_low_array[sort_idx],
+        mwir_med_array[sort_idx],
+        mwir_high_array[sort_idx],
+    )
+
+    return [swir_html, mwir_html]
+
+
+def render_sci_packets_plotly_figures(
+    sci_packets: list[SimpleNamespace],
+    title_prefix: str = "SCI Buffer",
+) -> list[go.Figure]:
+    """Render SWIR/MWIR science plots as Plotly Figure objects for NiceGUI ui.plotly."""
+    abs_steps: list[int] = []
+    swir_low: list[int] = []
+    swir_med: list[int] = []
+    swir_high: list[int] = []
+    mwir_low: list[int] = []
+    mwir_med: list[int] = []
+    mwir_high: list[int] = []
+
+    for packet in sci_packets:
+        sci_points = getattr(packet, "SCI_POINTS", None)
+        if sci_points:
+            for point in sci_points:
+                abs_steps.append(int(point.ABS_STEPS))
+                swir_high.append(int(point.SWIR_HIGH))
+                swir_med.append(int(point.SWIR_MED))
+                swir_low.append(int(point.SWIR_LOW))
+                mwir_high.append(int(point.MWIR_HIGH))
+                mwir_med.append(int(point.MWIR_MED))
+                mwir_low.append(int(point.MWIR_LOW))
+            continue
+
+        if not hasattr(packet, "ABS_STEPS"):
+            continue
+
+        abs_steps.append(int(packet.ABS_STEPS))
+        swir_high.append(int(packet.SWIR_HIGH))
+        swir_med.append(int(packet.SWIR_MED))
+        swir_low.append(int(packet.SWIR_LOW))
+        mwir_high.append(int(packet.MWIR_HIGH))
+        mwir_med.append(int(packet.MWIR_MED))
+        mwir_low.append(int(packet.MWIR_LOW))
+
+    if not abs_steps:
+        return []
+
+    abs_steps_array = np.asarray(abs_steps)
+    sort_idx = np.argsort(abs_steps_array)
+    abs_steps_sorted = abs_steps_array[sort_idx]
+
+    swir_low_array = np.asarray(swir_low)[sort_idx]
+    swir_med_array = np.asarray(swir_med)[sort_idx]
+    swir_high_array = np.asarray(swir_high)[sort_idx]
+    mwir_low_array = np.asarray(mwir_low)[sort_idx]
+    mwir_med_array = np.asarray(mwir_med)[sort_idx]
+    mwir_high_array = np.asarray(mwir_high)[sort_idx]
+
+    def _build_fig(channel_prefix: str, low: np.ndarray, med: np.ndarray, high: np.ndarray) -> go.Figure:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=low,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_LOW",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=med,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_MED",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=abs_steps_sorted,
+                y=high,
+                mode="lines+markers",
+                marker={"size": 5},
+                line={"width": 1.0},
+                name=f"{channel_prefix}_HIGH",
+            )
+        )
+        fig.update_layout(
+            title=f"{title_prefix} - {channel_prefix}",
+            xaxis_title="Absolute Motor Steps",
+            yaxis_title="Intensity",
+            template="plotly_white",
+            height=430,
+            margin={"l": 55, "r": 20, "t": 55, "b": 55},
+            hovermode="x unified",
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        )
+        return fig
+
+    return [
+        _build_fig("SWIR", swir_low_array, swir_med_array, swir_high_array),
+        _build_fig("MWIR", mwir_low_array, mwir_med_array, mwir_high_array),
+    ]
 
 
 def plot_sci_logs(

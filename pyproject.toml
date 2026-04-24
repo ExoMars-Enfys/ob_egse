@@ -9,6 +9,7 @@ dependencies = [
     "bitstruct>=8.19.0",
     "crc8>=0.2.1",
     "nicegui",
+    "plotly>=6.5.0",
     "pyserial>=3.5",
     "pywinauto>=0.6.9",
     "ruff>=0.9.4",

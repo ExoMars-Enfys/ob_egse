@@ -7,7 +7,7 @@ from dataclasses import field
 from typing import Any
 
 # Added packages
-from nicegui import ui
+from nicegui import run, ui
 
 # Local modules
 # analysis
@@ -149,29 +149,38 @@ class PacketViewerController:
         packet = ui_runtime_controller.sci_current_packet(self.sci_state)
         self._render_sci_panel(packet)
 
-    def plot_selected_sci_packet(self) -> None:
+    async def plot_selected_sci_packet(self) -> None:
         packet = ui_runtime_controller.sci_current_packet(self.sci_state)
         if packet is None:
             ui.notify("No science packet selected to plot", color="warning")
             return
 
         packet_number = getattr(packet, "PACKET_NUMBER", "?")
-        image_urls = sci_plot.render_sci_packets_data_urls(
-            sci_packets=[packet],
-            title_prefix=f"SCI Packet {packet_number}",
-        )
-        if not image_urls:
+        ui.notify("Generating interactive science plot...", color="primary")
+
+        try:
+            figures = await run.io_bound(
+                lambda: sci_plot.render_sci_packets_plotly_figures(
+                    sci_packets=[packet],
+                    title_prefix=f"SCI Packet {packet_number}",
+                )
+            )
+        except Exception as exc:
+            ui.notify(f"Failed to generate science plot: {exc}", color="negative")
+            return
+
+        if not figures:
             ui.notify("Selected packet has no science data points to plot", color="warning")
             return
 
         with ui.dialog() as plot_dialog:
             with ui.card().classes("w-[95vw] max-w-6xl max-h-[90vh] overflow-auto"):
                 with ui.row(align_items="center").classes("w-full justify-between"):
-                    ui.label("Science Plot (ABS steps vs intensity)").classes("text-lg font-bold")
+                    ui.label("Interactive Science Plot (ABS steps vs intensity)").classes("text-lg font-bold")
                     ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
                 ui.separator()
-                for image_url in image_urls:
-                    ui.image(image_url).props("contain").classes("w-full")
+                for fig in figures:
+                    ui.plotly(fig).classes("w-full")
         plot_dialog.open()
 
     def _render_sci_panel(self, packet: Any | None) -> None:
@@ -342,6 +351,12 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
     sci_point_labels: dict[str, Any] = {}
     controller_ref: dict[str, PacketViewerController | None] = {"value": None}
 
+    async def _plot_selected_sci_packet_click() -> None:
+        controller = controller_ref["value"]
+        if controller is None:
+            return
+        await controller.plot_selected_sci_packet()
+
     with ui.card().classes("w-full min-w-0"):
         initial_label = "Telemetry Viewer: waiting for telemetry"
         if selected_type is not None:
@@ -433,7 +448,7 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
                 ui.button(
                     "Plot Science Data",
                     icon="show_chart",
-                    on_click=lambda: controller_ref["value"] and controller_ref["value"].plot_selected_sci_packet(),
+                    on_click=_plot_selected_sci_packet_click,
                 ).props("color=primary")
 
     controller = PacketViewerController(

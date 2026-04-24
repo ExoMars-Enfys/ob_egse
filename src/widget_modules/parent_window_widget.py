@@ -95,11 +95,14 @@ def build_ui(
         "mms": {
             "enabled": True,
             "latched": False,
+            "in_progress": False,
+            "pending": False,
             "mode_at_trigger": None,
             "triggered_at": None,
             "reasons": [],
             "tec_shutdown_requested": False,
             "ob5v_disable_requested": False,
+            "last_error": None,
             # Limit set chosen to match existing alarm semantics in this codebase.
             "limits": {
                 "eb_12v": (11.0, 13.0),
