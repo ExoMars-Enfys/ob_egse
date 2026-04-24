@@ -43,3 +43,72 @@ ALIM_TPR = (-50, +40)
 ALIM_TPR_ADU = (1823, 2211)
 
 # ----Power State Limits based on Model-------------------------------------------------------------
+# List of supported OB models
+MODELS = ["DEM", "EM", "PFM", "FS"]
+
+# Power consumption (mA) per state for each model
+#State Map : 
+#State1 : Safe
+#State2 : OB Heating
+#State3 : OB Heating + Powered On
+#State4 : OB Heating + Powered On + TEC at 1A
+#State5 : Powered On + TEC at 1A
+#State6 : ACQ
+#State7 : All Active - OB Heating + Powered On + TEC at 1A + Moving
+
+MODEL_CONSUMPTION = {
+    "DEM": {
+        "State1": 87,
+        "State2": 160,
+        "State3": 179,
+        "State4": 327,
+        "State5": 266,
+        "State7": 380,
+        "Standby": 101,
+        "Mech": 4,
+        "Det": 12,
+        "DetHTR": 21,
+        "MechHTR": 42,
+        "Moving": 53,
+        "TEC1A": 153,
+        "TEC35": 100,
+        "TEC65": 140,
+    },
+    "EM": { #Consumption Dictionary for EMC
+        "State1": 90,
+        "State2": 170,
+        "State3": 190,
+        "State4": 340,
+        "State5": 277,
+        "State7": 394,
+        "Standby": 110,
+        "Mech": 4,
+        "Det": 10,
+        "DetHTR": 19,
+        "MechHTR": 38,
+        "Moving": 50,
+        "TEC1A": 150,
+        "TEC35": 100,
+        "TEC65": 140,
+    },
+    "PFM": {
+        "State1": 90,
+        "State2": 110,
+        "State3": 130,
+        "State4": 150,
+        "State5": 170,
+        "State6": 190,
+        "State7": 210,
+        "Standby": 100,
+    },
+    "FS": {
+        "State1": 85,
+        "State2": 105,
+        "State3": 125,
+        "State4": 145,
+        "State5": 165,
+        "State6": 185,
+        "State7": 205,
+        "Standby": 95,
+    },
+}

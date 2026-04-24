@@ -88,39 +88,5 @@ def run_emc_hs() -> None:
 
         # Send mode transition to Acquisition state
         ebtcs.acquisition(interface, 0x0)
-        try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
-            latest_psu = const.psu_queue.get(timeout=2.0)
-        except Empty as exc:
-            raise AssertionError("Initial FFT verification failed: missing HK or PSU queue data") from exc
-
-        # --- Start science acquisition timer in UI state (handled by UI async task) ---
-        script_state = getattr(ui_runtime_controller, "script_state", None)
-        if isinstance(script_state, dict):
-            script_state["acq_timer_running"] = True
-            script_state["acq_timer_start"] = time.time()
-
-        while getattr(latest_hk, "CURRENT_OPERATING_STATE", None) == "ACQUISITION":
-            info_log.info(
-                f"Waiting to finish ACQUISITION - Current Operating State: {getattr(latest_hk, 'CURRENT_OPERATING_STATE', None)}, PSU_EB_I: {ch4_current_ma:.2f} mA"
-            )
-            time.sleep(1)
-            try:
-                latest_hk = const.hk_queue.get(timeout=2.0)
-                latest_psu = const.psu_queue.get(timeout=2.0)
-            except Empty as exc:
-                raise AssertionError(
-                    "Initial FFT verification failed: missing HK or PSU queue data during acquisition wait"
-                ) from exc
-            ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-        try:
-            latest_sci = const.sci_queue.get(timeout=2.0)
-        except Empty as exc:
-            raise AssertionError("Initial FFT verification failed: missing SCI Packet") from exc
-
-        # --- Stop science acquisition timer in UI state ---
-        if isinstance(script_state, dict):
-            script_state["acq_timer_running"] = False
-
-        # Wait for SCI packet and mode to move to STANDBY (user should verify before proceeding)
-        ui_runtime_controller.notify_script_pause(10, 10)
+        ui_runtime_controller.perform_acq_check_sync()
+        

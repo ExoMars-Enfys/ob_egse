@@ -10,7 +10,7 @@ from typing import Any
 from nicegui import app, ui, run
 
 # Local modules
-from core_modules import config
+from core_modules import constants as const
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
 from utility_modules import eb_interface, ebtcs
 from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
@@ -80,7 +80,7 @@ def create_menu(
                         ),
                     )
                     ui.label("Dark").classes("text-xs")
-                model_options = config.MODELS
+                model_options = const.MODELS
                 model_labels = list(model_options)
                 model_keys = {label: label for label in model_options}
 

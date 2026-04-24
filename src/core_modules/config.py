@@ -9,7 +9,7 @@ DEFAULT_COM_PORT = 3
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
-PSU_COM_PORT = 8
+PSU_COM_PORT = 10
 PSU_LOGGING_FREQ = 10  # in HZ
 
 CH1_OVP = 12.5
@@ -41,65 +41,3 @@ MEASUREMENT_TABLES = [
     # Uneven steps for testing
     list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10)),
 ]
-
-# List of supported OB models
-MODELS = ["DEM", "EM", "PFM", "FS"]
-
-# Power consumption (mA) per state for each model
-MODEL_CONSUMPTION = {
-    "DEM": {
-        "State1": 87,
-        "State2": 160,
-        "State3": 179,
-        "State4": 327,
-        "State5": 266,
-        "State7": 380,
-        "Standby": 101,
-        "Mech": 4,
-        "Det": 12,
-        "DetHTR": 21,
-        "MechHTR": 42,
-        "Moving": 53,
-        "TEC1A": 153,
-        "TEC35": 100,
-        "TEC65": 140,
-    },
-    
-    "EM": {
-        "State1": 90,
-        "State2": 170,
-        "State3": 190,
-        "State4": 340,
-        "State5": 277,
-        "State7": 394,
-        "Standby": 110,
-        "Mech": 4,
-        "Det": 10,
-        "DetHTR": 19,
-        "MechHTR": 38,
-        "Moving": 50,
-        "TEC1A": 150,
-        "TEC35": 100,
-        "TEC65": 140,
-    },
-    "PFM": {
-        "State1": 90,
-        "State2": 110,
-        "State3": 130,
-        "State4": 150,
-        "State5": 170,
-        "State6": 190,
-        "State7": 210,
-        "Standby": 100,
-    },
-    "FS": {
-        "State1": 85,
-        "State2": 105,
-        "State3": 125,
-        "State4": 145,
-        "State5": 165,
-        "State6": 185,
-        "State7": 205,
-        "Standby": 95,
-    },
-}

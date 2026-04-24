@@ -19,7 +19,7 @@ from utility_modules.eb_packet_utility import get_latest_hk
 
 # core
 from core_modules import tmstruct, constants as const
-from core_modules.config import MODEL_CONSUMPTION
+from core_modules.constants import MODEL_CONSUMPTION
 
 info_log = logging.getLogger("info_log")
 
@@ -345,7 +345,7 @@ def verify_safe_ret():
     if errors:
         count = len(errors)
         numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-        info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+        info_log.error(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
         msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
         return msg, False
     else:
@@ -407,8 +407,9 @@ def notify_script_pause(current: int, total: int) -> None:
             pass
 
 
-def request_force_pause() -> None:
+def request_force_pause(msg) -> None:
     """Request a forced pause — blocks script execution until released."""
+    ui.notify(msg, color="warning")
     _FORCE_PAUSE_EVENT.set()
 
 
@@ -848,23 +849,10 @@ def _update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
             card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
 
 
-def _update_psu_alarm_lights(state: dict[str, Any], psu_sample: dict[str, Any]) -> None:
-    status_ok = bool(psu_sample.get("STATUS"))
-    alarm_lights = state.get("alarm_lights") or {}
-    if "ob" in alarm_lights:
-        alarm_lights["ob"].update_from_faults(
-            {"PSU status is not OK": state["mode"] == "OB" and not status_ok}, source="psu"
-        )
-    if "eb" in alarm_lights:
-        alarm_lights["eb"].update_from_faults(
-            {"PSU status is not OK": state["mode"] == "EB" and not status_ok}, source="psu"
-        )
-
 
 def _apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
     _update_psu_readings(state, psu_sample)
     _update_psu_cards(psu_cards, psu_sample)
-    _update_psu_alarm_lights(state, psu_sample)
 
 
 def _build_replay_psu_sample(state: dict[str, Any], psu_cards: list[Any], record: dict[str, Any]) -> dict[str, Any]:
@@ -1111,10 +1099,30 @@ def _eb_alarm_details(hk: Any) -> list[str]:
     return details
 
 
-def _update_hk_alarm_lights(state: dict[str, Any], hk: Any) -> None:
+def _log_new_hk_alarm_details(state: dict[str, Any], logger: Any, channel: str, details: list[str]) -> None:
+    active_details = state.setdefault("hk_active_alarm_details", {"ob": set(), "eb": set()})
+    previous = set(active_details.get(channel, set()))
+    current = set(details)
+
+    for detail in sorted(current - previous):
+        detail_lower = detail.lower()
+        if "error" in detail_lower or "alarm" in detail_lower:
+            logger.error("HK %s alarm raised: %s", channel.upper(), detail)
+        else:
+            logger.warning("HK %s warning raised: %s", channel.upper(), detail)
+
+    active_details[channel] = current
+
+
+def _update_hk_alarm_lights(state: dict[str, Any], hk: Any, logger: Any) -> None:
     alarm_lights = state.get("alarm_lights") or {}
     ob_details = _ob_alarm_details(hk)
     eb_details = _eb_alarm_details(hk)
+
+    active_logger = logger if logger is not None else info_log
+    _log_new_hk_alarm_details(state, active_logger, "ob", ob_details)
+    _log_new_hk_alarm_details(state, active_logger, "eb", eb_details)
+
     if "ob" in alarm_lights:
         alarm_lights["ob"].update_from_faults({detail: True for detail in ob_details}, source="hk")
     if "eb" in alarm_lights:
@@ -1393,7 +1401,7 @@ def create_poll_tm(
 
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
-            _update_hk_alarm_lights(state, hk)
+            _update_hk_alarm_lights(state, hk, logger)
 
             # MMS runs continuously while in EB mode and latches on first trigger.
             mms_cfg = state.get("mms") or {}

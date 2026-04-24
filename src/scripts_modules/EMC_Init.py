@@ -30,6 +30,7 @@ def run_emc_init(verification: bool = True) -> None:
     # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 0, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+    ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
     time.sleep(2)
     if verification:
@@ -65,7 +66,9 @@ def run_emc_init(verification: bool = True) -> None:
             ch4_current_ma = ui_runtime_controller.consumption_check("State2", latest_psu, errors)
         if latest_hk is not None:
             if hasattr(latest_hk, "THRM_STATUS") and getattr(latest_hk.THRM_STATUS, "HMS", 0) != 1:
-                errors.append("Mechanism heater is not ON (THRM_STATUS.HMS!=1)")
+                errors.append(
+                    f"Mechanism heater is not ON (THRM_STATUS.HMS={getattr(latest_hk.THRM_STATUS, 'HMS', 0)})"
+                )
             if hasattr(latest_hk, "THRM_STATUS") and getattr(latest_hk.THRM_STATUS, "HDS", 0) != 1:
                 errors.append(f"Detector heater is not ON (THRM_STATUS.HDS={getattr(latest_hk.THRM_STATUS, 'HDS', 0)})")
         if errors:
