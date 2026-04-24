@@ -71,7 +71,7 @@ def run_emc_hs() -> None:
             0x00,  # SCI_AVG: 0
             0x0000,  # RESERVED: 0
             0x01F4,  # ACQ_SAMPLE_TIME: 500ms
-            0x001E,  # ACQ_DURATION: 30s
+            0x0708,  # ACQ_DURATION: 30m
             0x0005,  # ACQ_START_POINT
             0x0,  # ACQ_END_POINT
             0x00,  # DETECTORS : Both
@@ -84,9 +84,8 @@ def run_emc_hs() -> None:
         )
 
         # Set HK Rate back to 10 seconds (redundant but matches script)
-        ebtcs.set_hk_rate(interface, 0, 10)
+        ebtcs.set_hk_rate(interface, 0, 2)
 
         # Send mode transition to Acquisition state
         ebtcs.acquisition(interface, 0x0)
-        ui_runtime_controller.perform_acq_check_sync()
-        
+        ui_runtime_controller.perform_acq_check_sync(2100)
