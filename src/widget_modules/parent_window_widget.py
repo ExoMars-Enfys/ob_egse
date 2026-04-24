@@ -109,7 +109,7 @@ def build_ui(
                 "eb_neg12v": (-13.0, -11.0),
                 "eb_5v": (4.5, 5.5),
                 "eb_3v3": const.ALIM_3V3,
-                "eb_mcu_temp": const.ALIM_TPR,
+                "eb_mcu_temp": const.EB_ALIM_TPR,
                 "eb_internal_trp_temp": const.ALIM_TPR,
                 "eb_psu_trp_temp": const.ALIM_TPR,
                 "eb_tec_rail_v": (const.ALIM_3V3[0], None),
