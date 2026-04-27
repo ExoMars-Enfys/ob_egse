@@ -88,12 +88,19 @@ def create_menu(
                     state["model"] = e.value
                     app.state.current_model = e.value
 
-                selected_model = ui.select(
-                    model_labels,
-                    value=state.get("model", model_labels[0]),
-                    label="Select Model",
-                    on_change=on_model_change,
-                ).classes("w-full")
+                with ui.row().classes("items-center gap-2 w-full"):
+                    selected_model = ui.select(
+                        model_labels,
+                        value=state.get("model", model_labels[0]),
+                        label="Select Model",
+                        on_change=on_model_change,
+                    ).classes("flex-1")
+                    ui.select(
+                        options=["MIN", "NOM", "MAX"],
+                        value=state.get("voltage_mode", "NOM"),
+                        label="Bus V",
+                        on_change=lambda e: _on_voltage_mode_change(e, state),
+                    ).classes("w-24")
                 # Initialize state and app.state with default model if not set
                 if "model" not in state:
                     state["model"] = model_labels[0]
@@ -211,6 +218,24 @@ def _call_set_mode(set_mode_fn: Any | None, mode: str) -> None:
     handler = set_mode_fn if callable(set_mode_fn) else getattr(app.state, "set_egse_mode", None)
     if callable(handler):
         handler(mode)
+
+
+def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
+    """Handle voltage mode change and apply to PSU."""
+    from contextlib import nullcontext
+    from utility_modules import psu
+
+    new_mode = e.value
+    state["voltage_mode"] = new_mode
+
+    port = state.get("psu_port")
+    psu_lock = state.get("psu_lock")
+    if not port:
+        return
+
+    lock_ctx = psu_lock if psu_lock is not None else nullcontext()
+    with lock_ctx:
+        psu.apply_voltage_mode(port, new_mode, state.get("mode", "OB"))
 
 
 def _log_psu_snapshot(state: dict[str, Any]) -> None:

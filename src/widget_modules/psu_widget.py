@@ -168,3 +168,37 @@ def create_psu_channel_card(
         card=card,
         enabled_switch=enabled_switch,
     )
+
+
+def create_voltage_mode_selector(
+    state: dict[str, Any],
+) -> Any:
+    """Create a voltage mode selector (MIN/NOM/MAX) for PSU channels."""
+    # Initialize voltage mode in state if not already present
+    state.setdefault("voltage_mode", "NOM")
+
+    def _on_voltage_mode_change(e: Any) -> None:
+        """Handle voltage mode change and apply to PSU."""
+        new_mode = e.value
+        state["voltage_mode"] = new_mode
+
+        port = state.get("psu_port")
+        psu_lock = state.get("psu_lock")
+        if not port:
+            return
+
+        from contextlib import nullcontext
+
+        lock_ctx = psu_lock if psu_lock is not None else nullcontext()
+        with lock_ctx:
+            psu.apply_voltage_mode(port, new_mode, state.get("mode", "OB"))
+
+    with ui.card().classes("flex-1 min-w-0") as card:
+        ui.label("Bus Voltage Mode").classes("text-sm font-bold")
+        voltage_selector = ui.select(
+            options=["MIN", "NOM", "MAX"],
+            value=state.get("voltage_mode", "NOM"),
+            on_change=_on_voltage_mode_change,
+        ).classes("w-full")
+
+    return {"card": card, "selector": voltage_selector}

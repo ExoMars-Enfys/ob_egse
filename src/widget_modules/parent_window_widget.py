@@ -61,6 +61,7 @@ def build_ui(
 
     state: dict[str, Any] = {
         "mode": default_mode,
+        "voltage_mode": "NOM",
         "logger": logger,
         "channels": {},
         "plot_refreshers": [],

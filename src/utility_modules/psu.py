@@ -272,6 +272,11 @@ def setChannels(port, ebmode):
         port.write("OP4 0\r\n".encode("utf-8"))
         psu_log.info("Initialized PSU outputs to OFF for all channels")
 
+        # Get bus voltages from constants
+        bus_voltages = const.BUS_VOLTAGES
+        mode_key = "EB" if ebmode else "OB"
+        channel_voltages = bus_voltages.get(mode_key, {})
+
         if not ebmode:
             ch1_ovp = config.CH1_OVP
             ch1_i = config.CH1_I
@@ -281,30 +286,37 @@ def setChannels(port, ebmode):
             ch3_i = config.CH3_I
             ch4_ovp = config.ROV_HTR_OVP
             ch4_i = config.ROV_HTR_I
+
+            # Get nominal voltages from BUS_VOLTAGES
+            ch1_v = channel_voltages.get("CH1", {}).get("NOM", 12.0)
+            ch2_v = channel_voltages.get("CH2", {}).get("NOM", 12.0)
+            ch3_v = channel_voltages.get("CH3", {}).get("NOM", 5.0)
+            ch4_v = 28.0  # CH4 not used in OB mode typically
+
             # Set the voltage and current limits for each channel
-            psu_log.info(f"Setting PSU Channels: CH1 V: 12V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
-            port.write("V1 12\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH1 V: {ch1_v}V OVP: {ch1_ovp}V, CH1 I: {ch1_i}A")
+            port.write(f"V1 {ch1_v}\r\n".encode("utf-8"))
             port.write(f"I1 {ch1_i}\r\n".encode("utf-8"))
             port.write(f"OVP1 {ch1_ovp} 1\r\n".encode("utf-8"))
 
-            psu_log.info(f"Setting PSU Channels: CH2 V: 12V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
-            port.write("V2 12\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH2 V: {ch2_v}V OVP: {ch2_ovp}V, CH2 I: {ch2_i}A")
+            port.write(f"V2 {ch2_v}\r\n".encode("utf-8"))
             port.write(f"I2 {ch2_i}\r\n".encode("utf-8"))
             port.write(f"OVP2 {ch2_ovp} 1\r\n".encode("utf-8"))
 
-            psu_log.info(f"Setting PSU Channels: CH3 V: 5V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-            port.write("V3 5\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH3 V: {ch3_v}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+            port.write(f"V3 {ch3_v}\r\n".encode("utf-8"))
             port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
             port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
             psu_log.info(f"Setting PSU Channels: CH4 V: 28V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
-            port.write("V4 28\r\n".encode("utf-8"))
+            port.write(f"V4 {ch4_v}\r\n".encode("utf-8"))
             port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
             port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
 
             psu_log.info("PSU Channels set successfully")
             psu_log.info(
-                f"  CH1_V  12V\t   CH1_I {ch1_i}\t  CH2_V -12V\t  CH2_I {ch2_i}\t  CH3_V 5V\t   CH3_I {ch3_i}\t  CH4_V 28V\t   CH4_I {ch4_i}"
+                f"  CH1_V  {ch1_v}V\t   CH1_I {ch1_i}\t  CH2_V {ch2_v}V\t  CH2_I {ch2_i}\t  CH3_V {ch3_v}V\t   CH3_I {ch3_i}\t  CH4_V 28V\t   CH4_I {ch4_i}"
             )
             port.reset_output_buffer()  # Clear stale bytes after transactions
             port.reset_input_buffer()
@@ -315,20 +327,24 @@ def setChannels(port, ebmode):
             ch4_ovp = config.EB_OVP
             ch4_i = config.EB_I
 
+            # Get nominal voltages from BUS_VOLTAGES for EB mode
+            ch3_v = channel_voltages.get("CH3", {}).get("NOM", 28.0)
+            ch4_v = channel_voltages.get("CH4", {}).get("NOM", 28.0)
+
             # Set the voltage and current limits for each channel
             psu_log.info("EB Mode: Setting PSU Channels")
-            psu_log.info(f"Setting PSU Channels: CH3 V: 28V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
-            port.write("V3 28\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH3 V: {ch3_v}V OVP: {ch3_ovp}V, CH3 I: {ch3_i}A")
+            port.write(f"V3 {ch3_v}\r\n".encode("utf-8"))
             port.write(f"I3 {ch3_i}\r\n".encode("utf-8"))
             port.write(f"OVP3 {ch3_ovp} 1\r\n".encode("utf-8"))
 
-            psu_log.info(f"Setting PSU Channels: CH4 V: 28V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
-            port.write("V4 28\r\n".encode("utf-8"))
+            psu_log.info(f"Setting PSU Channels: CH4 V: {ch4_v}V OVP: {ch4_ovp}V, CH4 I: {ch4_i}A")
+            port.write(f"V4 {ch4_v}\r\n".encode("utf-8"))
             port.write(f"I4 {ch4_i}\r\n".encode("utf-8"))
             port.write(f"OVP4 {ch4_ovp} 1\r\n".encode("utf-8"))
 
             psu_log.info("PSU Channels set successfully for EB Mode")
-            psu_log.info(f"  CH3_V  28V\t   CH3_I {ch3_i}\t  CH4_V 28V\t  CH4_I {ch4_i}")
+            psu_log.info(f"  CH3_V  {ch3_v}V\t   CH3_I {ch3_i}\t  CH4_V {ch4_v}V\t  CH4_I {ch4_i}")
             port.reset_output_buffer()  # Clear stale bytes after transactions
             port.reset_input_buffer()
 
@@ -338,6 +354,51 @@ def switch_psu_channel(port, channel, state):
     if port:
         event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
         port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
+
+
+def apply_voltage_mode(port, mode: str, current_mode: str):
+    """Apply voltage settings based on MIN/NOM/MAX mode selection."""
+    if not port:
+        return
+
+    from core_modules import constants as constants_module
+
+    bus_voltages = constants_module.BUS_VOLTAGES
+    mode_key = current_mode  # "OB" or "EB"
+
+    if mode_key not in bus_voltages:
+        psu_log.error(f"Mode {mode_key} not found in BUS_VOLTAGES")
+        return
+
+    if mode not in ["MIN", "NOM", "MAX"]:
+        psu_log.error(f"Invalid voltage mode: {mode}. Must be MIN, NOM, or MAX")
+        return
+
+    channel_voltages = bus_voltages[mode_key]
+
+    try:
+        if current_mode == "OB":
+            # Apply voltages for OB channels
+            for ch_name in ["CH1", "CH2", "CH3"]:
+                if ch_name in channel_voltages:
+                    voltage = channel_voltages[ch_name][mode]
+                    ch_num = int(ch_name[2:])  # Extract channel number
+                    port.write(f"V{ch_num} {voltage}\r\n".encode("utf-8"))
+                    psu_log.info(f"Set CH{ch_num} voltage to {voltage}V ({mode})")
+
+        elif current_mode == "EB":
+            # Apply voltages for EB channels
+            for ch_name in ["CH3", "CH4"]:
+                if ch_name in channel_voltages:
+                    voltage = channel_voltages[ch_name][mode]
+                    ch_num = int(ch_name[2:])  # Extract channel number
+                    port.write(f"V{ch_num} {voltage}\r\n".encode("utf-8"))
+                    psu_log.info(f"Set CH{ch_num} voltage to {voltage}V ({mode})")
+
+        event_log.info(f"Applied voltage mode {mode} for {current_mode}")
+    except Exception as e:
+        psu_log.error(f"Error applying voltage mode: {e}")
+        event_log.error(f"Error applying voltage mode: {e}")
 
 
 def emergencyShutDown(port):

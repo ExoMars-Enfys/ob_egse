@@ -43,19 +43,33 @@ ALIM_TPR = (-50, +40)
 EB_ALIM_TPR = (-40, +75)
 ALIM_TPR_ADU = (1823, 2211)
 
+# ----Bus Voltage Settings-------------------------------------------------------------
+# Bus voltage settings for different modes and channels (Min, Nominal, Max)
+BUS_VOLTAGES = {
+    "OB": {
+        "CH1": {"MIN": 11.2, "NOM": 12.0, "MAX": 13.2},
+        "CH2": {"MIN": 11.2, "NOM": 12.0, "MAX": 13.2},
+        "CH3": {"MIN": 4.8, "NOM": 5.0, "MAX": 5.5},
+    },
+    "EB": {
+        "CH3": {"MIN": 26.0, "NOM": 28.0, "MAX": 29.4},
+        "CH4": {"MIN": 26.0, "NOM": 28.0, "MAX": 29.4},
+    },
+}
+
 # ----Power State Limits based on Model-------------------------------------------------------------
 # List of supported OB models
 MODELS = ["DEM", "EM", "PFM", "FS"]
 
 # Power consumption (mA) per state for each model
-#State Map : 
-#State1 : Safe
-#State2 : OB Heating
-#State3 : OB Heating + Powered On
-#State4 : OB Heating + Powered On + TEC at 1A
-#State5 : Powered On + TEC at 1A
-#State6 : ACQ
-#State7 : All Active - OB Heating + Powered On + TEC at 1A + Moving
+# State Map :
+# State1 : Safe
+# State2 : OB Heating
+# State3 : OB Heating + Powered On
+# State4 : OB Heating + Powered On + TEC at 1A
+# State5 : Powered On + TEC at 1A
+# State6 : ACQ
+# State7 : All Active - OB Heating + Powered On + TEC at 1A + Moving
 
 MODEL_CONSUMPTION = {
     "DEM": {
@@ -75,7 +89,7 @@ MODEL_CONSUMPTION = {
         "TEC35": 100,
         "TEC65": 140,
     },
-    "EM": { #Consumption Dictionary for EMC
+    "EM": {  # Consumption Dictionary for EMC
         "State1": 90,
         "State2": 170,
         "State3": 190,
