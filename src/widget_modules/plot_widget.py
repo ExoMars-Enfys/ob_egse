@@ -3,6 +3,9 @@ from __future__ import annotations
 # Std library
 from dataclasses import dataclass
 from typing import Any, Callable
+from datetime import datetime
+import numbers
+from matplotlib.ticker import FormatStrFormatter
 
 # Added packages
 from nicegui import app, ui
@@ -88,16 +91,17 @@ def create_plot_card(
         )
 
     ax = plot.fig.axes[0]
-    ax.set_ylabel(y_label, fontsize=15)
-    ax.tick_params(labelsize=15)
-    ax.grid(True, alpha=0.35)
+    # Format x-axis as seconds with 2 decimal places
+    ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+    ax.tick_params(labelsize=22)
+    ax.grid(True, alpha=1, linewidth = 3)
 
     lines = list(ax.lines)
     for line, cfg in zip(lines, series):
         line.set_color(cfg.color)
         line.set_visible(cfg.visible)
         line.set_marker("*")
-        line.set_markersize(5)
+        line.set_markersize(8)
 
     legend_visible = (n_series > 1) if show_legend is None else bool(show_legend)
     series_labels = [cfg.label for cfg in series]
@@ -132,7 +136,7 @@ def create_plot_card(
                 line.set_label(label if line.get_visible() else "_nolegend_")
 
             if any(line.get_visible() for line in lines):
-                ax.legend(loc="upper left", fontsize=12)
+                ax.legend(loc="upper left", fontsize=15)
                 _style_legend()
 
         _redraw_plot()
@@ -143,6 +147,8 @@ def create_plot_card(
         _refresh_legend()
 
     stream_enabled = True
+    # Track the first time sample seen for this plot (used to compute seconds offset)
+    first_time: datetime | float | None = None
 
     def _reset_series() -> None:
         for line in lines:
@@ -175,7 +181,7 @@ def create_plot_card(
             ymin, ymax = mode_limits.get(mode, y_limits or (0.0, 1000.0))
             ax.set_ylim(ymin, ymax)
         if show_title:
-            ax.set_title(f"{title} ({mode})", fontsize=14)
+            ax.set_title(f"{title} ({mode})", fontsize=22)
             title_label.set_text(f"{title} [{mode}]")
         else:
             ax.set_title("")
@@ -192,8 +198,41 @@ def create_plot_card(
     def push(time_points: list[Any], series_values: list[list[float]]) -> None:
         """Push one sample per series.  series_values[i] is the list of y-values
         for series i at the corresponding time_points."""
-        if stream_enabled and time_points:
-            plot.push(time_points, series_values)
+        if not (stream_enabled and time_points):
+            return
+
+        nonlocal first_time
+
+        converted_x: list[float] = []
+        for tp in time_points:
+            # datetime -> seconds since first_time
+            if isinstance(tp, datetime):
+                if first_time is None or isinstance(first_time, float):
+                    first_time = tp
+                delta = (tp - first_time).total_seconds()
+                converted_x.append(float(delta))
+            # numeric types -> seconds since first_time
+            elif isinstance(tp, numbers.Number):
+                if first_time is None or isinstance(first_time, datetime):
+                    first_time = float(tp)
+                converted_x.append(float(tp - float(first_time)))
+            else:
+                # try parsing ISO-format datetime string then fallback to float
+                try:
+                    parsed = datetime.fromisoformat(str(tp))
+                    if first_time is None or isinstance(first_time, float):
+                        first_time = parsed
+                    converted_x.append((parsed - first_time).total_seconds())
+                except Exception:
+                    try:
+                        f = float(tp)
+                        if first_time is None or isinstance(first_time, datetime):
+                            first_time = f
+                        converted_x.append(float(f - float(first_time)))
+                    except Exception:
+                        converted_x.append(0.0)
+
+        plot.push(converted_x, series_values)
 
     return PlotCardController(
         plot=plot,
