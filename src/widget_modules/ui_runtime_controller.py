@@ -1128,7 +1128,7 @@ def _update_hk_alarm_lights(state: dict[str, Any], hk: Any, logger: Any) -> None
         alarm_lights["eb"].update_from_faults({detail: True for detail in eb_details}, source="hk")
 
 
-def _update_plot_cards(state: dict[str, Any], hk: Any, ob_trp_card: Any, voltage_3v3_card: Any) -> None:
+def _update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_card: Any) -> None:
     time_value = getattr(hk, "TIME", None)
     if time_value is None:
         return
@@ -1140,19 +1140,19 @@ def _update_plot_cards(state: dict[str, Any], hk: Any, ob_trp_card: Any, voltage
 
     instr_flags = getattr(hk, "INSTR_STATUS_FLAGS", None)
     ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
-    ob_trp_card.set_stream_enabled(ob_enabled)
-    voltage_3v3_card.set_stream_enabled(ob_enabled)
+    trp_card.set_stream_enabled(ob_enabled)
+    voltage_card.set_stream_enabled(ob_enabled)
 
     if not ob_enabled:
         return
 
     ob_trp_vals = _decode_tuple(hk, _OB_TRP_FIELDS)
     if ob_trp_vals is not None:
-        ob_trp_card.push([time_value], [[v] for v in ob_trp_vals])
+        trp_card.push([time_value], [[v] for v in ob_trp_vals])
 
     voltage_vals = _decode_tuple(hk, _VOLTAGE_3V3_FIELDS)
     if voltage_vals is not None:
-        voltage_3v3_card.push([time_value], [[v] for v in voltage_vals])
+        voltage_card.push([time_value], [[v] for v in voltage_vals])
 
 
 def _update_packet_viewer(mode: str, packet_viewer_controllers: dict[str, Any], hk: Any) -> None:
@@ -1359,8 +1359,8 @@ def create_poll_tm(
     ob_metrics_card: Any,
     packet_metrics_card: Any,
     packet_viewer_controllers: dict[str, Any],
-    ob_trp_card: Any,
-    voltage_3v3_card: Any,
+    trp_card: Any,
+    voltage_card: Any,
 ) -> Any:
     """Create TM polling callback bound to current controllers and state."""
 
@@ -1448,7 +1448,7 @@ def create_poll_tm(
                             mms_cfg["pending"] = False
                             logger.exception("Could not schedule MMS task: %s", exc)
 
-            _update_plot_cards(state, hk, ob_trp_card, voltage_3v3_card)
+            _update_plot_cards(state, hk, trp_card, voltage_card)
             _update_packet_viewer(mode, packet_viewer_controllers, hk)
 
         # In static/mock-log runs, HK may stop updating. Keep replay time moving so

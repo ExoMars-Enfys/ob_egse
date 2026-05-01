@@ -148,7 +148,11 @@ def build_ui(
             """Placeholder method for left drawer content
             Creates packet viewer tabs and controllers, and returns the controllers for later updates."""
             with ui.left_drawer(value=True).props("width=400 no-swipe-open no-swipe-close"):
-                ui.label("Packet Viewers").classes("text-sm font-bold p-2")
+                palette = getattr(app.state, "theme_palette", None)
+                pv_title_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
+                lbl = ui.label("Packet Viewers")
+                lbl.style(f"font-size: {pv_title_sz}")
+                lbl.classes("font-bold p-2")
                 with ui.tabs().classes("w-full") as packet_tabs:
                     tab_eb_hk = ui.tab("EB HK")
                     tab_eb_post = ui.tab("EB POST")
@@ -309,35 +313,35 @@ def build_ui(
             state["plot_refreshers"].append(set_psu_card_profiles)
             set_psu_card_profiles(state["mode"])
             with ui.row().classes("w-full gap-4"):
-                ob_trp_card = plot_widget.create_plot_card(
-                    "OB Thermistors",
-                    series=[
-                        plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
-                        plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
-                        plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
-                        plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
-                    ],
-                    y_label="°C",
-                    y_limits=(-30.0, 80.0),
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(ob_trp_card.set_mode)
-                ob_trp_card.set_mode(state["mode"])
-            with ui.row().classes("w-full gap-4"):
-                voltage_3v3_card = plot_widget.create_plot_card(
-                    "OB Voltages",
-                    series=[
-                        plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
-                        plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
-                    ],
-                    y_label="V",
-                    y_limits=(3, 4),
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(voltage_3v3_card.set_mode)
-                voltage_3v3_card.set_mode(state["mode"])
+                    trp_card = plot_widget.create_plot_card(
+                        "Thermistors",
+                        series=[
+                            plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
+                            plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
+                            plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
+                            plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
+                        ],
+                        y_label="°C",
+                        y_limits=(-30.0, 80.0),
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(trp_card.set_mode)
+                    trp_card.set_mode(state["mode"])
+                    
+                    voltage_card = plot_widget.create_plot_card(
+                        "Voltages",
+                        series=[
+                            plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
+                            plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
+                        ],
+                        y_label="V",
+                        y_limits=(3, 4),
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(voltage_card.set_mode)
+                    voltage_card.set_mode(state["mode"])
 
-            return [ch1_card, ch2_card, ch3_card, ch4_card], ob_trp_card, voltage_3v3_card
+            return [ch1_card, ch2_card, ch3_card, ch4_card], trp_card, voltage_card
 
         def build_ob_controls() -> Any:
             """Build OB-only mechanism/detector control tabs and return visibility sync callback."""
@@ -390,7 +394,7 @@ def build_ui(
         build_top_bar()
         build_right_drawer()
         build_footer()
-        psu_cards, OB_TRP_card, voltage_3v3_card = build_centre_console()
+        psu_cards, trp_card, voltage_card = build_centre_console()
         set_ob_controls_visible = build_ob_controls()
         state["plot_refreshers"].append(set_ob_controls_visible)
         set_ob_controls_visible(state["mode"])
@@ -400,7 +404,7 @@ def build_ui(
         packet_metrics_card = state["packet_metrics_card"]
         eb_metrics_card.set_visible(state["mode"] == "EB")
 
-        theme_plots = [OB_TRP_card.plot, voltage_3v3_card.plot]
+        theme_plots = [trp_card.plot, voltage_card.plot]
         theme_plots.extend(psu_card.plot.plot for psu_card in psu_cards)
 
         set_theme = ui_runtime_controller.create_set_theme(
@@ -433,8 +437,8 @@ def build_ui(
             ob_metrics_card=ob_metrics_card,
             packet_metrics_card=packet_metrics_card,
             packet_viewer_controllers=packet_viewer_controllers,
-            ob_trp_card=OB_TRP_card,
-            voltage_3v3_card=voltage_3v3_card,
+            trp_card=trp_card,
+            voltage_card=voltage_card,
         )
 
         ui.timer(0.2, poll_psu)

@@ -6,7 +6,10 @@ import logging
 from typing import Any
 
 # Added packages
-from nicegui import ui
+from nicegui import ui, app
+
+# utilities
+from utility_modules import app_theme
 
 
 @dataclass
@@ -121,18 +124,24 @@ def create_log_terminal(
         if handler is not None:
             handler.on_level_change(event)
 
+    # Theme-aware sizes
+    palette = getattr(app.state, "theme_palette", None)
+    ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+    small_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center"):
-            ui.label("Logs").classes("text-sm font-bold")
-            radio = (
-                ui.radio(
-                    list(level_options.keys()),
-                    value=default_selection,
-                    on_change=on_level_change,
-                )
-                .props(f"inline dense size=xs color={level_colors.get(default_selection, 'blue')}")
-                .classes("text-black text-xs")
+            lbl = ui.label("Logs")
+            lbl.style(f"font-size: {ui_sz}")
+            lbl.classes("font-bold")
+            radio = ui.radio(
+                list(level_options.keys()),
+                value=default_selection,
+                on_change=on_level_change,
             )
+            radio.props(f"inline dense size=xs color={level_colors.get(default_selection, 'blue')}")
+            if small_sz:
+                radio.style(f"font-size: {small_sz}")
         log = ui.log(max_lines=max_lines).classes("w-full h-56")
 
     # Reuse an existing LogElementHandler on the logger if present (prevents

@@ -12,7 +12,7 @@ from nicegui import app, ui, run
 # Local modules
 from core_modules import constants as const
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
-from utility_modules import eb_interface, ebtcs
+from utility_modules import eb_interface, ebtcs, app_theme
 from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
 
 
@@ -53,6 +53,9 @@ def create_menu(
     """Creates the menu for the application. The menu contains buttons to start/stop EB EGSE tools, select a log file, and take a log snapshot."""
     menu_state = {"open": False}
     state.setdefault("egse_tools_started", bool(getattr(app.state.eb_interface, "egse_started", False)))
+    # Theme-aware sizes
+    palette = getattr(app.state, "theme_palette", None)
+    menu_label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
     with ui.element("div").classes("relative inline-block"):
         menu_button = ui.button(icon="menu").props("flat dense round").classes("self-start rounded-full w-36 h-12")
 
@@ -65,21 +68,25 @@ def create_menu(
                     ui.notify("SAFE TC sent", type="positive")
 
                 with ui.row().classes("items-center justify-start gap-2"):
-                    ui.label("OB").classes("text-xs")
+                    lbl_ob = ui.label("OB")
+                    lbl_ob.style(f"font-size: {menu_label_size}")
                     ui.switch(
                         value=(state["mode"] == "EB"),
                         on_change=lambda e: _call_set_mode(set_mode_fn, "EB" if e.value else "OB"),
                     )
-                    ui.label("EB").classes("text-xs")
+                    lbl_eb = ui.label("EB")
+                    lbl_eb.style(f"font-size: {menu_label_size}")
                     ui.space()
-                    ui.label("Light").classes("text-xs")
+                    lbl_light = ui.label("Light")
+                    lbl_light.style(f"font-size: {menu_label_size}")
                     ui.switch(
                         value=(getattr(app.state, "theme_state", {}).get("value", "light") == "dark"),
                         on_change=lambda e: getattr(app.state, "set_theme", lambda _theme: None)(
                             "dark" if e.value else "light"
                         ),
                     )
-                    ui.label("Dark").classes("text-xs")
+                    lbl_dark = ui.label("Dark")
+                    lbl_dark.style(f"font-size: {menu_label_size}")
                 model_options = const.MODELS
                 model_labels = list(model_options)
                 model_keys = {label: label for label in model_options}

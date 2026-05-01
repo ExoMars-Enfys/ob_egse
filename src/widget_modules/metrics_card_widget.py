@@ -8,7 +8,7 @@ from typing import Any
 import time
 
 # Added packages
-from nicegui import ui
+from nicegui import ui, app
 
 # Local modules
 # core
@@ -16,7 +16,7 @@ from core_modules import constants as const
 from core_modules import tmstruct
 
 # utilities
-from utility_modules import hk_conversions
+from utility_modules import hk_conversions, app_theme
 
 # widgets
 from widget_modules import popup_widget
@@ -325,7 +325,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="eb_has_errors",
-            label="ERRORS",
+            label="ERR",
             getter=lambda hk: bool(getattr(hk, "ERROR_FLAGS", 0)),
             render="bool_status",
             true_text="ALARM",
@@ -338,7 +338,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="eb_has_warnings",
-            label="WARNS",
+            label="WRN",
             getter=lambda hk: bool(getattr(hk, "WARNING_FLAGS", 0)),
             render="bool_status",
             true_text="ALARM",
@@ -402,7 +402,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="eb_internal_temp",
-            label="INTERNAL TEMP",
+            label="INTRNL TEMP",
             getter=lambda hk: _decoded(hk, "EB_INTERNAL_TRP_TEMP"),
             unit="°C",
             bounds=const.WLIM_TPR,
@@ -414,19 +414,19 @@ def _eb_hk_specs() -> list[MetricSpec]:
             unit="°C",
             bounds=const.WLIM_TPR,
         ),
-        MetricSpec(key="tec_setpoint", label="TEC_SETPOINT", getter=lambda hk: getattr(hk, "TEC_SETPOINT", None)),
+        MetricSpec(key="setpoint", label="SETPOINT", getter=lambda hk: getattr(hk, "SETPOINT", None)),
         MetricSpec(
-            key="tec_drive_i",
-            label="TEC Drive I",
-            getter=lambda hk: (float(getattr(hk, "EB_TEC_DRIVE_CURRENT", 0)) * 0.0000162),
+            key="drive_i",
+            label="Drive I",
+            getter=lambda hk: (float(getattr(hk, "EB_DRIVE_CURRENT", 0)) * 0.0000162),
             unit="A",
             decimals=4,
         ),
-        MetricSpec(key="tec_temp", label="TEC TEMP", getter=_tec_temp, unit="°C"),
-        MetricSpec(key="tec_dac", label="TEC DAC OUT", getter=lambda hk: getattr(hk, "EB_TEC_DAC_OUTPUT", None)),
+        MetricSpec(key="temp", label="TEMP", getter=_tec_temp, unit="°C"),
+        MetricSpec(key="dac", label="DAC OUT", getter=lambda hk: getattr(hk, "EB_DAC_OUTPUT", None)),
         MetricSpec(
             key="eb_tec_at_setpoint",
-            label="TEC At Set",
+            label="At Set",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "TEC_AT_SETPOINT"),
             render="bool_status",
             true_text="YES",
@@ -440,42 +440,42 @@ def _eb_hk_specs() -> list[MetricSpec]:
 def _ob_hk_specs() -> list[MetricSpec]:
     return [
         MetricSpec(
-            key="ob_3v3",
-            label="OB+3.3V",
+            key="3v3",
+            label="+3.3V",
             getter=lambda hk: _decoded(hk, "OB_3V3_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_3V3,
         ),
         MetricSpec(
-            key="ob_1v5",
-            label="OB+1.5V",
+            key="1v5",
+            label="+1.5V",
             getter=lambda hk: _decoded(hk, "OB_1V5_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_1V5,
         ),
         MetricSpec(
-            key="ob_dig",
+            key="dig",
             label="DIG:",
             getter=lambda hk: _decoded(hk, "OB_DIGITAL_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
         ),
         MetricSpec(
-            key="ob_det",
+            key="det",
             label="DET:",
             getter=lambda hk: _decoded(hk, "OB_DETECTOR_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
         ),
         MetricSpec(
-            key="ob_mech",
+            key="mech",
             label="MECH:",
             getter=lambda hk: _decoded(hk, "OB_MECHANISM_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
         ),
         MetricSpec(
-            key="ob_mtr",
+            key="mtr",
             label="MTR",
             getter=lambda hk: _decoded(hk, "OB_MOTOR_TRP"),
             unit="°C",
@@ -536,7 +536,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="ob_motor_moving",
-            label="MOVING",
+            label="MOV",
             getter=lambda hk: _flag_true(hk, "MTR_FLAGS", "MOVING"),
             render="bool_status",
             true_text="Moving",
@@ -546,7 +546,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="ob_direction",
-            label="DIRECTION",
+            label="DIR",
             getter=_direction,
             color_map={"TO BASE": "purple", "TO OUTER": "blue", "_default": "grey"},
         ),
@@ -559,14 +559,14 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(key="ob_steps", label="STEPS", getter=lambda hk: getattr(hk, "OB_MOTOR_ABS_STEPS", None)),
         MetricSpec(
             key="ob_mech_cal",
-            label="MECH CAL",
+            label="CAL",
             getter=lambda hk: _flag_true(hk, "MTR_FLAGS", "CAL"),
             render="state_chip",
             chip_text="CAL",
         ),
         MetricSpec(
             key="mech_htr_status",
-            label="MECH HTR STATUS",
+            label="MECH",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HMS"),
             render="status_light",
         ),
@@ -586,7 +586,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         ),
         MetricSpec(
             key="det_htr_status",
-            label="DET HTR STATUS",
+            label="DET",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HDS"),
             render="status_light",
         ),
@@ -632,16 +632,25 @@ def _ob_hk_specs() -> list[MetricSpec]:
 
 
 def _render_metric_grid(*, specs: list[MetricSpec], columns: int, pills: list[MetricPill]) -> None:
-    with ui.grid(columns=columns).classes("w-full gap-2"):
+    # Read theme palette for metric font sizes
+    palette = getattr(app.state, "theme_palette", None)
+    label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+    value_size = app_theme.ui_font_size(palette.get("metric_value_size") if isinstance(palette, dict) else None)
+
+    with ui.grid(columns=columns).classes("w-full gap-0"):
         for spec in specs:
             if spec.render == "error_chip":
                 chip = ui.chip(spec.chip_text or spec.label, color="grey").props("dense").classes("w-fit")
+                chip.style(f"font-size: {value_size}")
                 pills.append(MetricPill(spec=spec, chip=chip))
             else:
                 with ui.column().classes("items-center gap-0"):
-                    ui.label(spec.label).classes("text-xs")
-                    chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
-                    pills.append(MetricPill(spec=spec, chip=chip))
+                    with ui.row().classes("gap-1 items-center"):
+                        lbl_elem = ui.label(spec.label)
+                        lbl_elem.style(f"font-size: {label_size}")
+                        chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
+                        chip.style(f"font-size: {value_size}")
+                        pills.append(MetricPill(spec=spec, chip=chip))
 
 
 def _bind_metric_popups(controller: MetricsCardController) -> None:
@@ -667,7 +676,11 @@ def create_metrics_card(title: str, specs: list[MetricSpec]) -> MetricsCardContr
     pills: list[MetricPill] = []
 
     with ui.card().classes("w-full") as card:
-        ui.label(title).classes("text-sm font-bold")
+        palette = getattr(app.state, "theme_palette", None)
+        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+        title_lbl = ui.label(title)
+        title_lbl.style(f"font-size: {ui_sz}")
+        title_lbl.classes("font-bold")
         _render_metric_grid(specs=specs, columns=5, pills=pills)
 
     controller = MetricsCardController(title=title, pills=pills, card=card)
@@ -679,9 +692,13 @@ def create_default_eb_metrics_card() -> MetricsCardController:
     specs = _eb_hk_specs()
     spec_map = {spec.key: spec for spec in specs}
     pills: list[MetricPill] = []
-
     with ui.card().classes("w-full") as card:
-        ui.label("EB STATUS").classes("text-sm font-bold")
+        palette = getattr(app.state, "theme_palette", None)
+        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+        eb_lbl = ui.label("EB STATUS")
+        eb_lbl.style(f"font-size: {ui_sz}")
+        eb_lbl.classes("font-bold")
+
         _render_metric_grid(
             specs=[
                 spec_map[k]
@@ -702,9 +719,11 @@ def create_default_eb_metrics_card() -> MetricsCardController:
         )
 
         ui.space()
-        ui.label("TEC STATUS").classes("text-sm font-bold")
+        tec_lbl = ui.label("TEC STATUS")
+        tec_lbl.style(f"font-size: {ui_sz}")
+        tec_lbl.classes("font-bold")
         _render_metric_grid(
-            specs=[spec_map[k] for k in ("tec_setpoint", "tec_drive_i", "tec_temp", "tec_dac", "eb_tec_at_setpoint")],
+            specs=[spec_map[k] for k in ("setpoint", "drive_i", "temp", "dac", "eb_at_setpoint")],
             columns=5,
             pills=pills,
         )
@@ -721,9 +740,13 @@ def create_default_ob_metrics_card() -> MetricsCardController:
     pills: list[MetricPill] = []
 
     with ui.card().classes("w-full") as card:
-        ui.label("OB STATUS").classes("text-sm font-bold")
+        palette = getattr(app.state, "theme_palette", None)
+        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+        ob_lbl = ui.label("OB STATUS")
+        ob_lbl.style(f"font-size: {ui_sz}")
+        ob_lbl.classes("font-bold")
         _render_metric_grid(
-            specs=[spec_map[k] for k in ("ob_3v3", "ob_1v5", "ob_dig", "ob_det", "ob_mech", "ob_mtr")],
+            specs=[spec_map[k] for k in ("3v3", "1v5", "dig", "det", "mech", "mtr")],
             columns=6,
             pills=pills,
         )
@@ -738,14 +761,19 @@ def create_default_ob_metrics_card() -> MetricsCardController:
             pills=pills,
         )
         ui.space()
-        ui.label("MOTOR STATUS").classes("text-sm font-bold")
+        motor_lbl = ui.label("MOTOR STATUS")
+        motor_lbl.style(f"font-size: {ui_sz}")
+        motor_lbl.classes("font-bold")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("ob_motor_moving", "ob_direction", "ob_stop", "ob_steps", "ob_mech_cal")],
             columns=5,
             pills=pills,
         )
         ui.space()
-        ui.label("HEATER STATUS").classes("text-sm font-bold")
+        heater_lbl = ui.label("HEATER STATUS")
+        if ui_sz:
+            heater_lbl.style(f"font-size: {ui_sz}")
+        heater_lbl.classes("font-bold")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("mech_htr_status", "mech_manual", "mech_auto")],
             columns=3,
@@ -758,7 +786,9 @@ def create_default_ob_metrics_card() -> MetricsCardController:
             pills=pills,
         )
         ui.space()
-        ui.label("OB ERRORS").classes("text-sm font-bold")
+        err_lbl = ui.label("OB ERRORS")
+        err_lbl.style(f"font-size: {ui_sz}")
+        err_lbl.classes("font-bold")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("err_ipi", "err_ios", "err_icr", "err_mor", "err_tmo", "err_ipa")],
             columns=6,
@@ -791,7 +821,11 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
             ]
             for key, label in fields:
                 with ui.column().classes("flex-1 items-start gap-0") as card_col:
-                    ui.label(label).classes("text-xs self-start")
+                    # use theme-aware label size for packet metric labels
+                    palette = getattr(app.state, "theme_palette", None)
+                    pkt_label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+                    lbl = ui.label(label).classes("self-start")
+                    lbl.style(f"font-size: {pkt_label_size}")
                     chips[key] = (
                         ui.chip("---", color="grey")
                         .props("dense")

@@ -3,9 +3,9 @@ from __future__ import annotations
 # Std library
 from dataclasses import dataclass
 from typing import Any, Callable
-from datetime import datetime
-import numbers
-from matplotlib.ticker import FormatStrFormatter
+import datetime as dt
+from matplotlib import ticker, dates as mdates
+import numpy as np
 
 # Added packages
 from nicegui import app, ui
@@ -58,16 +58,28 @@ def create_plot_card(
         plot_height_class: Tailwind height class for the plot area.
         show_legend: Force legend visibility. Defaults to visible when
             there is more than one series.
+    n_series = len(series)
+
     """
     _HEIGHT_SCALE = {"h-40": ("h-60", (14, 4.5)), "h-60": ("h-96", (14, 5.25))}
     if plot_height_class in _HEIGHT_SCALE:
         plot_height_class, _figsize = _HEIGHT_SCALE[plot_height_class]
     else:
         _figsize = (14, 5.25)
+
     n_series = len(series)
 
+    # Theme-aware sizes helper (use centralized helpers)
+    from utility_modules import app_theme
+
+    palette = getattr(app.state, "theme_palette", None)
+    ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+    chk_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+
     with ui.card().classes("w-full flex-1"):
-        title_label = ui.label(title).classes("text-sm font-bold")
+        title_label = ui.label(title)
+        title_label.style(f"font-size: {ui_sz}")
+        title_label.classes("font-bold")
         if not show_title:
             title_label.classes(add="hidden")
 
@@ -75,14 +87,12 @@ def create_plot_card(
         if show_toggles:
             with ui.row().classes("w-full flex-wrap gap-x-4 gap-y-1"):
                 for cfg in series:
-                    checkboxes.append(
-                        ui.checkbox(cfg.label, value=cfg.visible)
-                        .props(
-                            f'checked-icon="radio_button_checked" unchecked-icon="radio_button_unchecked" keep-color color="{cfg.color}"'
-                        )
-                        .style(f"color: {cfg.color}")
-                        .classes("text-xs")
+                    cb = ui.checkbox(cfg.label, value=cfg.visible).props(
+                        f'checked-icon="radio_button_checked" unchecked-icon="radio_button_unchecked" keep-color color="{cfg.color}"'
                     )
+                    cb.style(f"font-size: {chk_sz}")
+                    cb.style(f"color: {cfg.color}")
+                    checkboxes.append(cb)
 
         plot = (
             ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
@@ -90,11 +100,25 @@ def create_plot_card(
             .style("width: 100%; min-width: 100%; max-width: none; padding: 0;")
         )
 
+    # access matplotlib axes/figure
     ax = plot.fig.axes[0]
-    # Format x-axis as seconds with 2 decimal places
-    ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+    fig = plot.fig
+
+    # X-axis: show minutes:seconds:milliseconds on ticks
+    def _fmt_x_tick(x, pos):
+        try:
+            dt = mdates.num2date(x)
+            ms = dt.microsecond // 1000
+            return f"{dt.strftime('%M:%S')}"
+        except Exception:
+            return ""
+
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(_fmt_x_tick))
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(6))
+    # let the global theme control grid color/width/alpha
+    ax.grid(True, which="major")
     ax.tick_params(labelsize=22)
-    ax.grid(True, alpha=1, linewidth = 3)
 
     lines = list(ax.lines)
     for line, cfg in zip(lines, series):
@@ -106,7 +130,47 @@ def create_plot_card(
     legend_visible = (n_series > 1) if show_legend is None else bool(show_legend)
     series_labels = [cfg.label for cfg in series]
 
+    def _apply_footer_style() -> None:
+        """Apply theme-aware color and size to the footer text."""
+        try:
+            palette = getattr(app.state, "theme_palette", None)
+            # determine color
+            color = None
+            size = None
+            if isinstance(palette, dict):
+                color = palette.get("plot_footer") or palette.get("plot_legend")
+                size = palette.get("plot_footer_size")
+
+            if size is None:
+                # derive from axis tick label size if available
+                try:
+                    ticks = ax.xaxis.get_ticklabels()
+                    if ticks:
+                        size = ticks[0].get_fontsize()
+                    else:
+                        size = 12
+                except Exception:
+                    size = 12
+            if color is not None:
+                footer_text_right.set_color(color)
+            # Use centralized parser to get numeric pt value for matplotlib
+            numeric = app_theme.font_size_px(size)
+            if numeric is not None:
+                try:
+                    footer_text_right.set_fontsize(numeric)
+                except Exception:
+                    pass
+        except Exception:
+            # ignore styling errors
+            pass
+
     def _redraw_plot() -> None:
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(6))
+
+        # redraw grid using theme-controlled styling
+        ax.grid(True, which="major")
+        _apply_footer_style()
+        _update_footer_time()
         plot.fig.canvas.draw_idle()
         plot.fig.canvas.draw()
         convert = getattr(plot, "_convert_to_html", None)
@@ -120,10 +184,10 @@ def create_plot_card(
         if legend is None or not isinstance(palette, dict):
             return
         frame = legend.get_frame()
-        frame.set_facecolor(palette.get("plot_bg", "white"))
-        frame.set_edgecolor(palette.get("plot_spine", "black"))
+        frame.set_facecolor(palette.get("plot_bg"))
+        frame.set_edgecolor(palette.get("plot_spine"))
         for text in legend.get_texts():
-            text.set_color(palette.get("plot_legend", "black"))
+            text.set_color(palette.get("plot_legend"))
 
     def _refresh_legend() -> None:
         legend = ax.get_legend()
@@ -147,8 +211,6 @@ def create_plot_card(
         _refresh_legend()
 
     stream_enabled = True
-    # Track the first time sample seen for this plot (used to compute seconds offset)
-    first_time: datetime | float | None = None
 
     def _reset_series() -> None:
         for line in lines:
@@ -157,11 +219,57 @@ def create_plot_card(
         ax.autoscale_view(scalex=True, scaley=False)
         _redraw_plot()
 
-    _set_legend(series_labels)
     if y_limits is not None:
         ax.set_ylim(*y_limits)
     top = 0.92 if show_title else 0.98
-    plot.fig.subplots_adjust(left=0.06, right=0.998, top=top, bottom=0.10)
+    # Increase bottom margin to make room for the date/hour footer
+    fig.subplots_adjust(left=0.06, right=0.998, top=top, bottom=0.20)
+    footer_text_right = fig.text(0.995, 0.02, "", ha="right", va="bottom", fontsize=22, color="white")
+    # expose footer on the figure so global theming can style it
+    try:
+        setattr(fig, "_footer_text_right", footer_text_right)
+    except Exception:
+        pass
+
+    def _format_footer_dt(dt_obj: dt.datetime) -> str:
+        return dt_obj.strftime("%Y:%m:%d - %H")
+
+    def _update_footer_time() -> None:
+        try:
+            # Prefer the last sample x-value from plotted lines
+            max_x = None
+            for ln in lines:
+                xd = getattr(ln, "get_xdata", None)
+                if callable(xd):
+                    data = ln.get_xdata()
+                    if len(data) > 0:
+                        xval = float(data[-1])
+                        if max_x is None or xval > max_x:
+                            max_x = xval
+
+            if max_x is None:
+                # Fall back to right axis limit
+                max_x = ax.get_xlim()[1]
+
+            dt_last = mdates.num2date(max_x)
+            footer_text_right.set_text(f"{_format_footer_dt(dt_last)}")
+
+            # Position footer just below the axes bbox to avoid overlap.
+            try:
+                ax_pos = ax.get_position()  # Bbox in figure coordinates
+                footer_y = ax_pos.y0 - 0.01
+                if footer_y < 0.005:
+                    footer_y = 0.005
+                footer_text_right.set_y(footer_y)
+            except Exception:
+                # fallback: keep existing position
+                pass
+        except Exception:
+            footer_text_right.set_text("")
+
+    # Now that footer helpers exist, initialize legend (which triggers redraw)
+    _set_legend(series_labels)
+
 
     if show_toggles:
 
@@ -198,41 +306,8 @@ def create_plot_card(
     def push(time_points: list[Any], series_values: list[list[float]]) -> None:
         """Push one sample per series.  series_values[i] is the list of y-values
         for series i at the corresponding time_points."""
-        if not (stream_enabled and time_points):
-            return
-
-        nonlocal first_time
-
-        converted_x: list[float] = []
-        for tp in time_points:
-            # datetime -> seconds since first_time
-            if isinstance(tp, datetime):
-                if first_time is None or isinstance(first_time, float):
-                    first_time = tp
-                delta = (tp - first_time).total_seconds()
-                converted_x.append(float(delta))
-            # numeric types -> seconds since first_time
-            elif isinstance(tp, numbers.Number):
-                if first_time is None or isinstance(first_time, datetime):
-                    first_time = float(tp)
-                converted_x.append(float(tp - float(first_time)))
-            else:
-                # try parsing ISO-format datetime string then fallback to float
-                try:
-                    parsed = datetime.fromisoformat(str(tp))
-                    if first_time is None or isinstance(first_time, float):
-                        first_time = parsed
-                    converted_x.append((parsed - first_time).total_seconds())
-                except Exception:
-                    try:
-                        f = float(tp)
-                        if first_time is None or isinstance(first_time, datetime):
-                            first_time = f
-                        converted_x.append(float(f - float(first_time)))
-                    except Exception:
-                        converted_x.append(0.0)
-
-        plot.push(converted_x, series_values)
+        if stream_enabled and time_points:
+            plot.push(time_points, series_values)
 
     return PlotCardController(
         plot=plot,

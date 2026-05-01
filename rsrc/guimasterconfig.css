@@ -67,6 +67,22 @@
     --chart-rov-htr: #2f80ed;
     --chart-eb-current: #f2994a;
 
+    /* Typography and sizing (widgets and plots should read these) */
+    --ui-label-size: 0.75rem;
+    --heading-size: 1.25rem;
+    --heading-weight: 700;
+    --metric-label-size: 0.875rem;
+    --metric-value-size: 1.125rem;
+    --body-font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+
+    /* Plot styling (matplotlib will convert these to numeric values) */
+    --plot-font-size: 0.875rem;
+    --plot-footer-size: 0.75rem;
+    --plot-linewidth: 1.0;
+    --plot-grid-alpha: 0.6;
+    --plot-grid-width: 0.6;
+    --plot-tick-size: 10;
+
     /* Limit line colours for plots */
     --limit-warn: #e67e22;
     --limit-alarm: #e74c3c;
@@ -261,10 +277,12 @@ body,
         transform: scale(1);
         box-shadow: 0 0 0 rgba(46, 204, 113, 0.6);
     }
+
     70% {
         transform: scale(1.1);
         box-shadow: 0 0 20px rgba(46, 204, 113, 0.0);
     }
+
     100% {
         transform: scale(1);
         box-shadow: 0 0 0 rgba(46, 204, 113, 0.0);
@@ -276,10 +294,12 @@ body,
         transform: scale(1);
         box-shadow: 0 0 0 rgba(231, 76, 60, 0.8);
     }
+
     60% {
         transform: scale(1.2);
         box-shadow: 0 0 28px rgba(231, 76, 60, 0.0);
     }
+
     100% {
         transform: scale(1);
         box-shadow: 0 0 0 rgba(231, 76, 60, 0.0);
@@ -287,14 +307,36 @@ body,
 }
 
 /* Quasar chip status colour overrides — sources all chip colours from CSS variables */
-.q-chip.bg-green { background-color: var(--status-ok) !important; }
-.q-chip.bg-red   { background-color: var(--status-alarm) !important; }
-.q-chip.bg-blue  { background-color: var(--status-info) !important; }
+.q-chip.bg-green {
+    background-color: var(--status-ok) !important;
+}
+
+.q-chip.bg-red {
+    background-color: var(--status-alarm) !important;
+}
+
+.q-chip.bg-blue {
+    background-color: var(--status-info) !important;
+}
+
 .q-chip.bg-grey,
-.q-chip.bg-gray  { background-color: var(--status-neutral) !important; }
+.q-chip.bg-gray {
+    background-color: var(--status-neutral) !important;
+}
 
 /* Quasar radio/toggle level-indicator colour overrides */
-.q-radio__inner--truthy.text-grey   { color: var(--log-debug)    !important; }
-.q-radio__inner--truthy.text-blue   { color: var(--log-info)     !important; }
-.q-radio__inner--truthy.text-orange { color: var(--log-warning)  !important; }
-.q-radio__inner--truthy.text-red    { color: var(--log-error)    !important; }
+.q-radio__inner--truthy.text-grey {
+    color: var(--log-debug) !important;
+}
+
+.q-radio__inner--truthy.text-blue {
+    color: var(--log-info) !important;
+}
+
+.q-radio__inner--truthy.text-orange {
+    color: var(--log-warning) !important;
+}
+
+.q-radio__inner--truthy.text-red {
+    color: var(--log-error) !important;
+}
