@@ -25,6 +25,7 @@ from widget_modules import (
     mechanism_tab,
     menu_widget,
     metrics_card_widget,
+    packet_list_widget,
     packet_viewer_widget,
     psu_widget,
     plot_widget,
@@ -150,9 +151,13 @@ def build_ui(
             with ui.left_drawer(value=True).props("width=400 no-swipe-open no-swipe-close"):
                 palette = getattr(app.state, "theme_palette", None)
                 pv_title_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
-                lbl = ui.label("Packet Viewers")
-                lbl.style(f"font-size: {pv_title_sz}")
-                lbl.classes("font-bold p-2")
+
+                # Header with title and packet list button
+                with ui.row().classes("w-full items-center justify-between"):
+                    lbl = ui.label("Packet Viewers")
+                    lbl.style(f"font-size: {pv_title_sz}")
+                    lbl.classes("font-bold p-2")
+                    packet_list_controller = packet_list_widget.create_packet_list(state, {})
                 with ui.tabs().classes("w-full") as packet_tabs:
                     tab_eb_hk = ui.tab("EB HK")
                     tab_eb_post = ui.tab("EB POST")
@@ -186,6 +191,11 @@ def build_ui(
                         pv_controllers["OB_SCI"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="OB_SCI"
                         )
+
+                # Update packet list controller with references to packet viewers
+                if packet_list_controller is not None:
+                    packet_list_controller.packet_viewer_controllers = pv_controllers
+                    state["packet_list_controller"] = packet_list_controller
 
                 panel_by_profile = {
                     "EB_HK": panel_eb_hk,
@@ -313,33 +323,33 @@ def build_ui(
             state["plot_refreshers"].append(set_psu_card_profiles)
             set_psu_card_profiles(state["mode"])
             with ui.row().classes("w-full gap-4"):
-                    trp_card = plot_widget.create_plot_card(
-                        "Thermistors",
-                        series=[
-                            plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
-                            plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
-                            plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
-                            plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
-                        ],
-                        y_label="°C",
-                        y_limits=(-30.0, 80.0),
-                        show_toggles=True,
-                    )
-                    state["plot_refreshers"].append(trp_card.set_mode)
-                    trp_card.set_mode(state["mode"])
-                    
-                    voltage_card = plot_widget.create_plot_card(
-                        "Voltages",
-                        series=[
-                            plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
-                            plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
-                        ],
-                        y_label="V",
-                        y_limits=(3, 4),
-                        show_toggles=True,
-                    )
-                    state["plot_refreshers"].append(voltage_card.set_mode)
-                    voltage_card.set_mode(state["mode"])
+                trp_card = plot_widget.create_plot_card(
+                    "Thermistors",
+                    series=[
+                        plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
+                        plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
+                        plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
+                        plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
+                    ],
+                    y_label="°C",
+                    y_limits=(-30.0, 80.0),
+                    show_toggles=True,
+                )
+                state["plot_refreshers"].append(trp_card.set_mode)
+                trp_card.set_mode(state["mode"])
+
+                voltage_card = plot_widget.create_plot_card(
+                    "Voltages",
+                    series=[
+                        plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
+                        plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
+                    ],
+                    y_label="V",
+                    y_limits=(3, 4),
+                    show_toggles=True,
+                )
+                state["plot_refreshers"].append(voltage_card.set_mode)
+                voltage_card.set_mode(state["mode"])
 
             return [ch1_card, ch2_card, ch3_card, ch4_card], trp_card, voltage_card
 

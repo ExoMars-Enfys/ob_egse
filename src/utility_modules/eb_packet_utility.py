@@ -515,10 +515,9 @@ def merge_sci_data_packet(param):
 
 # Utility functions for ADU to temp conversion of specific fields
 # OB
-def decode_ob_trps(adu):
-    """Convert a thermistor ADU value to temperature in Celsius using the linear conversion defined by the HKREF voltage divider circuitry and an estimation formula using a PT1000 table."""
+def adu_to_temp(adu):
     res = (adu / (4095 - adu)) * 1000
-    temp = (0.2559552953839863 * res) - 255.7247996594076
+    temp = -244.213 + 0.39242 * res - 0.00010803 * (res**2) + 1.1553e-8 * (res**3)
     return temp
 
 

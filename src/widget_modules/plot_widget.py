@@ -73,7 +73,7 @@ def create_plot_card(
     from utility_modules import app_theme
 
     palette = getattr(app.state, "theme_palette", None)
-    ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
+    ui_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
     chk_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
 
     with ui.card().classes("w-full flex-1"):
@@ -269,7 +269,6 @@ def create_plot_card(
 
     # Now that footer helpers exist, initialize legend (which triggers redraw)
     _set_legend(series_labels)
-
 
     if show_toggles:
 

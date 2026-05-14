@@ -1155,8 +1155,17 @@ def _update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_ca
         voltage_card.push([time_value], [[v] for v in voltage_vals])
 
 
-def _update_packet_viewer(mode: str, packet_viewer_controllers: dict[str, Any], hk: Any) -> None:
-    packet_viewer_controllers["OB_HK" if mode == "OB" else "EB_HK"].update_from_packet(hk)
+def _update_packet_viewer(
+    mode: str, packet_viewer_controllers: dict[str, Any], hk: Any, packet_list_controller: Any = None
+) -> None:
+    packet_type = "OB_HK" if mode == "OB" else "EB_HK"
+    packet_viewer_controllers[packet_type].update_from_packet(hk)
+
+    # Add to packet list if available
+    if packet_list_controller is not None:
+        packet_data = hk.__dict__ if hasattr(hk, "__dict__") else (dict(hk) if isinstance(hk, dict) else {})
+        label = f"TM: {packet_type}"
+        packet_list_controller.add_packet(packet_type, packet_data, label)
 
 
 def _drain_packet_queue(queue: Any, handler: Any) -> None:
@@ -1449,7 +1458,8 @@ def create_poll_tm(
                             logger.exception("Could not schedule MMS task: %s", exc)
 
             _update_plot_cards(state, hk, trp_card, voltage_card)
-            _update_packet_viewer(mode, packet_viewer_controllers, hk)
+            packet_list_controller = state.get("packet_list_controller")
+            _update_packet_viewer(mode, packet_viewer_controllers, hk, packet_list_controller)
 
         # In static/mock-log runs, HK may stop updating. Keep replay time moving so
         # PSU log playback can continue even without fresh HK packets.
@@ -1491,6 +1501,17 @@ def create_poll_tm(
                             packet_viewer_controllers["EB_POST"].update_from_packet(post)
                         except Exception:
                             logger.debug("Failed to update EB_POST packet viewer")
+
+                    # Add to packet list if available
+                    packet_list_controller = state.get("packet_list_controller")
+                    if packet_list_controller is not None:
+                        post_data = (
+                            post.__dict__
+                            if hasattr(post, "__dict__")
+                            else (dict(post) if isinstance(post, dict) else {})
+                        )
+                        label = "TM: Post"
+                        packet_list_controller.add_packet("EB_POST", post_data, label)
 
         # Process SCI packets: drain, dedupe by identity, append and increment per new unique SCI
         if not const.sci_queue.empty():
@@ -1566,7 +1587,20 @@ def create_poll_tm(
                 viewer_key = "OB_SCI" if mode == "OB" else "EB_SCI"
                 if viewer_key in packet_viewer_controllers and sci_packets:
                     try:
-                        packet_viewer_controllers[viewer_key].update_from_packet(sci_packets[-1])
+                        latest_sci = sci_packets[-1]
+                        packet_viewer_controllers[viewer_key].update_from_packet(latest_sci)
+
+                        # Add to packet list if available
+                        packet_list_controller = state.get("packet_list_controller")
+                        if packet_list_controller is not None:
+                            sci_data = (
+                                latest_sci.__dict__
+                                if hasattr(latest_sci, "__dict__")
+                                else (dict(latest_sci) if isinstance(latest_sci, dict) else {})
+                            )
+                            packet_num = getattr(latest_sci, "PACKET_NUMBER", "")
+                            label = f"TM: Science (pkt {packet_num})" if packet_num else "TM: Science"
+                            packet_list_controller.add_packet(viewer_key, sci_data, label)
                     except Exception:
                         logger.debug("Failed to update SCI packet viewer")
 

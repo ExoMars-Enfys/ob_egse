@@ -564,6 +564,12 @@ def _ob_hk_specs() -> list[MetricSpec]:
             render="state_chip",
             chip_text="CAL",
         ),
+        MetricSpec(key="mtr_current", label="CUR", getter=lambda hk: f"{getattr(hk, 'OB_MOTOR_CURRENT', None):02X}"),
+        MetricSpec(
+            key="guard_select", label="GUARD", getter=lambda hk: f"{getattr(hk, 'OB_MOTOR_GUARD_TIME', None):02X}"
+        ),
+        MetricSpec(key="mtr_chop", label="CHOP", getter=lambda hk: f"{getattr(hk, 'OB_MOTOR_RECVAL', None):02X}"),
+        MetricSpec(key="mtr_speed", label="SPEED", getter=lambda hk: f"{getattr(hk, 'OB_SPEED', None):02X}"),
         MetricSpec(
             key="mech_htr_status",
             label="MECH",
@@ -723,7 +729,7 @@ def create_default_eb_metrics_card() -> MetricsCardController:
         tec_lbl.style(f"font-size: {ui_sz}")
         tec_lbl.classes("font-bold")
         _render_metric_grid(
-            specs=[spec_map[k] for k in ("setpoint", "drive_i", "temp", "dac", "eb_at_setpoint")],
+            specs=[spec_map[k] for k in ("setpoint", "drive_i", "temp", "dac", "eb_tec_at_setpoint")],
             columns=5,
             pills=pills,
         )
@@ -767,6 +773,11 @@ def create_default_ob_metrics_card() -> MetricsCardController:
         _render_metric_grid(
             specs=[spec_map[k] for k in ("ob_motor_moving", "ob_direction", "ob_stop", "ob_steps", "ob_mech_cal")],
             columns=5,
+            pills=pills,
+        )
+        _render_metric_grid(
+            specs=[spec_map[k] for k in ("mtr_current", "guard_select", "mtr_chop", "mtr_speed")],
+            columns=4,
             pills=pills,
         )
         ui.space()
@@ -823,7 +834,9 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
                 with ui.column().classes("flex-1 items-start gap-0") as card_col:
                     # use theme-aware label size for packet metric labels
                     palette = getattr(app.state, "theme_palette", None)
-                    pkt_label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+                    pkt_label_size = app_theme.ui_font_size(
+                        palette.get("metric_label_size") if isinstance(palette, dict) else None
+                    )
                     lbl = ui.label(label).classes("self-start")
                     lbl.style(f"font-size: {pkt_label_size}")
                     chips[key] = (

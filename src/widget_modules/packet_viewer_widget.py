@@ -373,16 +373,19 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
         packet_type_label.style(f"font-size: {ui_sz}")
         packet_type_label.classes("font-bold")
         if selected_type != "EB_SCI":
-            with ui.scroll_area().classes("w-full h-80 overflow-x-hidden"):
-                with ui.column().classes("w-full gap-1"):
-                    for _ in range(max_rows):
-                        with ui.row().classes("w-full min-w-0 justify-between gap-3"):
-                            name_lbl = ui.label("").classes("font-mono break-all min-w-0")
-                            val_lbl = ui.label("").classes("font-mono text-right shrink-0")
-                            name_lbl.style(f"font-size: {small_sz}")
-                            val_lbl.style(f"font-size: {small_sz}")
-                            field_name_labels.append(name_lbl)
-                            field_value_labels.append(val_lbl)
+            # Use a flexible column (no fixed height / scroll area) so the
+            # viewer expands to the full packet length instead of forcing an
+            # inner scrollbar. Rows are created to the maximum needed size so
+            # the controller can reuse them when switching packet types.
+            with ui.column().classes("w-full gap-1"):
+                for _ in range(max_rows):
+                    with ui.row().classes("w-full min-w-0 justify-between gap-3"):
+                        name_lbl = ui.label("").classes("font-mono break-all min-w-0")
+                        val_lbl = ui.label("").classes("font-mono text-right shrink-0")
+                        name_lbl.style(f"font-size: {small_sz}")
+                        val_lbl.style(f"font-size: {small_sz}")
+                        field_name_labels.append(name_lbl)
+                        field_value_labels.append(val_lbl)
 
         if selected_type == "EB_SCI":
             ui.separator()
