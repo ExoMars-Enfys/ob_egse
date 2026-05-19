@@ -517,7 +517,7 @@ def merge_sci_data_packet(param):
 # OB
 def adu_to_temp(adu):
     res = (adu / (4095 - adu)) * 1000
-    temp = -244.213 + 0.39242 * res - 0.00010803 * (res**2) + 1.1553e-8 * (res**3)
+    temp = (0.2559552953839863 * res) - 255.7247996594076
     return temp
 
 

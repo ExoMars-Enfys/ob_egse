@@ -214,30 +214,7 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.en_mech_board(interface, 0x1)
     ebtcs.set_motor_configs(interface, 0, 0x40, 0x00, 0x08, 0x00, 0x00, 0x3C, 0x00, 0x0000, 0x00)
     ebtcs.ob_homing(interface, 0x01)
-    # Wait until homing is completed
-    homing_timeout_s = 60.0
-    start_time = time.monotonic()
-    latest_hk = const.hk_queue.get(timeout=2.0)
-    homing_complete = getattr(latest_hk.INSTRUMENT_STATUS_FLAGS, "HOMING_COMPLETE", 0)
-    if homing_complete == 0:
-        while homing_complete == 0:
-            time.sleep(1)  # Sleep briefly to avoid tight loop if HK updates are very frequent
-            latest_hk = const.hk_queue.get(timeout=2.0)
-            latest_psu = const.psu_queue.get(timeout=2.0)
-            hk_time = getattr(latest_hk, "TIME", None)
-            homing_complete = getattr(latest_hk.INSTRUMENT_STATUS_FLAGS, "HOMING_COMPLETE", 0)
-            ch4_current_ma = ui_runtime_controller.consumption_check(["State2", "Mech","Moving"], latest_psu, [])
-            info_log.info(
-                f"Polling HK for HOMING_COMPLETE flag... Current value: {homing_complete}, HK TIME: {hk_time}"
-            )
-
-            if homing_complete == 1:
-                break
-            if time.monotonic() - start_time > homing_timeout_s:
-                info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited 60s)")
-                ui_runtime_controller.notify_negative("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
-                raise TimeoutError("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
-    ui_runtime_controller.notify_positive(f"HOMING_COMPLETE flag detected in HK telemetry. {homing_complete}")
+    ui_runtime_controller.perform_homing_check_sync()
 
     # ?Turn on TEC - State 2 + Mech Board ON + TEC at 1A
     ebtcs.set_tec_current(interface, 0x00, 0xFFF)
@@ -312,50 +289,8 @@ def run_fft(verification: bool = True) -> None:
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
-    # Verification: Check transition into and out of acquisition, and science packet
     if verification:
-        errors = []
-        # Wait for entering acquisition state
-        entered_acquisition = False
-        while True:
-            try:
-                latest_hk = const.hk_queue.get(timeout=2.0)
-            except Empty:
-                continue
-            state = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
-            if state == "ACQUISITION":
-                entered_acquisition = True
-                break
-        if not entered_acquisition:
-            errors.append("Did not enter ACQUISITION state.")
-        # Wait for exit from acquisition (i.e., state changes from ACQUISITION)
-        exited_acquisition = False
-        while True:
-            try:
-                latest_hk = const.hk_queue.get(timeout=2.0)
-            except Empty:
-                continue
-            state = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
-            if state != "ACQUISITION":
-                exited_acquisition = True
-                break
-        if not exited_acquisition:
-            errors.append("Did not exit ACQUISITION state.")
-        # Check for science packet (assume science packets are in const.sci_queue)
-        found_science = False
-        try:
-            sci_packet = const.sci_queue.get(timeout=2.0)
-            found_science = sci_packet is not None
-        except Empty:
-            found_science = False
-        if not found_science:
-            errors.append("No science packet found after acquisition.")
-        if errors:
-            count = len(errors)
-            numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-            msg = f"Acquisition verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
-            ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+        ui_runtime_controller.perform_acq_check_sync()
 
     ebtcs.set_hk_rate(interface, 0, 1)
     ebtcs.en_mech_heater(interface, 0x0)
@@ -372,6 +307,7 @@ def run_fft(verification: bool = True) -> None:
 
     ebtcs.set_motor_configs(interface, 0, 0x40, 0x00, 0x08, 0x00, 0x00, 0x3C, 0x00, 0x0000, 0x00)
     ebtcs.ob_homing(interface, 0x01)
+    ui_runtime_controller.perform_homing_check_sync()
 
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
@@ -423,12 +359,12 @@ def run_fft(verification: bool = True) -> None:
 
     ebtcs.set_tec_setpoint(interface, 0x0, 0xC018)
     ebtcs.set_acq_configs(
-        interface, 0x01, 0x00, 0x0000, 0x03E8, 0x05DC, 0x0005, 0x0, 0x02, 0x1, 0x1, 0x1, 0x1, 0x00, 0x02
+        interface, 0x01, 0x00, 0x0000, 0x0064, 0x0078, 0x0005, 0x0, 0x02, 0x1, 0x1, 0x1, 0x1, 0x00, 0x02
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
-    #!Add Sci check
-
+    if verification:
+        ui_runtime_controller.perform_acq_check_sync()
 
     ui_runtime_controller.request_force_pause(f"Remove Baffle Hat and continue with acquisition. Click to continue once ready.")
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -438,9 +374,10 @@ def run_fft(verification: bool = True) -> None:
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
-
-    #!Add Sci check
+    if verification:
+        ui_runtime_controller.perform_acq_check_sync()
 
     ebtcs.safe(interface, 0)
-
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+    # End of FFT
+    ui_runtime_controller.notify_script_done()

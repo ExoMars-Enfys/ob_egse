@@ -170,7 +170,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                     ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
                     rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
 
-                    if on_since is not None and time.monotonic() - on_since < 0.5:
+                    if on_since is not None and time.monotonic() - on_since < 1:
                         continue
 
                     # CH3 (ROV HTR) checks always apply

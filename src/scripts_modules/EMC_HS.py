@@ -13,7 +13,7 @@ info_log = logging.getLogger("info_log")
 ebtcs.EBTCS_VERIFY_ENABLED = False
 
 
-def run_emc_hs(verification : bool = True) -> None:
+def run_emc_hs(verification : bool = False) -> None:
     interface = eb_interface.get_egse_interface()
 
     # Set delay between TCs (t 500 in script, but handled by ebtcs flow control)
@@ -80,7 +80,7 @@ def run_emc_hs(verification : bool = True) -> None:
         0x01,  # ACQ_MODE: Fixed
         0x00,  # SCI_AVG: 0
         0x0000,  # RESERVED: 0
-        0x01F4,  # ACQ_SAMPLE_TIME: 500ms
+        0x0064,  # ACQ_SAMPLE_TIME: 500ms
         0x0708,  # ACQ_DURATION: 30m
         0x0005,  # ACQ_START_POINT
         0x0,  # ACQ_END_POINT
@@ -88,7 +88,7 @@ def run_emc_hs(verification : bool = True) -> None:
         0x1,  # PARK_MODE: Park at end
         0x1,  # CURRENT_SOL: 1
         0x2,  # MEAS_ID : 2
-        i,  # RUN_NO: i
+        0x1,  # RUN_NO: i
         0x01,  # CRITICALITY
         0x02,  # MEAS_TABLE: 2
     )
