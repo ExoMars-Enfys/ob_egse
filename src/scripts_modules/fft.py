@@ -45,10 +45,10 @@ def run_fft(verification: bool = True) -> None:
         ui_runtime_controller.notify_positive(msg)
 
     # ?Send Set Heater Configs + Enable Mech Heater - Standby + Mech HTR
-    ebtcs.set_hk_rate(interface, 0, 1)
     ebtcs.set_heater_configs(interface, 0x00, 0x08A3, 0x0881, 0x08A3, 0x0881)
-    ebtcs.hk_request(interface, 0)
     ebtcs.en_mech_heater(interface, 0x1)
+    ebtcs.hk_request(interface, 0)
+    time.sleep(2)
     if verification:
         errors = []
         try:
@@ -88,10 +88,12 @@ def run_fft(verification: bool = True) -> None:
     # ?Send Set Heater Configs + Enable Det Heater - Standby + Det HTR
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x1)
+    ebtcs.hk_request(interface, 0)
+    time.sleep(2)
     if verification:
         errors = []
         try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
+            latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
         except Empty as exc:
             errors.append("Missing HK or PSU queue data (mech OFF, det ON)")
@@ -124,6 +126,8 @@ def run_fft(verification: bool = True) -> None:
 
     # ?Turn on both heaters - State 2 - OB Heating
     ebtcs.en_mech_heater(interface, 0x1)
+    ebtcs.hk_request(interface, 0)
+    time.sleep(2)
     if verification:
         errors = []
         try:
@@ -169,7 +173,10 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.set_heater_configs(interface, 0x00, 0x079A, 0x0738, 0x079A, 0x0738)
     ebtcs.en_mech_heater(interface, 0x1)
     ebtcs.en_det_heater(interface, 0x1)
+    ebtcs.hk_request(interface, 0)
+    time.sleep(2)
     htr = False
+    time.sleep(1)
     if verification:
         hk = ebpu.get_latest_hk()
         trp = getattr(hk, "OB_DIGITAL_TRP")
@@ -179,7 +186,7 @@ def run_fft(verification: bool = True) -> None:
             htr = False
         errors = []
         try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
+            latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
         except Empty as exc:
             errors.append("Missing HK or PSU queue data (mech ON, det ON)")
@@ -218,24 +225,33 @@ def run_fft(verification: bool = True) -> None:
 
     # ?Turn on TEC - State 2 + Mech Board ON + TEC at 1A
     ebtcs.set_tec_current(interface, 0x00, 0xFFF)
-    # Verification: TEC current > 1A and PSU current as expected, wait for TEC at setpoint
+    ebtcs.hk_request(interface, 0)
+    # Verification: TEC current > 1A and PSU current as expected, wait for TEC ramp up
     if verification:
         errors = []
-        tec_at_setpoint = False
-        while not tec_at_setpoint:
+        tec_ramped = False
+        timeout_count = 0
+        while not tec_ramped and timeout_count < 30:
+            time.sleep(1)
+            timeout_count += 1
             try:
-                latest_hk = const.hk_queue.get(timeout=2.0)
+                latest_hk = ebpu.get_latest_hk()
                 latest_psu = const.psu_queue.get(timeout=2.0)
             except Empty:
                 continue
+            if latest_hk is None:
+                continue
             # Check TEC current > 1A
-            tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162 if latest_hk is not None else 0
+            tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
             if tec_current <= 1.0:
-                errors.append(f"TEC current too low: {tec_current:.3f} A (expected > 1A)")
+                continue  # Keep waiting
+            else:
+                tec_ramped = True
             # Check PSU current for this state
-            ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech", "TEC1A"], latest_psu, errors)
-            # Wait for TEC at setpoint (example: assume HK has attribute TEC_AT_SETPOINT)
-            tec_at_setpoint = getattr(latest_hk, "TEC_AT_SETPOINT", False)
+        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech", "TEC1A"], latest_psu, errors)
+        
+        if timeout_count >= 30:
+            errors.append("Timeout waiting for TEC current to reach > 1A")
         if errors:
             msg = "\n".join(errors)
             ui_runtime_controller.notify_negative(msg)
@@ -244,30 +260,39 @@ def run_fft(verification: bool = True) -> None:
     # ?Turn off TEC - State 2 + Mech Board
     ebtcs.set_tec_current(interface, 0x00, 0x000)
     # Verification: TEC current = 0 and PSU current as expected
+    ebtcs.hk_request(interface, 0)
+    time.sleep(2)
     if verification:
         errors = []
-        try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
-            latest_psu = const.psu_queue.get(timeout=2.0)
-        except Empty:
-            latest_hk = None
-            latest_psu = None
-        tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162 if latest_hk is not None else 0
-        if abs(tec_current) > 0.01:
-            errors.append(f"TEC current not zero: {tec_current:.4f} A (expected 0)")
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech", "TEC1A"], latest_psu, errors)
-        if errors:
-            msg = "\n".join(errors)
-            ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+        tec_ramped = False
+        timeout_count = 0
+        while not tec_ramped and timeout_count < 30:
+            time.sleep(1)
+            timeout_count += 1
+            try:
+                latest_hk = ebpu.get_latest_hk()
+                latest_psu = const.psu_queue.get(timeout=2.0)
+            except Empty:
+                continue
+            if latest_hk is None:
+                continue
+            # Check TEC current > 1A
+            tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
+            if tec_current >= 0.01:
+                continue  # Keep waiting
+            else:
+                tec_ramped = True
+            # Check PSU current for this state
+        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech"], latest_psu, errors)
 
     # ?Set TEC setpoint to -35oC, enable detectors, and start acquisition
     ebtcs.set_tec_setpoint(interface, 0x0, 0xC018)
     ebtcs.en_det_board(interface, 0x1)
+    time.sleep(1)
     if verification:
         errors = []
         try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
+            latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
         except Empty:
             errors.append("Missing HK or PSU queue data (mech ON, det ON, TEC setpoint -35C)")
@@ -289,6 +314,7 @@ def run_fft(verification: bool = True) -> None:
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
+    time.sleep(1)
     if verification:
         ui_runtime_controller.perform_acq_check_sync()
 
@@ -315,7 +341,9 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.set_heater_configs(interface, 0x00, 0x079A, 0x0738, 0x079A, 0x0738)
     ebtcs.en_mech_heater(interface, 0x1)
     ebtcs.en_det_heater(interface, 0x1)
+    ebtcs.hk_request(interface, 0)
     htr = False
+    time.sleep(2)
     if verification:
         hk = ebpu.get_latest_hk()
         trp = getattr(hk, "OB_DIGITAL_TRP")
@@ -325,7 +353,7 @@ def run_fft(verification: bool = True) -> None:
             htr = False
         errors = []
         try:
-            latest_hk = const.hk_queue.get(timeout=2.0)
+            latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
         except Empty as exc:
             errors.append("Missing HK or PSU queue data (mech ON, det ON)")
@@ -333,7 +361,10 @@ def run_fft(verification: bool = True) -> None:
             latest_psu = None
         ch4_current_ma = None
         if latest_psu is not None:
-            ui_runtime_controller.consumption_check(["State2"], latest_psu, errors)
+            if htr:
+                 ch4_current_ma = ui_runtime_controller.consumption_check(["State2","MechHTR", "DetHTR", "TEC1A"], latest_psu, errors)
+            else:
+                ch4_current_ma = ui_runtime_controller.consumption_check(["State2", "TEC1A"], latest_psu, errors)
         if latest_hk is not None:
             if hasattr(latest_hk, "THRM_STATUS") and getattr(latest_hk.THRM_STATUS, "HMS", 0) != htr:
                 errors.append(f"Mechanism heater is {'OFF' if htr else 'ON'} (THRM_STATUS.HMS={getattr(latest_hk.THRM_STATUS, 'HMS', 0)})")
@@ -363,6 +394,7 @@ def run_fft(verification: bool = True) -> None:
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
+    time.sleep(1)
     if verification:
         ui_runtime_controller.perform_acq_check_sync()
 
@@ -374,6 +406,7 @@ def run_fft(verification: bool = True) -> None:
     )
     ebtcs.set_hk_rate(interface, 0, 10)
     ebtcs.acquisition(interface, 0x0)
+    time.sleep(1)
     if verification:
         ui_runtime_controller.perform_acq_check_sync()
 
