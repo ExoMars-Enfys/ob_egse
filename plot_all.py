@@ -9,6 +9,10 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta
 
+# Ensure Unicode characters (e.g. box-drawing) survive PowerShell piping
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import numpy as np
 import matplotlib as mpl
 try:
@@ -484,6 +488,70 @@ class ClickHandler:
 # and should not be flagged as temperature anomalies.
 _TEMP_JUMP_EXCLUDE = {"EB_PELTIER"}
 
+# Fields to skip when reporting error states (padding/unused bits)
+_ERROR_FLAGS_SKIP = {"RESERVED"}
+_OB_ERROR_SKIP = {"UNUSED1", "UNUSED2"}
+_MTR_ERROR_SKIP = {"UNUSED"}
+
+
+def detect_error_states(hk_packets):
+    """Detect transitions in EB error flags, OB errors, and motor errors.
+
+    Returns a list of (timestamp, eb_flags, ob_errors, mtr_errors) tuples,
+    one entry per state change.  Each *_flags/*_errors is a sorted list of
+    flag names whose value is 1.  An entry with all-empty lists means all
+    errors cleared.
+    """
+    events = []
+    prev_eb = frozenset()
+    prev_ob = frozenset()
+    prev_mtr = frozenset()
+
+    for hk in hk_packets:
+        eb_ns  = getattr(hk, "ERROR_FLAGS_BITS", None)
+        ob_ns  = getattr(hk, "ERRORS", None)
+        mtr_ns = getattr(hk, "MTR_ERRORS", None)
+
+        eb = frozenset(
+            k for k, v in vars(eb_ns).items()
+            if v == 1 and k not in _ERROR_FLAGS_SKIP
+        ) if eb_ns is not None else frozenset()
+
+        ob = frozenset(
+            k for k, v in vars(ob_ns).items()
+            if v == 1 and k not in _OB_ERROR_SKIP
+        ) if ob_ns is not None else frozenset()
+
+        mtr = frozenset(
+            k for k, v in vars(mtr_ns).items()
+            if v == 1 and k not in _MTR_ERROR_SKIP
+        ) if mtr_ns is not None else frozenset()
+
+        if eb != prev_eb or ob != prev_ob or mtr != prev_mtr:
+            events.append((hk.TIME, sorted(eb), sorted(ob), sorted(mtr)))
+            prev_eb, prev_ob, prev_mtr = eb, ob, mtr
+
+    return events
+
+
+def _print_error_states_section(events):
+    any_set = [e for e in events if e[1] or e[2] or e[3]]
+    if not any_set:
+        print("  (none)")
+        return
+    for ts, eb, ob, mtr in events:
+        parts = []
+        if eb:
+            parts.append(f"ERROR_FLAGS: {', '.join(eb)}")
+        if ob:
+            parts.append(f"OB_ERRORS: {', '.join(ob)}")
+        if mtr:
+            parts.append(f"MTR_ERRORS: {', '.join(mtr)}")
+        if parts:
+            print(f"  {ts.strftime('%H:%M:%S')}  {' | '.join(parts)}")
+        else:
+            print(f"  {ts.strftime('%H:%M:%S')}  → all errors cleared")
+
 # Threshold levels to check, ordered most-strict → least-strict.
 # Plot colours: 0.05 → red, 0.025 → orange.
 _JUMP_FRACS = (0.05, 0.025)
@@ -565,7 +633,7 @@ def _print_jump_section(label, jumps_by_frac, unit, val_fmt):
               f"(Δ{val_fmt(delta)}{unit})  [{tags}]")
 
 
-def print_anomaly_summary(gaps, temp_jumps, volt_jumps):
+def print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events=None):
     excl = ", ".join(sorted(_TEMP_JUMP_EXCLUDE))
     print(f"\n{'─'*60}")
     print(f"HK ANOMALY SUMMARY  (temp excludes: {excl})")
@@ -580,6 +648,8 @@ def print_anomaly_summary(gaps, temp_jumps, volt_jumps):
     _print_jump_section("Temperature", temp_jumps, "°C", lambda v: f"{v:.2f}")
     print(f"\nVoltage jumps  [thresholds: {', '.join(f'>{_fmt_pct(f)}' for f in sorted(volt_jumps))}]:")
     _print_jump_section("Voltage", volt_jumps, "V", lambda v: f"{v:.3f}")
+    print(f"\nError flag transitions (EB error flags / OB errors / MTR errors):")
+    _print_error_states_section(error_events or [])
     print(f"{'─'*60}\n")
 
 
@@ -694,7 +764,8 @@ def main():
     print(f"HK packets: {len(hk_packets)}")
     hk_timestamps, temp_data, volt_data = build_hk_arrays(hk_packets)
     gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
-    print_anomaly_summary(gaps, temp_jumps, volt_jumps)
+    error_events = detect_error_states(hk_packets)
+    print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events)
 
     acq_configs = extract_acq_configs_tcs(LOG_PATH)
     if acq_configs:
@@ -744,7 +815,8 @@ def main():
         print(f"HK packets: {len(hk_pkts)}")
         ts, td, vd = build_hk_arrays(hk_pkts)
         g, tj, vj = detect_hk_anomalies(ts, td, vd)
-        print_anomaly_summary(g, tj, vj)
+        err_evts = detect_error_states(hk_pkts)
+        print_anomaly_summary(g, tj, vj, err_evts)
 
         acq_cfgs = extract_acq_configs_tcs(LOG_PATH)
         if acq_cfgs:

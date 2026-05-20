@@ -61,6 +61,15 @@ BUS_VOLTAGES = {
 # List of supported OB models
 MODELS = ["DEM", "EM", "PFM", "FS"]
 
+# States whose MODEL_CONSUMPTION values already include heater (OB Heating) power.
+# When one of these states is used in consumption_check, heater sub-states (MechHTR/DetHTR)
+# must NOT be added again from verify_heater_states — they are already baked in.
+# State2 = OB Heating
+# State3 = OB Heating + Powered On
+# State4 = OB Heating + Powered On + TEC at 1A
+# State7 = All Active (OB Heating + Powered On + TEC at 1A + Moving)
+HEATER_INCLUSIVE_STATES: frozenset[str] = frozenset({"State2", "State3", "State4", "State7"})
+
 # Power consumption (mA) per state for each model
 # State Map :
 # State1 : Safe
@@ -78,6 +87,7 @@ MODEL_CONSUMPTION = {
         "State3": 179,
         "State4": 327,
         "State5": 266,
+        "State6": 210,
         "State7": 380,
         "Standby": 101,
         "Mech": 4,
