@@ -21,10 +21,7 @@ def run_emc_init(verification: bool = True) -> None:
     if verification:
         msg, passed = ui_runtime_controller.verify_safe_ret()
         if not passed:
-            ui_runtime_controller.notify_negative(msg)
             raise AssertionError(f"SAFE RET verification failed:\n{msg}")
-        else:
-            ui_runtime_controller.notify_positive(msg)
 
     time.sleep(2)
     # Transition to Standby and use automatic ASW
@@ -36,11 +33,9 @@ def run_emc_init(verification: bool = True) -> None:
     if verification:
         msg, passed = ui_runtime_controller.verify_standby_ret()
         if not passed:
-            ui_runtime_controller.notify_negative(msg)
             raise AssertionError(f"STANDBY RET verification failed:\n{msg}")
         else:
             info_log.info("STANDBY RET verification passed:\n%s", msg)
-        ui_runtime_controller.notify_positive(msg)
 
     time.sleep(1)
     # Configure Heaters for ON during test (Upper - 2245 +55 ) (Lower - 2211 +45 )

@@ -87,7 +87,7 @@ MODEL_CONSUMPTION = {
         "State3": 179,
         "State4": 327,
         "State5": 266,
-        "State6": 210,
+        "State6": 207,
         "State7": 380,
         "Standby": 101,
         "Mech": 4,
@@ -105,6 +105,7 @@ MODEL_CONSUMPTION = {
         "State3": 190,
         "State4": 340,
         "State5": 277,
+        "State6": 200,
         "State7": 394,
         "Standby": 110,
         "Mech": 4,
@@ -137,3 +138,9 @@ MODEL_CONSUMPTION = {
         "Standby": 95,
     },
 }
+
+# ----MMS Configuration-----------------------------------------------------------------------------
+# When True, OB_GENERAL_ERROR in the EB ERROR_FLAGS is excluded from MMS trigger conditions.
+# OB_GENERAL_ERROR is a sticky bit that may linger after the OB error has already cleared.
+# Set to False to allow OB_GENERAL_ERROR to trigger MMS actions.
+MMS_MASK_OB_GENERAL_ERROR: bool = True

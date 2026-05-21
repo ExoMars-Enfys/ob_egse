@@ -98,4 +98,4 @@ def run_emc_hs(verification : bool = False) -> None:
 
     # Send mode transition to Acquisition state
     ebtcs.acquisition(interface, 0x0)
-    # ui_runtime_controller.perform_acq_check_sync(2100)
+    ui_runtime_controller.perform_acq_check_sync(acq_mode=2, acq_duration_s=0x0708, acq_sample_time_ms=0x0064)

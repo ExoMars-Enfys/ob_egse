@@ -12,7 +12,9 @@ from queue import Empty
 import logging
 import asyncio
 from nicegui import app as _nicegui_app
+from nicegui import core as _nicegui_core
 from nicegui import ui, run
+from nicegui.client import Client as _NiceGuiClient
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
@@ -254,19 +256,61 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
         time.sleep(1)  # Sleep briefly to avoid busy-waiting
 
 
-def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
+def perform_acq_check_sync(
+    acq_mode: int = 0,
+    acq_duration_s: int = 0,
+    acq_timeout_s: float | None = None,
+    acq_sample_time_ms: int = 0,
+) -> None:
     """Synchronous acquisition wait helper. Blocks until acquisition completes or timeout/abort.
 
     Completion is determined by firmware state: waits for CURRENT_OPERATING_STATE to
     enter 0x08 (Acquisition), then waits for it to leave 0x08 (back to Standby/Safe).
     This is correct regardless of acquisition mode, sample spacing, or packet count.
 
+    For mode 2 (Fixed-point) acquisitions the firmware runs a setup phase (ADC
+    initialisation / pre-scan) *inside* the 0x08 state before data collection begins.
+    The firmware enforces a minimum spacing of 250 ms even when a smaller value is
+    configured.  The timeout is therefore:
+
+        timeout = acq_duration_s + setup_overhead + 120 s safety margin
+
+    where setup_overhead = (effective_spacing_ms / 250) * 360 s  (6 min at the 250 ms
+    minimum, scaling linearly for larger spacings).
+    effective_spacing_ms = max(acq_sample_time_ms, 250) when acq_sample_time_ms > 0,
+    otherwise 250 ms is assumed.
+
+    All other modes default to 300 s.
+
+    Args:
+        acq_mode: acquisition mode (2 = Fixed-point; others use the default 300 s timeout).
+        acq_duration_s: ACQ_DURATION field from SET_ACQ_CONFIGS, in seconds.
+        acq_timeout_s: override the computed timeout (seconds).
+        acq_sample_time_ms: ACQ_SAMPLE_TIME field from SET_ACQ_CONFIGS, in ms.
+            Used to compute effective spacing; values below 250 are clamped to 250.
+
     This can be called from synchronous script code (e.g. inside `run_fft`).
     For async callers, use `await perform_acq_check()` which delegates to `run.io_bound`.
     """
+    if acq_timeout_s is None:
+        if acq_mode == 2 and acq_duration_s > 0:
+            effective_spacing_ms = max(acq_sample_time_ms, 250) if acq_sample_time_ms > 0 else 250
+            # Setup overhead: firmware ADC setup inside 0x08 takes ~4 min at 250 ms
+            # minimum spacing; scale linearly for larger spacings.
+            setup_overhead_s = int(effective_spacing_ms / 250 * 360)
+            safety_s = 120
+            acq_timeout_s = acq_duration_s + setup_overhead_s + safety_s
+            info_log.debug(
+                "Mode 2 acquisition: effective_spacing=%d ms, setup_overhead=%d s,"
+                " timeout=%d s (duration %d s + setup %d s + safety %d s)",
+                effective_spacing_ms, setup_overhead_s,
+                acq_timeout_s, acq_duration_s, setup_overhead_s, safety_s,
+            )
+        else:
+            acq_timeout_s = 300
     _ACQ_STATE = 0x08
     start_time = time.monotonic()
-    _acq_120s_checked = False
+    _acq_150s_checked = False
 
     info_log.debug("Starting acquisition wait: waiting for CURRENT_OPERATING_STATE=0x08...")
 
@@ -303,8 +347,8 @@ def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
             continue
 
         # One-shot PSU current check at t+150s from acquisition start
-        if not _acq_120s_checked and time.monotonic() - start_time >= 150.0:
-            _acq_120s_checked = True
+        if not _acq_150s_checked and time.monotonic() - start_time >= 150.0:
+            _acq_150s_checked = True
             try:
                 latest_psu = const.psu_queue.get(timeout=2.0)
                 errors: list[str] = []
@@ -314,11 +358,11 @@ def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
                     count = len(errors)
                     numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
                     info_log.warning(
-                        "SCI ACQ t+120s check \u2014 %d error%s: %s",
+                        "SCI ACQ t+150s check \u2014 %d error%s: %s",
                         count, "s" if count != 1 else "", "; ".join(numbered),
                     )
                     notify_negative(
-                        f"SCI ACQ t+120s check failed ({count} error{'s' if count != 1 else ''}):\n"
+                        f"SCI ACQ t+150s check failed ({count} error{'s' if count != 1 else ''}):\n"
                         + "\n".join(numbered)
                     )
                 else:
@@ -331,15 +375,22 @@ def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
                     info_log.info(msg)
                     notify_positive(msg)
             except Exception as exc:
-                info_log.warning("Acquisition t+120s PSU current check failed: %s", exc)
+                info_log.warning("Acquisition t+150s PSU current check failed: %s", exc)
 
         cos = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
         if cos != _ACQ_STATE:
             sci_count_end = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
+            acq_complete_msg = (
+                f"Acquisition complete — CURRENT_OPERATING_STATE=0x{cos:02X}, "
+                f"SCIENCE_PACKETS_SENT={sci_count_end}"
+            ) if cos is not None else (
+                f"Acquisition complete — SCIENCE_PACKETS_SENT={sci_count_end}"
+            )
             info_log.info(
                 "Acquisition complete: CURRENT_OPERATING_STATE=0x%02X, SCIENCE_PACKETS_SENT=%s at %s",
                 cos if cos is not None else 0, sci_count_end, getattr(latest_hk, "TIME", None),
             )
+            notify_positive(acq_complete_msg)
             # Drain one SCI packet from the queue for logging if available
             try:
                 sci_packet = const.sci_queue.get(timeout=2.0)
@@ -355,9 +406,14 @@ def perform_acq_check_sync(acq_timeout_s: float = 300) -> None:
         time.sleep(10)
 
 
-async def perform_acq_check(acq_timeout_s: float = 300) -> None:
+async def perform_acq_check(
+    acq_mode: int = 0,
+    acq_duration_s: int = 0,
+    acq_timeout_s: float | None = None,
+    acq_sample_time_ms: int = 0,
+) -> None:
     """Async wrapper that runs the synchronous acquisition check in an executor."""
-    await run.io_bound(lambda: perform_acq_check_sync(acq_timeout_s))
+    await run.io_bound(lambda: perform_acq_check_sync(acq_mode, acq_duration_s, acq_timeout_s, acq_sample_time_ms))
 
 
 async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
@@ -397,10 +453,12 @@ def verify_safe_ret():
         numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
         info_log.error(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
         msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        notify_negative(msg)
         return msg, False
     else:
         msg = f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nPOST Packet Check Result: {result}"
         info_log.info(msg)
+        notify_positive(msg)
         return msg, True
 
 
@@ -436,10 +494,12 @@ def verify_standby_ret():
         numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
         info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
         msg = f"STANDBY RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        notify_negative(msg)
         return msg, False
     else:
         msg = f"Standby mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nHK Check Result: {result}"
         info_log.info(msg)
+        notify_positive(msg)
         return msg, True
 
 
@@ -535,6 +595,7 @@ def verify_power_state(state: str) -> tuple[str, bool]:
             f"{state} verification failed: {count} error{'s' if count != 1 else ''}:\n"
             + "\n".join(numbered)
         )
+        _notify(msg, color="negative")
         return msg, False
     else:
         msg = (
@@ -542,30 +603,32 @@ def verify_power_state(state: str) -> tuple[str, bool]:
             f"CURRENT_OPERATING_STATE: {cos}"
         )
         info_log.info(msg)
+        _notify(msg, color="positive")
         return msg, True
 
 
 def _notify(msg: str, color: str = "primary") -> None:
-    """Send a UI notification that is safe to call from a background thread.
+    """Send a UI notification that is safe to call from any thread.
 
-    NiceGUI's ``ui.notify`` requires a slot context that only exists on the
-    event-loop thread.  When called from ``run.io_bound`` (or any other
-    thread), it raises ``RuntimeError: The current slot cannot be determined``.
-
-    This helper iterates over every connected client and issues the
-    notification inside each client's context so it reaches the browser
-    regardless of which thread calls it.
+    Uses ``loop.call_soon_threadsafe`` to enqueue the notification message
+    directly into each connected client's outbox on the NiceGUI event loop
+    thread.  This mirrors what ``ui.notify`` does internally but is safe to
+    call from background threads (e.g. scripts running via ``run.io_bound``).
     """
-    try:
-        clients = list(_nicegui_app.clients.values())
-        for client in clients:
-            with client:
-                ui.notify(msg, color=color)
-    except Exception:
-        try:
-            print(msg)
-        except Exception:
-            pass
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        info_log.info("[notify] %s", msg)
+        return
+
+    def _enqueue() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    ui.notify(str(msg), color=color, multi_line=True)
+            except Exception as exc:
+                info_log.debug("_notify: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_enqueue)
 
 
 def notify_script_pause(current: int, total: int) -> None:
@@ -573,10 +636,21 @@ def notify_script_pause(current: int, total: int) -> None:
     _notify(f"Script paused, command {current} of {total}", color="warning")
 
 
-def request_force_pause(msg) -> None:
-    """Request a forced pause — blocks script execution until released."""
-    _notify(msg, color="warning")
+def request_force_pause(msg: str = "") -> None:
+    """Request a forced pause — blocks script execution until the user resumes or aborts.
+
+    Sets ``_FORCE_PAUSE_EVENT``, shows a notification, then polls until the event is
+    cleared by ``clear_force_pause()`` (triggered by the UI resume button) or the
+    script abort event fires.
+    """
+    if msg:
+        _notify(msg, color="warning")
     _FORCE_PAUSE_EVENT.set()
+    while _FORCE_PAUSE_EVENT.is_set():
+        if is_aborted():
+            _FORCE_PAUSE_EVENT.clear()
+            raise RuntimeError("Script aborted during forced pause.")
+        time.sleep(0.25)
 
 
 def clear_force_pause() -> None:
@@ -649,6 +723,16 @@ def consumption_check(state_names, psu_sample: dict, errors: list[str], latest_h
     return measured_current_ma
 
 
+# Per-heater history for verify_heater_states() — persists across HK poll cycles.
+# Tracks the last definitive expected state (established when TRP was outside the
+# hysteresis band) and the previous mode flags so that enable-transitions can be
+# detected (the firmware initialises to OFF when transitioning from disabled → auto).
+_heater_state_history: dict[str, dict] = {
+    "Mech": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
+    "Det":  {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
+}
+
+
 def verify_heater_states(
     latest_hk: Any,
     errors: list[str],
@@ -681,38 +765,109 @@ def verify_heater_states(
         info_log.info("Heater check \u2014 Det heater not commanded ON (THRM_STATUS.DM=0, DA=0)")
 
     # --- Step 2: Temperature / status check ---
-    def _check_htr(label, mode_manual, mode_auto, trp_attr, min_attr, max_attr, act):
+    # Firmware bang-bang hysteresis algorithm:
+    #   HMS/HDS turns ON  when BOTH current AND previous TRP < ON_SP  (OB_THERMAL_*_MIN)
+    #   HMS/HDS turns OFF when BOTH current AND previous TRP > OFF_SP (OB_THERMAL_*_MAX)
+    #   Otherwise (TRP in band): maintain PREV_STATUS — state is history-dependent.
+    # _heater_state_history persists the last definitive expected state across poll cycles
+    # so that the hysteresis band case can still be verified.  When transitioning from
+    # disabled → auto the firmware initialises PREV_STATUS to OFF, which is reflected here.
+    def _check_htr(label, mode_manual, mode_auto, trp_attr, on_sp_attr, off_sp_attr, act):
+        h = _heater_state_history[label]
         if mode_manual:
-            # Manual mode: heater must always be physically ON
+            # Manual mode: heater must always be physically ON; record known state
+            if not h["prev_manual"]:
+                info_log.info("%s heater: Manual mode enabled — recording expected=ON", label)
+            h.update(last_expected=True, prev_auto=False, prev_manual=True)
             if not act:
                 errors.append(
                     f"{label} heater in Manual mode but HMS/HDS={act} (expected 1)"
                 )
         elif mode_auto:
-            trp = getattr(latest_hk, trp_attr, None)
-            low = getattr(latest_hk, min_attr, None)
-            high = getattr(latest_hk, max_attr, None)
-            if None in (trp, low, high):
+            trp    = getattr(latest_hk, trp_attr,    None)
+            on_sp  = getattr(latest_hk, on_sp_attr,  None)
+            off_sp = getattr(latest_hk, off_sp_attr, None)
+            # Detect disabled→auto transition (firmware PREV_STATUS initialises to OFF)
+            newly_enabled = not h["prev_auto"] and not h["prev_manual"]
+            if newly_enabled:
+                info_log.info(
+                    "%s heater: Auto mode just enabled — TRP=%s [ON_SP=%s, OFF_SP=%s]"
+                    " — firmware initialises to OFF",
+                    label, trp, on_sp, off_sp,
+                )
+                if h["last_expected"] is None:
+                    h["last_expected"] = False  # firmware default at first enable
+            h.update(prev_auto=True, prev_manual=False)
+            if None in (trp, on_sp, off_sp):
                 info_log.warning(
-                    "%s heater Automatic mode — TRP/threshold fields missing (%s=%s, %s=%s, %s=%s), skipping HMS/HDS check",
-                    label, trp_attr, trp, min_attr, low, max_attr, high,
+                    "%s heater Auto mode — fields missing (%s=%s, %s=%s, %s=%s), skipping check",
+                    label, trp_attr, trp, on_sp_attr, on_sp, off_sp_attr, off_sp,
                 )
                 return
+            h["last_trp"] = trp
             info_log.info(
-                "%s heater Automatic mode \u2014 TRP=%s [min=%s, max=%s]",
-                label, trp, low, high,
+                "%s heater Auto mode \u2014 TRP=%s [ON_SP=%s, OFF_SP=%s] last_expected=%s",
+                label, trp, on_sp, off_sp, h["last_expected"],
             )
-            if trp <= low:
+            if trp < on_sp:
+                # Below ON threshold — heater must be ON; record boundary crossing
+                h["last_expected"] = True
                 if not act:
                     errors.append(
-                        f"{label} heater: TRP={trp} <= MIN={low} \u2192 expected ON, got HMS/HDS={act}"
+                        f"{label} heater: TRP={trp} < ON_SP={on_sp} \u2192 expected ON, got HMS/HDS={act}"
                     )
-            elif trp >= high:
+            elif trp > off_sp:
+                # Above OFF threshold — heater must be OFF; record boundary crossing
+                h["last_expected"] = False
                 if act:
                     errors.append(
-                        f"{label} heater: TRP={trp} >= MAX={high} \u2192 expected OFF, got HMS/HDS={act}"
+                        f"{label} heater: TRP={trp} > OFF_SP={off_sp} \u2192 expected OFF, got HMS/HDS={act}"
                     )
-            # else: hysteresis zone — no check
+            else:
+                # TRP in hysteresis band [ON_SP, OFF_SP] — use recorded history
+                exp = h["last_expected"]
+                if newly_enabled:
+                    # First poll for this heater (EGSE started mid-test, or heater was
+                    # re-enabled while TRP was already in band).  We have no reliable
+                    # history of which boundary was last crossed, so we cannot verify
+                    # the state — use the actual HMS/HDS as the baseline for future polls.
+                    info_log.info(
+                        "%s heater: auto first detected with TRP=%s in band [%s, %s],"
+                        " HMS/HDS=%s — using as history baseline (cannot verify initial state)",
+                        label, trp, on_sp, off_sp, act,
+                    )
+                    h["last_expected"] = bool(act)
+                elif exp is True:
+                    if not act:
+                        errors.append(
+                            f"{label} heater: TRP={trp} in band [{on_sp}, {off_sp}],"
+                            f" last boundary \u2192 ON, but HMS/HDS={act}"
+                        )
+                    else:
+                        info_log.info(
+                            "%s heater: TRP=%s in band [%s, %s] \u2014 last boundary \u2192 ON, HMS/HDS=%s (OK)",
+                            label, trp, on_sp, off_sp, act,
+                        )
+                elif exp is False:
+                    if act:
+                        errors.append(
+                            f"{label} heater: TRP={trp} in band [{on_sp}, {off_sp}],"
+                            f" last boundary \u2192 OFF, but HMS/HDS={act}"
+                        )
+                    else:
+                        info_log.info(
+                            "%s heater: TRP=%s in band [%s, %s] \u2014 last boundary \u2192 OFF, HMS/HDS=%s (OK)",
+                            label, trp, on_sp, off_sp, act,
+                        )
+                else:
+                    # No history yet (e.g. TRP has been in band since enable) — cannot verify
+                    info_log.info(
+                        "%s heater: TRP=%s in band [%s, %s] \u2014 no boundary history, HMS/HDS=%s",
+                        label, trp, on_sp, off_sp, act,
+                    )
+        else:
+            # Heater not commanded — reset history ready for the next enable event
+            h.update(last_expected=None, last_trp=None, prev_auto=False, prev_manual=False)
 
     _check_htr("Mech", mm, ma, "OB_MECHANISM_TRP", "OB_THERMAL_MECH_MIN", "OB_THERMAL_MECH_MAX", act_hms)
     _check_htr("Det",  dm, da, "OB_DETECTOR_TRP",  "OB_THERMAL_DET_MIN",  "OB_THERMAL_DET_MAX",  act_hds)
@@ -1474,12 +1629,15 @@ def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool
         reasons.append("POST Error Flags asserted")
 
     if bool(getattr(hk, "ERROR_FLAGS", 0)):
+        ns = getattr(hk, "ERROR_FLAGS_BITS", None)
         eb_flags = sorted(
             k for k, v in vars(ns).items() if v == 1 and k != "RESERVED"
-        ) if (ns := getattr(hk, "ERROR_FLAGS_BITS", None)) is not None else []
+        ) if ns is not None else []
+        if const.MMS_MASK_OB_GENERAL_ERROR:
+            eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
         if eb_flags:
             reasons.append(f"HK Error Flags asserted: {', '.join(eb_flags)}")
-        else:
+        elif ns is None:
             reasons.append("HK Error Flags asserted")
 
     # OB error details — decoded from OB_LAST_ERROR byte.
