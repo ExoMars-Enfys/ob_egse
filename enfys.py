@@ -8,7 +8,7 @@ Usage:
     python enfys.py [options]
 
 Options:
-    -m, --mode {EB,OB}    Starting mode (default: OB)
+    -m, --mode {EB,OB}    Starting mode (default: EB)
     -np, --nopsu          Disable PSU initialization
     --reload              Enable hot reload for development
 """
@@ -38,7 +38,7 @@ def main():
     parser.add_argument("-basedir", type=Path, default=const.DEFAULT_PATH)
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("--reload", action="store_true", help="Enable hot reload for development")
-    parser.add_argument("-m", "--mode", type=str, default="OB", choices=["EB", "OB"])
+    parser.add_argument("-m", "--mode", type=str, default="EB", choices=["EB", "OB"])
 
     args = parser.parse_args()
 

@@ -434,7 +434,7 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
             with ui.column().classes("w-full gap-1"):
                 for _ in range(max_rows):
                     with ui.row().classes("w-full min-w-0 justify-between gap-3"):
-                        name_lbl = ui.label("").classes("font-mono break-all min-w-0")
+                        name_lbl = ui.label("").classes("font-mono min-w-0 truncate")
                         val_lbl = ui.label("").classes("font-mono text-right shrink-0")
                         name_lbl.style(f"font-size: {small_sz}")
                         val_lbl.style(f"font-size: {small_sz}")

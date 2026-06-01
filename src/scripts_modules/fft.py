@@ -26,12 +26,13 @@ def run_fft(verification: bool = True) -> None:
         if not passed:
             raise AssertionError(f"SAFE RET verification failed:\n{msg}")
 
-    time.sleep(3.5)
-    # ?Transition to Standby and use automatic ASW - Standby
+    time.sleep(2)
+    # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 0, 0)
+    ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
-    time.sleep(3.5)
+    time.sleep(2)
     if verification:
         msg, passed = ui_runtime_controller.verify_standby_ret()
         if not passed:
@@ -39,6 +40,7 @@ def run_fft(verification: bool = True) -> None:
         else:
             info_log.info("STANDBY RET verification passed:\n%s", msg)
 
+    time.sleep(1)
     # ?Send Set Heater Configs + Enable Mech Heater - Standby + Mech HTR
     ebtcs.set_heater_configs(interface, 0x00, 0x08A3, 0x0881, 0x08A3, 0x0881)
     ebtcs.en_mech_heater(interface, 0x1)
@@ -145,6 +147,8 @@ def run_fft(verification: bool = True) -> None:
     # ?Turn on the mechanism board, set configs and home - State 2 + Mech Board ON + Moving
     ebtcs.en_mech_board(interface, 0x1)
     ebtcs.set_motor_configs(interface, 0, 0x40, 0x00, 0x08, 0x00, 0x00, 0x3C, 0x00, 0x0000, 0x00)
+    # ebtcs.generic_tc(interface,0x0, 0x2, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+
     ebtcs.ob_homing(interface, 0x01)
     ui_runtime_controller.perform_homing_check_sync()
 
@@ -281,6 +285,8 @@ def run_fft(verification: bool = True) -> None:
 
     # ?State 7 - All Active (OB Heating + Powered On + TEC at 1A + Moving)
     ebtcs.set_motor_configs(interface, 0, 0x40, 0x00, 0x08, 0x00, 0x00, 0x3C, 0x00, 0x0000, 0x00)
+    # ebtcs.generic_tc(interface,0x0, 0x2, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+
     ebtcs.ob_homing(interface, 0x01)
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
@@ -290,7 +296,7 @@ def run_fft(verification: bool = True) -> None:
             raise AssertionError(msg)
 
     ui_runtime_controller.perform_homing_check_sync()
-    ui_runtime_controller.notify_script_pause(13, 13)
+    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
     
     time.sleep(3.5)
     ebtcs.en_mech_heater(interface, 0x0)
@@ -360,6 +366,13 @@ def run_fft(verification: bool = True) -> None:
     if verification:
         ui_runtime_controller.perform_acq_check_sync()
 
+
+    ebtcs.ob_homing(interface, 0x02)
+    ui_runtime_controller.perform_homing_check_sync()
+    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
+
+    ebtcs.generic_tc(interface, 0x1, 0x0A, 0x01, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
     ebtcs.safe(interface, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     # End of FFT

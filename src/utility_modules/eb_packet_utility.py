@@ -23,12 +23,23 @@ _latest_hk = None
 _latest_psu = None
 _hk_lock = threading.Lock()
 _psu_lock = threading.Lock()
+_hk_event = threading.Event()  # set each time a new HK packet arrives
+
+
+def wait_for_fresh_hk(timeout: float = 5.0):
+    """Block until a new HK packet arrives (or timeout). Returns the HK or None."""
+    _hk_event.clear()
+    arrived = _hk_event.wait(timeout=timeout)
+    if not arrived:
+        return None
+    return get_latest_hk()
 
 
 def set_latest_hk(hk):
     global _latest_hk
     with _hk_lock:
         _latest_hk = hk
+    _hk_event.set()
 
 
 def get_latest_hk():

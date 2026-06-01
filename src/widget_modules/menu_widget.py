@@ -13,6 +13,7 @@ from nicegui import app, ui, run
 # Local modules
 from core_modules import constants as const
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
+from utility_modules.desktop_launcher import destroy_desktop_window
 from utility_modules import eb_interface, ebtcs, app_theme
 from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
 
@@ -552,8 +553,18 @@ def _handle_script_hotkeys(state: dict[str, Any], script_key: str, event: Any) -
 
 def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
+    from contextlib import nullcontext
+    from utility_modules import psu
+
     # Reuse the same method as the Stop EB EGSE Tools button
     _stop_egse_tools(state, sync_visibility_fn=None)
+
+    psu_port = state.get("psu_port")
+    if psu_port is not None:
+        lock = state.get("psu_lock")
+        lock_ctx = lock if lock is not None else nullcontext()
+        with lock_ctx:
+            psu.emergencyShutDown(psu_port)
 
     if stop_event is not None:
         stop_event.set()
@@ -567,7 +578,11 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
         ui.run_javascript(
             "window.open('', '_self');window.close();if (!window.closed) { window.location.href = 'about:blank'; }"
         )
-        ui.timer(0.25, app.shutdown, once=True)
+        # Shut down NiceGUI server first, then destroy the pywebview window.
+        # destroy_desktop_window() dispatches on a daemon thread so it doesn't
+        # block the event loop; the short delay lets app.shutdown() run first.
+        app.shutdown()
+        ui.timer(0.25, destroy_desktop_window, once=True)
 
     with ui.dialog() as shutdown_dialog, ui.card().classes("w-96"):
         ui.label("EGSE tools shut down.").classes("text-base")

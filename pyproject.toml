@@ -11,6 +11,7 @@ dependencies = [
     "nicegui",
     "plotly>=6.5.0",
     "pyserial>=3.5",
+    "pywebview>=6.2.1",
     "pywinauto>=0.6.9",
     "ruff>=0.9.4",
     "streamlit>=1.50.0",

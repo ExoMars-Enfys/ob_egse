@@ -68,11 +68,11 @@
     --chart-eb-current: #f2994a;
 
     /* Typography and sizing (widgets and plots should read these) */
-    --ui-label-size: 0.75rem;
-    --heading-size: 1.25rem;
+    --ui-label-size: 0.585rem;
+    --heading-size: 0.99rem;
     --heading-weight: 700;
-    --metric-label-size: 0.875rem;
-    --metric-value-size: 1.125rem;
+    --metric-label-size: 0.698rem;
+    --metric-value-size: 0.9rem;
     --body-font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
 
     /* Plot styling (matplotlib will convert these to numeric values) */

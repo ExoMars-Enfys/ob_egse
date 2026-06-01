@@ -18,7 +18,7 @@ from nicegui.client import Client as _NiceGuiClient
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
-from utility_modules.eb_packet_utility import get_latest_hk
+from utility_modules.eb_packet_utility import get_latest_hk, wait_for_fresh_hk
 
 # core
 from core_modules import tmstruct, constants as const
@@ -464,14 +464,14 @@ def verify_safe_ret():
 
 def verify_standby_ret():
     errors = []
-    # ?Standby and check
-    # This block performs the STANDBY RET verification after issuing a Standby, RET, and HK request.
+    # Wait for a fresh HK packet that arrives after the standby TC, not a cached one
     try:
-        latest_hk = get_latest_hk()
+        latest_hk = wait_for_fresh_hk(timeout=5.0)
+        if latest_hk is None:
+            errors.append("Timed out waiting for fresh HK after STANDBY")
         latest_psu = const.psu_queue.get(timeout=2.0)
     except Empty:
-        errors.append("\nMissing HK or PSU queue data after STANDBY")
-        latest_hk = None
+        errors.append("\nMissing PSU queue data after STANDBY")
         latest_psu = None
 
     ch4_current_ma = None

@@ -57,13 +57,6 @@ def build_ui(
         """
 <style>
 /* Apply to the outer drawer container */
-.q-drawer--left {
-    width: clamp(280px, 20vw, 380px) !important;
-}
-
-.q-drawer--right {
-    width: clamp(400px, 25vw, 500px) !important;
-}
 
 .q-drawer__content {
     max-width: 100% !important;
@@ -83,27 +76,27 @@ def build_ui(
 }
 
 /* Responsive text and spacing scaling */
-.egse-left-drawer label,
+.egse-left-drawer div,
 .egse-left-drawer .q-item__label {
-    font-size: clamp(12px, 1.6vw, 15px) !important;
+    font-size: clamp(9px, 0.95vw, 11px) !important;
 }
 
-.egse-right-drawer label,
+.egse-right-drawer div,
 .egse-right-drawer .q-chip__content,
 .egse-right-drawer .q-item__label {
-    font-size: clamp(11px, 1.4vw, 14px) !important;
+    font-size: clamp(9px, 0.95vw, 11px) !important;
 }
 
 .egse-right-drawer .q-chip {
     padding: 1px 3px !important;
     min-width: auto !important;
     height: auto !important;
-    font-size: clamp(10px, 1.2vw, 12px) !important;
+    font-size: clamp(8px, 0.85vw, 10px) !important;
     margin: 0 !important;
 }
 
 .egse-metric-label {
-    font-size: clamp(10px, 1.2vw, 12px) !important;
+    font-size: clamp(8px, 0.85vw, 10px) !important;
     max-width: 3.2rem !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -138,7 +131,8 @@ def build_ui(
 }
 
 /* Reduce label margins */
-.egse-right-drawer label {
+.egse-right-drawer label,
+.egse-right-drawer div {
     margin: 0 !important;
     padding: 0 !important;
 }
@@ -149,23 +143,9 @@ def build_ui(
 }
 
 @media (max-width: 1500px) {
-    .q-drawer--left {
-        width: clamp(270px, 22vw, 360px) !important;
-    }
-
-    .q-drawer--right {
-        width: clamp(400px, 25vw, 500px) !important;
-    }
 }
 
 @media (max-width: 1200px) {
-    .q-drawer--left {
-        width: clamp(260px, 25vw, 340px) !important;
-    }
-
-    .q-drawer--right {
-        width: clamp(450px, 25vw, 500px) !important;
-    }
 }
 </style>
 """,
@@ -268,7 +248,7 @@ def build_ui(
         def build_left_drawer() -> dict[str, packet_viewer_widget.PacketViewerController]:
             """Placeholder method for left drawer content
             Creates packet viewer tabs and controllers, and returns the controllers for later updates."""
-            with ui.left_drawer(value=True).props("no-swipe-open no-swipe-close").classes("egse-left-drawer"):
+            with ui.left_drawer(value=True).props("no-swipe-open no-swipe-close width=260").classes("egse-left-drawer"):
                 palette = getattr(app.state, "theme_palette", None)
                 pv_title_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
 
@@ -377,7 +357,7 @@ def build_ui(
 
         def build_right_drawer() -> None:
             """Placeholder method for right drawer content"""
-            with ui.right_drawer().classes("egse-right-drawer"):
+            with ui.right_drawer().classes("egse-right-drawer").props("width=320"):
                 with ui.column().classes("w-full gap-0.5"):
                     state["packet_metrics_card"] = metrics_card_widget.create_packet_metrics_card(state)
                     state["plot_refreshers"].append(state["packet_metrics_card"].set_mode)
