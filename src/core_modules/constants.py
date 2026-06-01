@@ -27,21 +27,74 @@ psu_queue = Queue(maxsize=100)
 sci_queue = Queue(maxsize=30)
 
 # ----Monitoring Limits-----------------------------------------------------------------------------
+# Real-space limits (engineering units) from TM reference table
+WLIM_EB_12V = (11.0, 13.0)
+ALIM_EB_12V = (10.5, 13.5)
+
+WLIM_EB_NEG12V = (-13.0, -11.0)
+ALIM_EB_NEG12V = (-13.5, -10.5)
+
+WLIM_EB_5V = (4.5, 5.5)
+ALIM_EB_5V = (4.0, 6.0)
+
+WLIM_EB_3V3 = (3.0, 3.45)
+ALIM_EB_3V3 = (3.0, 3.6)
+
+# EB TEC rail is upper-bound monitored only per table (low side not monitored)
+WLIM_EB_TEC_RAIL = (None, 3.25)
+ALIM_EB_TEC_RAIL = (None, 3.5)
+
+WLIM_EB_MCU_INTERNAL_TEMP = (-45, 125)
+ALIM_EB_MCU_INTERNAL_TEMP = (-50, 135)
+
+WLIM_EB_INTERNAL_TRP_TEMP = (-42, 70)
+ALIM_EB_INTERNAL_TRP_TEMP = (-45, 90)
+
+WLIM_EB_PSU_BOARD_TEMP = (-45, 110)
+ALIM_EB_PSU_BOARD_TEMP = (-50, 120)
+
 WLIM_3V3 = (3.0, 3.6)
-WLIM_3V3_ADU = (1499, 1799)
 ALIM_3V3 = (2.85, 3.75)
-ALIM_3V3_ADU = (1424, 1874)
 
 WLIM_1V5 = (1.425, 1.575)
-WLIM_1V5_ADU = (1424, 1574)
 ALIM_1V5 = (1.35, 1.65)
-ALIM_1V5_ADU = (1349, 1649)
 
 WLIM_TPR = (-45, +35)
-WLIM_TPR_ADU = (1848, 2177)
-ALIM_TPR = (-50, +50)
-EB_ALIM_TPR = (-40, +75)
-ALIM_TPR_ADU = (1823, 2211)
+ALIM_TPR = (-50, +45)
+
+# ADU-space limits derived from conversion formulas in utility_modules/hk_conversions.py
+# and utility_modules/eb_packet_utility.py
+WLIM_EB_12V_ADU = (27463, 32456)
+ALIM_EB_12V_ADU = (26214, 33704)
+
+WLIM_EB_NEG12V_ADU = (28836, 34079)
+ALIM_EB_NEG12V_ADU = (27525, 35389)
+
+WLIM_EB_5V_ADU = (29445, 35988)
+ALIM_EB_5V_ADU = (26173, 39260)
+
+WLIM_EB_3V3_ADU = (39318, 45216)
+ALIM_EB_3V3_ADU = (39318, 47182)
+
+WLIM_EB_MCU_INTERNAL_TEMP_ADU = (13926, 24310)
+ALIM_EB_MCU_INTERNAL_TEMP_ADU = (13621, 24921)
+
+# EB thermistor ADU limits (decode_eb_trps conversion; temperature decreases with ADU)
+WLIM_EB_INTERNAL_TRP_TEMP_ADU = (30992, 65238)
+ALIM_EB_INTERNAL_TRP_TEMP_ADU = (21269, 65297)
+
+WLIM_EB_PSU_BOARD_TEMP_ADU = (14121, 65297)
+ALIM_EB_PSU_BOARD_TEMP_ADU = (11469, 65373)
+
+WLIM_3V3_ADU = (1500, 1800)
+ALIM_3V3_ADU = (1425, 1875)
+
+WLIM_1V5_ADU = (1425, 1575)
+ALIM_1V5_ADU = (1350, 1650)
+
+# OB thermistor ADU limits (adu_to_temp conversion)
+WLIM_TPR_ADU = (1849, 2178)
+ALIM_TPR_ADU = (1825, 2212)
 
 # ----Bus Voltage Settings-------------------------------------------------------------
 # Bus voltage settings for different modes and channels (Min, Nominal, Max)

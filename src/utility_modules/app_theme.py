@@ -102,14 +102,23 @@ def get_theme_palette(gui_vars: dict[str, str], theme: str) -> dict[str, str]:
 
 def apply_plot_theme(ax: Any, palette: dict[str, str]) -> None:
     """Apply the given color palette to a matplotlib Axes object."""
-    # Style both axes and figure backgrounds so canvas margins match theme.
+    # Keep the plot interior white for readability while the outer canvas
+    # (margins/card surroundings) follows the active app theme.
     fig = ax.figure
-    plot_bg = palette.get("plot_bg")
+    plot_bg = palette.get("secondary_bg") or palette.get("plot_bg")
     plot_text = palette.get("plot_text")
+    interior_bg = "#ffffff"
+
+    def _is_light_text(color: Any) -> bool:
+        if not isinstance(color, str):
+            return False
+        value = color.strip().lower()
+        return value in {"#fff", "#ffffff", "white", "rgb(255,255,255)", "rgba(255,255,255,1)"}
+
     if plot_bg is not None:
         fig.set_facecolor(plot_bg)
         fig.patch.set_facecolor(plot_bg)
-        ax.set_facecolor(plot_bg)
+    ax.set_facecolor(interior_bg)
     if plot_text is not None:
         ax.tick_params(colors=plot_text)
         ax.xaxis.label.set_color(plot_text)
@@ -137,11 +146,13 @@ def apply_plot_theme(ax: Any, palette: dict[str, str]) -> None:
     legend = ax.get_legend()
     if legend is not None:
         frame = legend.get_frame()
-        if plot_bg is not None:
-            frame.set_facecolor(plot_bg)
+        frame.set_facecolor(interior_bg)
         if plot_spine is not None:
             frame.set_edgecolor(plot_spine)
         plot_legend = palette.get("plot_legend")
+        # Legend sits on white interior, so keep dark text if theme legend color is light.
+        if _is_light_text(plot_legend):
+            plot_legend = "#111827"
         if plot_legend is not None:
             for text in legend.get_texts():
                 text.set_color(plot_legend)

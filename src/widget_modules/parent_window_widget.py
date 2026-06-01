@@ -53,6 +53,124 @@ def build_ui(
     # Serve static resources and apply the master stylesheet globally.
     app.add_static_files("/rsrc", str(_RSRC_DIR))
     ui.add_head_html('<link rel="stylesheet" href="/rsrc/guimasterconfig.css">', shared=True)
+    ui.add_head_html(
+        """
+<style>
+/* Apply to the outer drawer container */
+.q-drawer--left {
+    width: clamp(280px, 20vw, 380px) !important;
+}
+
+.q-drawer--right {
+    width: clamp(400px, 25vw, 500px) !important;
+}
+
+.q-drawer__content {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scroll-behavior: smooth !important;
+}
+
+/* Ensure drawer content doesn't overflow horizontally */
+.egse-left-drawer {
+    width: 100% !important;
+}
+
+.egse-right-drawer {
+    width: 100% !important;
+    overflow: visible !important;
+}
+
+/* Responsive text and spacing scaling */
+.egse-left-drawer label,
+.egse-left-drawer .q-item__label {
+    font-size: clamp(12px, 1.6vw, 15px) !important;
+}
+
+.egse-right-drawer label,
+.egse-right-drawer .q-chip__content,
+.egse-right-drawer .q-item__label {
+    font-size: clamp(11px, 1.4vw, 14px) !important;
+}
+
+.egse-right-drawer .q-chip {
+    padding: 1px 3px !important;
+    min-width: auto !important;
+    height: auto !important;
+    font-size: clamp(10px, 1.2vw, 12px) !important;
+    margin: 0 !important;
+}
+
+.egse-metric-label {
+    font-size: clamp(10px, 1.2vw, 12px) !important;
+    max-width: 3.2rem !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Responsive gap sizing */
+.egse-metric-row {
+    gap: 0.1rem !important;
+    flex-wrap: wrap !important;
+}
+
+.egse-metric-grid {
+    gap: 0.1rem !important;
+}
+
+/* Compact card spacing */
+.egse-right-drawer .q-card {
+    padding: 0.2rem !important;
+    margin: 0 !important;
+}
+
+.egse-right-drawer .q-card__section {
+    padding: 0.1rem !important;
+}
+
+/* Eliminate nicegui column gaps */
+.egse-right-drawer .nicegui-column {
+    gap: 0.15rem !important;
+}
+
+/* Reduce label margins */
+.egse-right-drawer label {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Tighten title labels */
+.egse-right-drawer .font-bold {
+    margin-bottom: 0.05rem !important;
+}
+
+@media (max-width: 1500px) {
+    .q-drawer--left {
+        width: clamp(270px, 22vw, 360px) !important;
+    }
+
+    .q-drawer--right {
+        width: clamp(400px, 25vw, 500px) !important;
+    }
+}
+
+@media (max-width: 1200px) {
+    .q-drawer--left {
+        width: clamp(260px, 25vw, 340px) !important;
+    }
+
+    .q-drawer--right {
+        width: clamp(450px, 25vw, 500px) !important;
+    }
+}
+</style>
+""",
+        shared=True,
+    )
 
     # Parse CSS variables once at startup so Python-side code (matplotlib etc.)
     # uses the same colour values as the browser.  Default theme is dark.
@@ -62,6 +180,7 @@ def build_ui(
 
     state: dict[str, Any] = {
         "mode": default_mode,
+        "hk_display_mode": "REAL",
         "voltage_mode": "NOM",
         "logger": logger,
         "channels": {},
@@ -107,14 +226,14 @@ def build_ui(
             "last_error": None,
             # Limit set chosen to match existing alarm semantics in this codebase.
             "limits": {
-                "eb_12v": (11.0, 13.0),
-                "eb_neg12v": (-13.0, -11.0),
-                "eb_5v": (4.5, 5.5),
-                "eb_3v3": const.ALIM_3V3,
-                "eb_mcu_temp": const.EB_ALIM_TPR,
-                "eb_internal_trp_temp": const.ALIM_TPR,
-                "eb_psu_trp_temp": const.ALIM_TPR,
-                "eb_tec_rail_v": (const.ALIM_3V3[0], None),
+                "eb_12v": const.ALIM_EB_12V,
+                "eb_neg12v": const.ALIM_EB_NEG12V,
+                "eb_5v": const.ALIM_EB_5V,
+                "eb_3v3": const.ALIM_EB_3V3,
+                "eb_mcu_temp": const.ALIM_EB_MCU_INTERNAL_TEMP,
+                "eb_internal_trp_temp": const.ALIM_EB_INTERNAL_TRP_TEMP,
+                "eb_psu_trp_temp": const.ALIM_EB_PSU_BOARD_TEMP,
+                "eb_tec_rail_v": const.ALIM_EB_TEC_RAIL,
                 "ob_fpga_core_v": const.ALIM_3V3,
                 "ob_fpga_io_v": const.ALIM_1V5,
                 "ob_digital_trp": const.ALIM_TPR,
@@ -142,13 +261,14 @@ def build_ui(
     app.state.set_psu_log_path = set_psu_log_path
     app.state.get_psu_replay_sample_count = lambda: len(state["psu_replay"].get("records") or [])
     app.state.theme_state = _theme_state
+    app.state.hk_display_mode = state["hk_display_mode"]
 
     @ui.page("/")
     def index() -> None:
         def build_left_drawer() -> dict[str, packet_viewer_widget.PacketViewerController]:
             """Placeholder method for left drawer content
             Creates packet viewer tabs and controllers, and returns the controllers for later updates."""
-            with ui.left_drawer(value=True).props("width=400 no-swipe-open no-swipe-close"):
+            with ui.left_drawer(value=True).props("no-swipe-open no-swipe-close").classes("egse-left-drawer"):
                 palette = getattr(app.state, "theme_palette", None)
                 pv_title_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
 
@@ -233,7 +353,7 @@ def build_ui(
                 ui.header()
                 .classes("w-full px-4 py-1 items-center")
                 .style(
-                    "z-index: 1300; backdrop-filter: blur(8px); background: color-mix(in srgb, var(--secondary-bg) 92%, transparent);"
+                    "z-index: 1300; backdrop-filter: none; background: var(--primary-bg);"
                 )
             ):
                 with ui.row().classes("w-full items-center justify-between"):
@@ -257,8 +377,8 @@ def build_ui(
 
         def build_right_drawer() -> None:
             """Placeholder method for right drawer content"""
-            with ui.right_drawer().props("width=525"):
-                with ui.column().classes("w-full gap-4 mt-2"):
+            with ui.right_drawer().classes("egse-right-drawer"):
+                with ui.column().classes("w-full gap-0.5"):
                     state["packet_metrics_card"] = metrics_card_widget.create_packet_metrics_card(state)
                     state["plot_refreshers"].append(state["packet_metrics_card"].set_mode)
                     state["plot_refreshers"].append(lambda mode: state["alarm_lights"]["eb"].set_visible(mode == "EB"))
@@ -272,7 +392,7 @@ def build_ui(
 
         def build_centre_console():
             """Build centre console plot cards and return their controllers."""
-            with ui.row().classes("w-full gap-4"):
+            with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
                 ch1_card = psu_widget.create_psu_channel_card(
                     state,
                     key="psu_ch1",
@@ -322,7 +442,7 @@ def build_ui(
             )
             state["plot_refreshers"].append(set_psu_card_profiles)
             set_psu_card_profiles(state["mode"])
-            with ui.row().classes("w-full gap-4"):
+            with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
                 trp_card = plot_widget.create_plot_card(
                     "Thermistors",
                     series=[
@@ -401,10 +521,13 @@ def build_ui(
             toggle_btn.on_click(_toggle_footer)
 
         packet_viewer_controllers = build_left_drawer()
+        state["packet_viewer_controllers"] = packet_viewer_controllers
         build_top_bar()
         build_right_drawer()
         build_footer()
         psu_cards, trp_card, voltage_card = build_centre_console()
+        state["trp_card"] = trp_card
+        state["voltage_card"] = voltage_card
         set_ob_controls_visible = build_ob_controls()
         state["plot_refreshers"].append(set_ob_controls_visible)
         set_ob_controls_visible(state["mode"])

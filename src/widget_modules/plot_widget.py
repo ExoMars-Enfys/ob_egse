@@ -61,11 +61,12 @@ def create_plot_card(
     n_series = len(series)
 
     """
-    _HEIGHT_SCALE = {"h-40": ("h-60", (14, 4.5)), "h-60": ("h-96", (14, 5.25))}
+    # Use a larger baseline canvas so the rendered plot fills card space.
+    _HEIGHT_SCALE = {"h-40": ("h-60", (14.0, 4.5)), "h-60": ("h-96", (14.0, 5.25))}
     if plot_height_class in _HEIGHT_SCALE:
         plot_height_class, _figsize = _HEIGHT_SCALE[plot_height_class]
     else:
-        _figsize = (14, 5.25)
+        _figsize = (14.0, 5.25)
 
     n_series = len(series)
 
@@ -76,7 +77,7 @@ def create_plot_card(
     ui_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
     chk_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
 
-    with ui.card().classes("w-full flex-1"):
+    with ui.card().classes("flex-1 min-w-0"):
         title_label = ui.label(title)
         title_label.style(f"font-size: {ui_sz}")
         title_label.classes("font-bold")
@@ -97,7 +98,7 @@ def create_plot_card(
         plot = (
             ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
             .classes(f"w-full {plot_height_class}")
-            .style("width: 100%; min-width: 100%; max-width: none; padding: 0;")
+            .style("width: 100%; min-width: 0; max-width: 100%; padding: 0;")
         )
 
     # access matplotlib axes/figure
@@ -118,7 +119,8 @@ def create_plot_card(
     ax.yaxis.set_major_locator(ticker.MaxNLocator(6))
     # let the global theme control grid color/width/alpha
     ax.grid(True, which="major")
-    ax.tick_params(labelsize=22)
+    tick_size = app_theme.font_size_px(palette.get("plot_tick_size") if isinstance(palette, dict) else None)
+    ax.tick_params(labelsize=(tick_size or 11))
 
     lines = list(ax.lines)
     for line, cfg in zip(lines, series):
@@ -200,7 +202,7 @@ def create_plot_card(
                 line.set_label(label if line.get_visible() else "_nolegend_")
 
             if any(line.get_visible() for line in lines):
-                ax.legend(loc="upper left", fontsize=15)
+                ax.legend(loc="upper left", fontsize=11)
                 _style_legend()
 
         _redraw_plot()
@@ -222,9 +224,9 @@ def create_plot_card(
     if y_limits is not None:
         ax.set_ylim(*y_limits)
     top = 0.92 if show_title else 0.98
-    # Increase bottom margin to make room for the date/hour footer
-    fig.subplots_adjust(left=0.06, right=0.998, top=top, bottom=0.20)
-    footer_text_right = fig.text(0.995, 0.02, "", ha="right", va="bottom", fontsize=22, color="white")
+    # Keep a little bottom room for footer timestamp while maximizing plot area.
+    fig.subplots_adjust(left=0.065, right=0.995, top=top, bottom=0.19)
+    footer_text_right = fig.text(0.992, 0.02, "", ha="right", va="bottom", fontsize=10, color="white")
     # expose footer on the figure so global theming can style it
     try:
         setattr(fig, "_footer_text_right", footer_text_right)
@@ -288,7 +290,7 @@ def create_plot_card(
             ymin, ymax = mode_limits.get(mode, y_limits or (0.0, 1000.0))
             ax.set_ylim(ymin, ymax)
         if show_title:
-            ax.set_title(f"{title} ({mode})", fontsize=22)
+            ax.set_title(f"{title} ({mode})", fontsize=14)
             title_label.set_text(f"{title} [{mode}]")
         else:
             ax.set_title("")

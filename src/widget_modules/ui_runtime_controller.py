@@ -1422,13 +1422,22 @@ _EB_FDIR_FLAGS = {
 }
 
 
-def _decode_tuple(packet: Any, field_names: tuple[str, ...]) -> list[float] | None:
+def _decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, Any] | None = None) -> list[float] | None:
+    display_mode = str((state or {}).get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL")).upper()
     values: list[float] = []
     for name in field_names:
-        value = hk_conversions.decode_field(packet, name)
+        if display_mode == "ADU":
+            value = getattr(packet, name, None)
+            if value is None:
+                return None
+        else:
+            value = hk_conversions.decode_field(packet, name)
         if value is None:
             return None
-        values.append(value)
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            return None
     return values
 
 
@@ -1534,11 +1543,11 @@ def _update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_ca
     if not ob_enabled:
         return
 
-    ob_trp_vals = _decode_tuple(hk, _OB_TRP_FIELDS)
+    ob_trp_vals = _decode_tuple(hk, _OB_TRP_FIELDS, state)
     if ob_trp_vals is not None:
         trp_card.push([time_value], [[v] for v in ob_trp_vals])
 
-    voltage_vals = _decode_tuple(hk, _VOLTAGE_3V3_FIELDS)
+    voltage_vals = _decode_tuple(hk, _VOLTAGE_3V3_FIELDS, state)
     if voltage_vals is not None:
         voltage_card.push([time_value], [[v] for v in voltage_vals])
 

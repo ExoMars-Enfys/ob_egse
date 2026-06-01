@@ -100,9 +100,13 @@ def main() -> None:
     if not args.nopsu:
         psu_com = "COM" + str(args.psuport)
         info_log.info("Initialising PSU Comms on Port " + psu_com)
-        psu_port = psu.init_psu_comms(psu_com)
-        psu_port = psu.open_psu_comms(psu_port, args.nopsu)
-        psu.setChannels(psu_port, startup_eb_mode)
+        try:
+            psu_port = psu.init_psu_comms(psu_com)
+            psu_port = psu.open_psu_comms(psu_port, args.nopsu)
+            psu.setChannels(psu_port, startup_eb_mode)
+        except SystemExit:
+            info_log.warning(f"PSU initialization failed on {psu_com}; GUI will run without PSU comms")
+            psu_port = None
 
     stop_event = threading.Event()
     hk_pause_event = threading.Event()

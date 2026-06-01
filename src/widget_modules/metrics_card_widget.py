@@ -17,6 +17,7 @@ from core_modules import tmstruct
 
 # utilities
 from utility_modules import hk_conversions, app_theme
+from utility_modules.eb_packet_utility import adu_to_temp
 
 # widgets
 from widget_modules import popup_widget
@@ -32,6 +33,9 @@ class MetricSpec:
     getter: ValueGetter
     unit: str = ""
     bounds: tuple[float, float] | None = None
+    alarm_bounds: tuple[float, float] | None = None
+    bounds_adu: tuple[float, float] | None = None
+    alarm_bounds_adu: tuple[float, float] | None = None
     decimals: int = 2
     render: str = "value"
     chip_text: str | None = None
@@ -71,6 +75,7 @@ class MetricsCardController:
 
     def update_from_packet(self, packet: Any) -> None:
         self.last_packet = packet
+        display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
         for pill in self.pills:
             value = _safe_get_value(pill.spec.getter, packet)
 
@@ -116,10 +121,13 @@ class MetricsCardController:
                 pill.chip.set_background_color("grey")
                 continue
 
-            label = _format_value(value, pill.spec.decimals, pill.spec.unit)
+            label = _format_value(value, pill.spec.decimals, pill.spec.unit, display_mode=display_mode)
             pill.chip.set_text(label)
 
-            if pill.spec.bounds is None:
+            warn_bounds = pill.spec.bounds_adu if display_mode == "ADU" else pill.spec.bounds
+            alarm_bounds = pill.spec.alarm_bounds_adu if display_mode == "ADU" else pill.spec.alarm_bounds
+
+            if warn_bounds is None and alarm_bounds is None:
                 if pill.spec.color_map is not None:
                     mapped_color = pill.spec.color_map.get(str(value), pill.spec.color_map.get("_default", "grey"))
                     pill.chip.set_background_color(mapped_color)
@@ -132,7 +140,22 @@ class MetricsCardController:
                 pill.chip.set_background_color("grey")
                 continue
 
-            low, high = pill.spec.bounds
+            if warn_bounds is not None and alarm_bounds is not None:
+                warn_low, warn_high = warn_bounds
+                alarm_low, alarm_high = alarm_bounds
+                if warn_low <= numeric <= warn_high:
+                    pill.chip.set_background_color("green")
+                elif alarm_low <= numeric <= alarm_high:
+                    pill.chip.set_background_color("yellow")
+                else:
+                    pill.chip.set_background_color("red")
+                continue
+
+            active_bounds = warn_bounds if warn_bounds is not None else alarm_bounds
+            if active_bounds is None:
+                pill.chip.set_background_color("grey")
+                continue
+            low, high = active_bounds
             in_bounds = low <= numeric <= high
             pill.chip.set_background_color("green" if in_bounds else "red")
 
@@ -221,16 +244,22 @@ def _coerce_bool(value: Any) -> bool | None:
     return bool(value)
 
 
-def _format_value(value: Any, decimals: int, unit: str) -> str:
+def _format_value(value: Any, decimals: int, unit: str, *, display_mode: str = "REAL") -> str:
+    mode = str(display_mode or "REAL").upper()
     if isinstance(value, bool):
         text = "YES" if value else "NO"
     elif isinstance(value, int):
         text = str(value)
     elif isinstance(value, float):
-        text = f"{value:.{decimals}f}"
+        if mode == "ADU":
+            text = str(int(value))
+        else:
+            text = f"{value:.{decimals}f}"
     else:
         text = str(value)
 
+    if mode == "ADU":
+        return text
     return f"{text} {unit}".strip()
 
 
@@ -252,6 +281,15 @@ def _has_any_asserted(packet: Any, attr_name: str, fields: list[str]) -> bool | 
 
 
 def _decoded(packet: Any, field_name: str) -> float | None:
+    display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+    if display_mode == "ADU":
+        raw = getattr(packet, field_name, None)
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
     return hk_conversions.decode_field(packet, field_name)
 
 
@@ -259,7 +297,42 @@ def _tec_temp(packet: Any) -> float | None:
     raw = getattr(packet, "EB_PELTIER_TEMP", None)
     if raw is None:
         return None
+    display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+    if display_mode == "ADU":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
     return float(raw) * -0.001830011 + 51.27039922
+
+
+def _tec_drive_current(packet: Any) -> float | None:
+    raw = getattr(packet, "EB_TEC_DRIVE_CURRENT", None)
+    if raw is None:
+        return None
+    display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+    if display_mode == "ADU":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+    return float(raw) * 0.0000162
+
+
+def _ob_thermal_setpoint(packet: Any, field_name: str) -> float | None:
+    raw = getattr(packet, field_name, None)
+    if raw is None:
+        return None
+    display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+    if display_mode == "ADU":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+    try:
+        return float(adu_to_temp(int(raw)))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
 
 def _state_name(packet: Any) -> str | None:
@@ -328,8 +401,8 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="ERR",
             getter=lambda hk: bool(getattr(hk, "ERROR_FLAGS", 0)),
             render="bool_status",
-            true_text="ALARM",
-            false_text="OK",
+            true_text="ERROR",
+            false_text="ERROR",
             true_color="red",
             false_color="green",
             popup_attr="ERROR_FLAGS_BITS",
@@ -341,9 +414,9 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="WRN",
             getter=lambda hk: bool(getattr(hk, "WARNING_FLAGS", 0)),
             render="bool_status",
-            true_text="ALARM",
-            false_text="OK",
-            true_color="red",
+            true_text="WARN",
+            false_text="WARN",
+            true_color="yellow",
             false_color="green",
             popup_attr="WARNING_FLAGS_BITS",
             popup_title="Warning Flags Bitmap",
@@ -354,8 +427,8 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="FDIR ALM",
             getter=lambda hk: bool(getattr(hk, "FDIR_ALARM_FLAGS", 0)),
             render="bool_status",
-            true_text="ALARM",
-            false_text="OK",
+            true_text="FDIR ALARM",
+            false_text="FDIR ALARM",
             true_color="red",
             false_color="green",
             popup_attr="FDIR_ALARM_FLAGS_BITS",
@@ -367,9 +440,9 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="FDIR WRN",
             getter=lambda hk: bool(getattr(hk, "FDIR_WARNING_FLAGS", 0)),
             render="bool_status",
-            true_text="ALARM",
-            false_text="OK",
-            true_color="red",
+            true_text="FDIR WARN",
+            false_text="FDIR WARN",
+            true_color="yellow",
             false_color="green",
             popup_attr="FDIR_WARNING_FLAGS_BITS",
             popup_title="FDIR Warning Flags Bitmap",
@@ -380,45 +453,76 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="+12V",
             getter=lambda hk: _decoded(hk, "EB_MEAS_MAIN_12V"),
             unit="V",
-            bounds=(11.0, 13.0),
+            bounds=const.WLIM_EB_12V,
+            alarm_bounds=const.ALIM_EB_12V,
+            bounds_adu=const.WLIM_EB_12V_ADU,
+            alarm_bounds_adu=const.ALIM_EB_12V_ADU,
         ),
         MetricSpec(
             key="eb_neg12v",
             label="-12V",
             getter=lambda hk: _decoded(hk, "EB_MEAS_MAIN_NEG12V"),
             unit="V",
-            bounds=(-13.0, -11.0),
+            bounds=const.WLIM_EB_NEG12V,
+            alarm_bounds=const.ALIM_EB_NEG12V,
+            bounds_adu=const.WLIM_EB_NEG12V_ADU,
+            alarm_bounds_adu=const.ALIM_EB_NEG12V_ADU,
         ),
-        MetricSpec(key="eb_5v", label="+5V", getter=lambda hk: _decoded(hk, "EB_MEAS_5V"), unit="V", bounds=(4.5, 5.5)),
         MetricSpec(
-            key="eb_3v3", label="+3V3", getter=lambda hk: _decoded(hk, "EB_MEAS_3V3"), unit="V", bounds=(2.8, 3.8)
+            key="eb_5v",
+            label="+5V",
+            getter=lambda hk: _decoded(hk, "EB_MEAS_5V"),
+            unit="V",
+            bounds=const.WLIM_EB_5V,
+            alarm_bounds=const.ALIM_EB_5V,
+            bounds_adu=const.WLIM_EB_5V_ADU,
+            alarm_bounds_adu=const.ALIM_EB_5V_ADU,
+        ),
+        MetricSpec(
+            key="eb_3v3",
+            label="+3V3",
+            getter=lambda hk: _decoded(hk, "EB_MEAS_3V3"),
+            unit="V",
+            bounds=const.WLIM_EB_3V3,
+            alarm_bounds=const.ALIM_EB_3V3,
+            bounds_adu=const.WLIM_EB_3V3_ADU,
+            alarm_bounds_adu=const.ALIM_EB_3V3_ADU,
         ),
         MetricSpec(
             key="eb_mcu_temp",
             label="MCU TEMP",
             getter=lambda hk: _decoded(hk, "EB_MCU_INTERNAL_TEMP"),
             unit="°C",
-            bounds=const.WLIM_TPR,
+            bounds=const.WLIM_EB_MCU_INTERNAL_TEMP,
+            alarm_bounds=const.ALIM_EB_MCU_INTERNAL_TEMP,
+            bounds_adu=const.WLIM_EB_MCU_INTERNAL_TEMP_ADU,
+            alarm_bounds_adu=const.ALIM_EB_MCU_INTERNAL_TEMP_ADU,
         ),
         MetricSpec(
             key="eb_internal_temp",
             label="INTRNL TEMP",
             getter=lambda hk: _decoded(hk, "EB_INTERNAL_TRP_TEMP"),
             unit="°C",
-            bounds=const.WLIM_TPR,
+            bounds=const.WLIM_EB_INTERNAL_TRP_TEMP,
+            alarm_bounds=const.ALIM_EB_INTERNAL_TRP_TEMP,
+            bounds_adu=const.WLIM_EB_INTERNAL_TRP_TEMP_ADU,
+            alarm_bounds_adu=const.ALIM_EB_INTERNAL_TRP_TEMP_ADU,
         ),
         MetricSpec(
             key="eb_psu_temp",
             label="PSU TEMP",
             getter=lambda hk: _decoded(hk, "EB_PSU_BOARD_TEMP"),
             unit="°C",
-            bounds=const.WLIM_TPR,
+            bounds=const.WLIM_EB_PSU_BOARD_TEMP,
+            alarm_bounds=const.ALIM_EB_PSU_BOARD_TEMP,
+            bounds_adu=const.WLIM_EB_PSU_BOARD_TEMP_ADU,
+            alarm_bounds_adu=const.ALIM_EB_PSU_BOARD_TEMP_ADU,
         ),
         MetricSpec(key="setpoint", label="SETPOINT", getter=lambda hk: getattr(hk, "TEC_SETPOINT", None)),
         MetricSpec(
             key="drive_i",
             label="Drive I",
-            getter=lambda hk: (float(getattr(hk, "EB_TEC_DRIVE_CURRENT", 0)) * 0.0000162),
+            getter=_tec_drive_current,
             unit="A",
             decimals=4,
         ),
@@ -429,8 +533,8 @@ def _eb_hk_specs() -> list[MetricSpec]:
             label="At Set",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "TEC_AT_SETPOINT"),
             render="bool_status",
-            true_text="YES",
-            false_text="NO",
+            true_text="AT SET",
+            false_text="AT SET",
             true_color="green",
             false_color="grey",
         ),
@@ -445,6 +549,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_3V3_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_3V3,
+            alarm_bounds=const.ALIM_3V3,
+            bounds_adu=const.WLIM_3V3_ADU,
+            alarm_bounds_adu=const.ALIM_3V3_ADU,
         ),
         MetricSpec(
             key="1v5",
@@ -452,6 +559,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_1V5_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_1V5,
+            alarm_bounds=const.ALIM_1V5,
+            bounds_adu=const.WLIM_1V5_ADU,
+            alarm_bounds_adu=const.ALIM_1V5_ADU,
         ),
         MetricSpec(
             key="dig",
@@ -459,6 +569,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_DIGITAL_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
+            alarm_bounds=const.ALIM_TPR,
+            bounds_adu=const.WLIM_TPR_ADU,
+            alarm_bounds_adu=const.ALIM_TPR_ADU,
         ),
         MetricSpec(
             key="det",
@@ -466,6 +579,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_DETECTOR_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
+            alarm_bounds=const.ALIM_TPR,
+            bounds_adu=const.WLIM_TPR_ADU,
+            alarm_bounds_adu=const.ALIM_TPR_ADU,
         ),
         MetricSpec(
             key="mech",
@@ -473,6 +589,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_MECHANISM_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
+            alarm_bounds=const.ALIM_TPR,
+            bounds_adu=const.WLIM_TPR_ADU,
+            alarm_bounds_adu=const.ALIM_TPR_ADU,
         ),
         MetricSpec(
             key="mtr",
@@ -480,6 +599,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _decoded(hk, "OB_MOTOR_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
+            alarm_bounds=const.ALIM_TPR,
+            bounds_adu=const.WLIM_TPR_ADU,
+            alarm_bounds_adu=const.ALIM_TPR_ADU,
         ),
         MetricSpec(key="cmd_cnt", label="CMD CNT", getter=lambda hk: getattr(hk, "OB_COMMAND_COUNT", None)),
         MetricSpec(
@@ -487,25 +609,29 @@ def _ob_hk_specs() -> list[MetricSpec]:
             label="OB ENBLD",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "OB_5V_ENABLED"),
             render="bool_status",
-            true_text="ON",
-            false_text="OFF",
+            true_text="OB ENABLED",
+            false_text="OB ENABLED",
             true_color="green",
-            false_color="red",
+            false_color="grey",
         ),
         MetricSpec(
             key="ob_home",
-            label="HOME",
+            label="HOMED",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "HOMING_COMPLETE"),
             render="bool_status",
+            true_text="HOMED",
+            false_text="HOMED",
+            true_color="green",
+            false_color="grey",
         ),
         MetricSpec(
             key="ob_parked",
             label="PARKED",
             getter=_parked,
             render="bool_status",
-            true_text="YES",
-            false_text="NO",
-            true_color="orange",
+            true_text="PARKED",
+            false_text="PARKED",
+            true_color="green",
             false_color="grey",
         ),
         MetricSpec(
@@ -513,26 +639,40 @@ def _ob_hk_specs() -> list[MetricSpec]:
             label="OB WARM",
             getter=_ob_warm,
             render="bool_status",
+            true_text="OB WARM",
+            false_text="OB WARM",
+            true_color="green",
+            false_color="grey",
         ),
         MetricSpec(
             key="ob_mech_pwr",
             label="MECH PWR",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "OB_MECHANISM_BOARD_ENABLED"),
             render="bool_status",
-            true_text="ON",
-            false_text="OFF",
+            true_text="MECH PWR",
+            false_text="MECH PWR",
             true_color="green",
-            false_color="red",
+            false_color="grey",
         ),
         MetricSpec(
             key="ob_det_pwr",
             label="DET PWR",
             getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "OB_DETECTOR_BOARD_ENABLED"),
             render="bool_status",
-            true_text="ON",
-            false_text="OFF",
+            true_text="DET PWR",
+            false_text="DET PWR",
             true_color="green",
-            false_color="red",
+            false_color="grey",
+        ),
+        MetricSpec(
+            key="ob_acq_cfg_set",
+            label="ACQ CFG SET",
+            getter=lambda hk: _flag_true(hk, "INSTR_STATUS_FLAGS", "MEASUREMENT_CONFIGS_SET"),
+            render="bool_status",
+            true_text="ACQ CFG SET",
+            false_text="ACQ CFG SET",
+            true_color="green",
+            false_color="grey",
         ),
         MetricSpec(
             key="ob_motor_moving",
@@ -540,7 +680,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=lambda hk: _flag_true(hk, "MTR_FLAGS", "MOVING"),
             render="bool_status",
             true_text="Moving",
-            false_text="STATIONARY",
+            false_text="Stationary",
             true_color="green",
             false_color="grey",
         ),
@@ -574,14 +714,18 @@ def _ob_hk_specs() -> list[MetricSpec]:
             key="mech_htr_status",
             label="MECH",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HMS"),
-            render="status_light",
+            render="bool_status",
+            true_text="MECH",
+            false_text="MECH",
+            true_color="green",
+            false_color="grey",
         ),
         MetricSpec(
             key="mech_manual",
             label="MANUAL",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "MM"),
             render="state_chip",
-            chip_text="MAN",
+            chip_text="MANUAL",
         ),
         MetricSpec(
             key="mech_auto",
@@ -594,14 +738,18 @@ def _ob_hk_specs() -> list[MetricSpec]:
             key="det_htr_status",
             label="DET",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HDS"),
-            render="status_light",
+            render="bool_status",
+            true_text="DET",
+            false_text="DET",
+            true_color="green",
+            false_color="grey",
         ),
         MetricSpec(
             key="det_manual",
             label="MANUAL",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "DM"),
             render="state_chip",
-            chip_text="MAN",
+            chip_text="MANUAL",
         ),
         MetricSpec(
             key="det_auto",
@@ -615,10 +763,34 @@ def _ob_hk_specs() -> list[MetricSpec]:
             label="SCI",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "S"),
             render="bool_status",
-            true_text="ON",
-            false_text="OFF",
+            true_text="SCI TOGGLE",
+            false_text="SCI TOGGLE",
             true_color="green",
             false_color="grey",
+        ),
+        MetricSpec(
+            key="mech_htr_min_sp",
+            label="MECH MIN",
+            getter=lambda hk: _ob_thermal_setpoint(hk, "OB_THERMAL_MECH_MIN"),
+            unit="°C",
+        ),
+        MetricSpec(
+            key="mech_htr_max_sp",
+            label="MECH MAX",
+            getter=lambda hk: _ob_thermal_setpoint(hk, "OB_THERMAL_MECH_MAX"),
+            unit="°C",
+        ),
+        MetricSpec(
+            key="det_htr_min_sp",
+            label="DET MIN",
+            getter=lambda hk: _ob_thermal_setpoint(hk, "OB_THERMAL_DET_MIN"),
+            unit="°C",
+        ),
+        MetricSpec(
+            key="det_htr_max_sp",
+            label="DET MAX",
+            getter=lambda hk: _ob_thermal_setpoint(hk, "OB_THERMAL_DET_MAX"),
+            unit="°C",
         ),
         MetricSpec(key="err_ipi", label="IPI", getter=lambda hk: _ns_bool(hk, "ERRORS", "IPI"), render="error_chip"),
         MetricSpec(key="err_ios", label="IOS", getter=lambda hk: _ns_bool(hk, "ERRORS", "IOS"), render="error_chip"),
@@ -643,6 +815,46 @@ def _render_metric_grid(*, specs: list[MetricSpec], columns: int, pills: list[Me
     label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
     value_size = app_theme.ui_font_size(palette.get("metric_value_size") if isinstance(palette, dict) else None)
 
+    # Pills that should not display labels (only show state inside)
+    label_hidden_pills = {
+        "eb_operating_state",      # OP
+        "eb_has_errors",           # ERR
+        "eb_has_warnings",         # WRN
+        "eb_fdir_alarm",           # FDIR ALM
+        "eb_fdir_warning",         # FDIR WRN
+        "setpoint",                # TEC SETPOINT
+        "drive_i",                 # TEC DRIVE I
+        "temp",                    # TEC TEMP
+        "dac",                     # TEC DAC OUT
+        "eb_tec_at_setpoint",      # TEC AT SET
+        "ob_enabled",              # OB ENBLD
+        "ob_home",                 # HOMED
+        "ob_parked",               # PARKED
+        "ob_warm",                 # OB WARM
+        "ob_mech_pwr",             # MECH PWR
+        "ob_det_pwr",              # DET PWR
+        "ob_acq_cfg_set",          # ACQ CFG SET
+        "ob_motor_moving",         # MOV
+        "ob_mech_cal",             # CAL
+        "mech_htr_status",         # MECH
+        "mech_manual",             # MANUAL
+        "mech_auto",               # AUTO
+        "det_htr_status",          # DET
+        "det_manual",              # MANUAL
+        "det_auto",                # AUTO
+        "det_sci",                 # SCI TOGGLE
+    }
+
+    # Pills that should keep label above chip to avoid horizontal shifting with longer values (e.g. ADU)
+    label_top_pills = {
+        "3v3",                     # OB +3.3V
+        "1v5",                     # OB +1.5V
+        "dig",                     # OB digital thermistor
+        "det",                     # OB detector thermistor
+        "mech",                    # OB mechanism thermistor
+        "mtr",                     # OB motor thermistor
+    }
+
     with ui.grid(columns=columns).classes("w-full gap-0"):
         for spec in specs:
             if spec.render == "error_chip":
@@ -651,12 +863,21 @@ def _render_metric_grid(*, specs: list[MetricSpec], columns: int, pills: list[Me
                 pills.append(MetricPill(spec=spec, chip=chip))
             else:
                 with ui.column().classes("items-center gap-0"):
-                    with ui.row().classes("gap-1 items-center"):
+                    # Only display label if this pill is not in the hidden list
+                    if spec.key not in label_hidden_pills:
                         lbl_elem = ui.label(spec.label)
                         lbl_elem.style(f"font-size: {label_size}")
+
+                    # Keep selected OB labels above their values; others remain inline.
+                    if spec.key in label_top_pills:
                         chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
                         chip.style(f"font-size: {value_size}")
                         pills.append(MetricPill(spec=spec, chip=chip))
+                    else:
+                        with ui.row().classes("gap-1 items-center"):
+                            chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
+                            chip.style(f"font-size: {value_size}")
+                            pills.append(MetricPill(spec=spec, chip=chip))
 
 
 def _bind_metric_popups(controller: MetricsCardController) -> None:
@@ -681,12 +902,12 @@ def _bind_metric_popups(controller: MetricsCardController) -> None:
 def create_metrics_card(title: str, specs: list[MetricSpec]) -> MetricsCardController:
     pills: list[MetricPill] = []
 
-    with ui.card().classes("w-full") as card:
+    with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
         palette = getattr(app.state, "theme_palette", None)
         ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         title_lbl = ui.label(title)
         title_lbl.style(f"font-size: {ui_sz}")
-        title_lbl.classes("font-bold")
+        title_lbl.classes("font-bold mb-2")
         _render_metric_grid(specs=specs, columns=5, pills=pills)
 
     controller = MetricsCardController(title=title, pills=pills, card=card)
@@ -698,12 +919,12 @@ def create_default_eb_metrics_card() -> MetricsCardController:
     specs = _eb_hk_specs()
     spec_map = {spec.key: spec for spec in specs}
     pills: list[MetricPill] = []
-    with ui.card().classes("w-full") as card:
+    with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
         palette = getattr(app.state, "theme_palette", None)
         ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         eb_lbl = ui.label("EB STATUS")
         eb_lbl.style(f"font-size: {ui_sz}")
-        eb_lbl.classes("font-bold")
+        eb_lbl.classes("font-bold mb-2")
 
         _render_metric_grid(
             specs=[
@@ -727,7 +948,7 @@ def create_default_eb_metrics_card() -> MetricsCardController:
         ui.space()
         tec_lbl = ui.label("TEC STATUS")
         tec_lbl.style(f"font-size: {ui_sz}")
-        tec_lbl.classes("font-bold")
+        tec_lbl.classes("font-bold mb-2")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("setpoint", "drive_i", "temp", "dac", "eb_tec_at_setpoint")],
             columns=5,
@@ -745,12 +966,12 @@ def create_default_ob_metrics_card() -> MetricsCardController:
     spec_map = {spec.key: spec for spec in specs}
     pills: list[MetricPill] = []
 
-    with ui.card().classes("w-full") as card:
+    with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
         palette = getattr(app.state, "theme_palette", None)
         ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         ob_lbl = ui.label("OB STATUS")
         ob_lbl.style(f"font-size: {ui_sz}")
-        ob_lbl.classes("font-bold")
+        ob_lbl.classes("font-bold mb-2")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("3v3", "1v5", "dig", "det", "mech", "mtr")],
             columns=6,
@@ -762,14 +983,14 @@ def create_default_ob_metrics_card() -> MetricsCardController:
             pills=pills,
         )
         _render_metric_grid(
-            specs=[spec_map[k] for k in ("ob_warm", "ob_mech_pwr", "ob_det_pwr")],
-            columns=3,
+            specs=[spec_map[k] for k in ("ob_warm", "ob_mech_pwr", "ob_det_pwr", "ob_acq_cfg_set")],
+            columns=4,
             pills=pills,
         )
         ui.space()
         motor_lbl = ui.label("MOTOR STATUS")
         motor_lbl.style(f"font-size: {ui_sz}")
-        motor_lbl.classes("font-bold")
+        motor_lbl.classes("font-bold mb-2")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("ob_motor_moving", "ob_direction", "ob_stop", "ob_steps", "ob_mech_cal")],
             columns=5,
@@ -784,7 +1005,7 @@ def create_default_ob_metrics_card() -> MetricsCardController:
         heater_lbl = ui.label("HEATER STATUS")
         if ui_sz:
             heater_lbl.style(f"font-size: {ui_sz}")
-        heater_lbl.classes("font-bold")
+        heater_lbl.classes("font-bold mb-2")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("mech_htr_status", "mech_manual", "mech_auto")],
             columns=3,
@@ -797,9 +1018,15 @@ def create_default_ob_metrics_card() -> MetricsCardController:
             pills=pills,
         )
         ui.space()
+        _render_metric_grid(
+            specs=[spec_map[k] for k in ("mech_htr_min_sp", "mech_htr_max_sp", "det_htr_min_sp", "det_htr_max_sp")],
+            columns=4,
+            pills=pills,
+        )
+        ui.space()
         err_lbl = ui.label("OB ERRORS")
         err_lbl.style(f"font-size: {ui_sz}")
-        err_lbl.classes("font-bold")
+        err_lbl.classes("font-bold mb-2")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("err_ipi", "err_ios", "err_icr", "err_mor", "err_tmo", "err_ipa")],
             columns=6,
@@ -820,8 +1047,8 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
     cards: dict[str, Any] = {}
     chips: dict[str, Any] = {}
 
-    with ui.card().classes("w-full"):
-        ui.label("PACKET METRICS").classes("text-sm font-bold")
+    with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;"):
+        ui.label("PACKET METRICS").classes("text-sm font-bold mb-2")
         with ui.row().classes("w-full gap-2"):
             fields = [
                 ("tc_rejected", "TCs RJCTD"),
@@ -831,19 +1058,19 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
                 ("sci_packets", "SCI"),
             ]
             for key, label in fields:
-                with ui.column().classes("flex-1 items-start gap-0") as card_col:
+                with ui.column().classes("flex-1 min-w-0 items-center gap-1") as card_col:
                     # use theme-aware label size for packet metric labels
                     palette = getattr(app.state, "theme_palette", None)
                     pkt_label_size = app_theme.ui_font_size(
                         palette.get("metric_label_size") if isinstance(palette, dict) else None
                     )
-                    lbl = ui.label(label).classes("self-start")
+                    lbl = ui.label(label).classes("text-center text-xs")
                     lbl.style(f"font-size: {pkt_label_size}")
                     chips[key] = (
                         ui.chip("---", color="grey")
                         .props("dense")
-                        .classes("w-fit")
-                        .style("justify-content: flex-start;")
+                        .classes("w-full")
+                        .style("justify-content: center;")
                     )
                 cards[key] = card_col
 

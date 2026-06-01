@@ -3,29 +3,29 @@
     --logo-light-src: "/rsrc/Enfys_logo.png";
     --logo-dark-src: "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png";
 
-    --dark-primary-bg: #595959;
-    --dark-secondary-bg: #2d2d2d;
+    --dark-primary-bg: #2b3038;
+    --dark-secondary-bg: #383f4a;
     --dark-heading-color: #ffffff;
     --dark-text-color: #ffffff;
     --dark-accent_color: #2b6d34;
-    --dark-plot-bg: #595959;
-    --dark-plot-grid: #6e6e6e;
+    --dark-plot-bg: #2b3038;
+    --dark-plot-grid: #616b79;
     --dark-plot-axis: #ffffff;
     --dark-plot-legend: #ffffff;
     --dark-plot-spine: #ffffff;
     --dark-plot-tick: #ffffff;
 
-    --light-primary-bg: #f4f5f7;
-    --light-secondary-bg: #e6e9ef;
-    --light-heading-color: #1f2a3a;
-    --light-text-color: #1f2a3a;
+    --light-primary-bg: #ffffff;
+    --light-secondary-bg: #f3f4f6;
+    --light-heading-color: #111827;
+    --light-text-color: #111827;
     --light-accent_color: #2b6d34;
-    --light-plot-bg: #f4f5f7;
-    --light-plot-grid: #c9ced6;
-    --light-plot-axis: #1f2a3a;
-    --light-plot-legend: #1f2a3a;
-    --light-plot-spine: #1f2a3a;
-    --light-plot-tick: #1f2a3a;
+    --light-plot-bg: #ffffff;
+    --light-plot-grid: #d1d5db;
+    --light-plot-axis: #111827;
+    --light-plot-legend: #111827;
+    --light-plot-spine: #111827;
+    --light-plot-tick: #111827;
 
     --primary-bg: var(--dark-primary-bg);
     --secondary-bg: var(--dark-secondary-bg);
@@ -125,7 +125,11 @@ body.theme-light {
 body,
 .nicegui-content,
 .q-page,
-.q-layout {
+.q-layout,
+.q-page-container,
+.q-layout__section,
+.q-layout__shadow,
+.q-drawer__content {
     background-color: var(--primary-bg);
     color: var(--text-color);
 }
@@ -133,13 +137,13 @@ body,
 .q-drawer,
 .q-footer,
 .q-header {
-    background-color: var(--secondary-bg);
+    background-color: var(--primary-bg);
     color: var(--text-color);
 }
 
 .q-card,
 .q-card__section {
-    background-color: var(--primary-bg);
+    background-color: var(--secondary-bg);
 }
 
 .q-markdown,
@@ -238,13 +242,13 @@ body,
 
 .q-field__control,
 .q-field__native {
-    background-color: var(--primary-bg);
+    background-color: var(--secondary-bg);
     color: var(--text-color);
 }
 
 .q-menu,
 .q-list {
-    background-color: var(--primary-bg);
+    background-color: var(--secondary-bg);
     color: var(--text-color);
 }
 

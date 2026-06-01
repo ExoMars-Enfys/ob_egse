@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Std library
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
@@ -22,6 +23,7 @@ from widget_modules import ui_runtime_controller
 
 # utilities
 from utility_modules import app_theme
+from utility_modules import hk_conversions
 
 
 PACKET_PROFILE_FIELDS: dict[str, list[str]] = {
@@ -53,6 +55,7 @@ SCI_POINT_FIELDS: list[str] = [name for name, _ in tmstruct.sci_data if not name
 class PacketViewerController:
     packet_type: str | None
     packet_state: dict[str, Any]
+    app_state: dict[str, Any]
     field_name_labels: list[Any]
     field_value_labels: list[Any]
     packet_type_label: Any
@@ -114,10 +117,11 @@ class PacketViewerController:
 
         packet_for_display = raw_packet
         if profile == "EB_SCI":
-            normalized = ui_runtime_controller.sci_add_packet(self.sci_state, raw_packet)
-            if normalized is not None:
-                packet_for_display = normalized
-                self._render_sci_panel(ui_runtime_controller.sci_current_packet(self.sci_state))
+            shared_packets = list(self.app_state.get("sci_packets") or [])
+            if shared_packets:
+                self.sci_state["packets"] = shared_packets
+                self.sci_state["packet_index"] = len(shared_packets) - 1
+            self._render_sci_panel(ui_runtime_controller.sci_current_packet(self.sci_state))
 
         packet_dict = self._coerce_packet_dict(packet_for_display)
 
@@ -153,37 +157,71 @@ class PacketViewerController:
         self._render_sci_panel(packet)
 
     async def plot_selected_sci_packet(self) -> None:
-        packet = ui_runtime_controller.sci_current_packet(self.sci_state)
-        if packet is None:
+        packets = list(self.app_state.get("sci_packets") or self.sci_state.get("packets") or [])
+        if not packets:
             ui.notify("No science packet selected to plot", color="warning")
             return
-
-        packet_number = getattr(packet, "PACKET_NUMBER", "?")
         ui.notify("Generating interactive science plot...", color="primary")
-
-        try:
-            figures = await run.io_bound(
-                lambda: sci_plot.render_sci_packets_plotly_figures(
-                    sci_packets=[packet],
-                    title_prefix=f"SCI Packet {packet_number}",
-                )
-            )
-        except Exception as exc:
-            ui.notify(f"Failed to generate science plot: {exc}", color="negative")
-            return
-
-        if not figures:
-            ui.notify("Selected packet has no science data points to plot", color="warning")
-            return
 
         with ui.dialog() as plot_dialog:
             with ui.card().classes("w-[95vw] max-w-6xl max-h-[90vh] overflow-auto"):
-                with ui.row(align_items="center").classes("w-full justify-between"):
+                with ui.row(align_items="center").classes("w-full justify-between gap-2"):
                     ui.label("Interactive Science Plot (ABS steps vs intensity)").classes("text-lg font-bold")
                     ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
                 ui.separator()
-                for fig in figures:
-                    ui.plotly(fig).classes("w-full")
+
+                dialog_state = {"index": max(0, min(int(self.sci_state.get("packet_index", 0)), len(packets) - 1))}
+
+                with ui.row().classes("w-full items-center justify-between gap-2"):
+                    ui.button(
+                        icon="chevron_left",
+                        on_click=lambda: _shift_packet(-1),
+                    ).props("dense flat")
+                    packet_label = ui.label("").classes("font-bold")
+                    ui.button(
+                        icon="chevron_right",
+                        on_click=lambda: _shift_packet(1),
+                    ).props("dense flat")
+
+                plot_body = ui.column().classes("w-full gap-3")
+
+                async def render_packet_plot(packet_index: int) -> None:
+                    packet = packets[packet_index]
+                    packet_type = getattr(packet, "SCI_PACKET_CRITICALITY", "?")
+                    packet_number = getattr(packet, "PACKET_NUMBER", packet_index + 1)
+                    packet_label.set_text(
+                        f"Packet {packet_index + 1} / {len(packets)} (PKT {packet_number}, {packet_type})"
+                    )
+
+                    try:
+                        figures = await run.io_bound(
+                            lambda: sci_plot.render_sci_packets_plotly_figures(
+                                sci_packets=[packet],
+                                title_prefix=f"SCI Packet {packet_number}",
+                            )
+                        )
+                    except Exception as exc:
+                        plot_body.clear()
+                        with plot_body:
+                            ui.label(f"Failed to generate science plot: {exc}").classes("text-negative")
+                        return
+
+                    if not figures:
+                        plot_body.clear()
+                        with plot_body:
+                            ui.label("Selected packet has no science data points to plot").classes("text-warning")
+                        return
+
+                    plot_body.clear()
+                    with plot_body:
+                        for fig in figures:
+                            ui.plotly(fig).classes("w-full")
+
+                def _shift_packet(dialog_delta: int) -> None:
+                    dialog_state["index"] = (dialog_state["index"] + dialog_delta) % len(packets)
+                    asyncio.create_task(render_packet_plot(dialog_state["index"]))
+
+                await render_packet_plot(dialog_state["index"])
         plot_dialog.open()
 
     def _render_sci_panel(self, packet: Any | None) -> None:
@@ -209,12 +247,14 @@ class PacketViewerController:
             return
 
         packet_type = getattr(packet, "SCI_PACKET_CRITICALITY", "---")
-        packet_count = len(self.sci_state.get("packets") or [])
+        packets = list(self.app_state.get("sci_packets") or self.sci_state.get("packets") or [])
+        packet_count = len(packets)
         packet_index = int(self.sci_state.get("packet_index", 0))
         if self.sci_packet_index_label is not None:
             self.sci_packet_index_label.set_text(f"Packet {packet_index + 1} / {packet_count}")
         if self.sci_packet_type_label is not None:
-            self.sci_packet_type_label.set_text(str(packet_type))
+            packet_number = self._format_sci_packet_number(getattr(packet, "PACKET_NUMBER", packet_index + 1))
+            self.sci_packet_type_label.set_text(f"{packet_type} | PKT {packet_number}")
         self.sci_status_label.set_text(f"Science packet received ({packet_type})")
 
         for field_name in SCI_HEADER_FIELDS:
@@ -268,9 +308,9 @@ class PacketViewerController:
         except (TypeError, ValueError):
             return str(value)
         mode_map = {
-            0b00: "0b00: Standard Scan",
-            0b01: "0b01: Limited Scan",
-            0b10: "0b10: Fixed Scan",
+            0b00: "Standard Scan",
+            0b01: "Limited Scan",
+            0b10: "Fixed Scan",
         }
         return mode_map.get(mode, str(mode))
 
@@ -309,9 +349,18 @@ class PacketViewerController:
             self.field_name_labels[idx].set_text("")
             self.field_value_labels[idx].set_text("")
 
-    @staticmethod
-    def _format_value(field_name: str, value: Any) -> str:
+    def _format_value(self, field_name: str, value: Any) -> str:
         """Format a telemetry field value for display, with special handling for certain types."""
+        display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+        if display_mode == "REAL" and isinstance(value, int):
+            conversion = hk_conversions.CONVERSIONS.get(field_name)
+            if conversion is not None:
+                try:
+                    converted = float(conversion.convert(int(value)))
+                    return f"{converted:.3f} {conversion.unit}".strip()
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
+
         if isinstance(value, bool):
             return "TRUE" if value else "FALSE"
         if isinstance(value, float):
@@ -343,7 +392,12 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
     if selected_type not in PACKET_PROFILE_FIELDS:
         selected_type = None
 
-    max_rows = max(len(fields) for fields in PACKET_PROFILE_FIELDS.values())
+    # For dedicated viewers (e.g. EB_POST tab), only allocate rows for that profile
+    # to avoid large blocks of empty rows that create unnecessary scroll.
+    if selected_type is not None:
+        max_rows = len(PACKET_PROFILE_FIELDS.get(selected_type, []))
+    else:
+        max_rows = max(len(fields) for fields in PACKET_PROFILE_FIELDS.values())
     field_name_labels: list[Any] = []
     field_value_labels: list[Any] = []
     sci_status_label: Any | None = None
@@ -424,8 +478,11 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
             with ui.expansion("EB SCI Header", value=False).classes("w-full"):
                 with ui.grid(columns=2).classes("w-full gap-x-4 gap-y-1"):
                     for field_name in SCI_HEADER_FIELDS:
-                        ui.label(field_name).classes("text-xs text-right")
-                        sci_header_labels[field_name] = ui.label("---").classes("text-xs")
+                        hdr_lbl = ui.label(field_name).classes("text-right")
+                        hdr_lbl.style(f"font-size: {small_sz}; color: var(--accent_color);")
+                        hdr_val = ui.label("---").classes("font-mono")
+                        hdr_val.style(f"font-size: {small_sz}; color: var(--text-primary);")
+                        sci_header_labels[field_name] = hdr_val
 
             with ui.expansion("Science Data Point", value=True).classes("w-full"):
                 with ui.row(align_items="center").classes("w-full justify-between gap-2"):
@@ -466,9 +523,9 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
                 with ui.grid(columns=2).classes("w-full gap-x-4 gap-y-1"):
                     for field_name in SCI_POINT_FIELDS:
                         lbl = ui.label(field_name).classes("text-right")
-                        lbl.style(f"font-size: {small_sz}")
-                        ui_point = ui.label("---")
-                        ui_point.style(f"font-size: {small_sz}")
+                        lbl.style(f"font-size: {small_sz}; color: var(--accent_color);")
+                        ui_point = ui.label("---").classes("font-mono")
+                        ui_point.style(f"font-size: {small_sz}; color: var(--text-primary);")
                         sci_point_labels[field_name] = ui_point
 
             with ui.row(align_items="center").classes("w-full justify-center"):
@@ -481,6 +538,7 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
     controller = PacketViewerController(
         packet_type=selected_type,
         packet_state=packet_state,
+        app_state=state,
         field_name_labels=field_name_labels,
         field_value_labels=field_value_labels,
         packet_type_label=packet_type_label,

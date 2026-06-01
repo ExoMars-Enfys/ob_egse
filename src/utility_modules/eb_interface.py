@@ -3,6 +3,7 @@ import logging
 import subprocess
 import time
 import ctypes
+import shutil
 from ctypes import windll
 
 # Added packages
@@ -15,6 +16,7 @@ from pywinauto.keyboard import send_keys
 # Local modules
 # core
 from core_modules import config as config
+from core_modules import constants as const
 
 # utilities
 from utility_modules import comms as comms
@@ -358,8 +360,97 @@ egse_log_file = None
 egse_tools_path = r"C:\wdir\EB\EB_EGSE"
 egse_interface = None
 rs422_log_path: str | None = None
+_egse_session_started_at: float | None = None
+_session_existing_root_logs: set[str] = set()
+_session_existing_rs422_logs: set[str] = set()
 _egse_log_state: dict[str, Path | float | None] = {"path": None, "mtime": None}
 _rs422_log_state: dict[str, Path | float | None] = {"path": None, "mtime": None}
+
+
+def _copy_session_logs_from_dir(
+    src_dir: Path,
+    dst_dir: Path,
+    *,
+    baseline_files: set[str] | None,
+    logger: Any,
+    patterns: tuple[str, ...] = ("*.log", "*.LOG"),
+) -> int:
+    """Copy logs created/updated during current EGSE session from src_dir to dst_dir."""
+    if not src_dir.exists() or not src_dir.is_dir():
+        return 0
+
+    copied = 0
+    seen: set[Path] = set()
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    for pattern in patterns:
+        for file_path in src_dir.glob(pattern):
+            if file_path in seen or not file_path.is_file():
+                continue
+            seen.add(file_path)
+
+            try:
+                if baseline_files is not None and file_path.name in baseline_files:
+                    continue
+                shutil.copy2(file_path, dst_dir / file_path.name)
+                copied += 1
+            except Exception as exc:
+                logger.warning("Failed to copy EB log '%s': %s", file_path, exc)
+
+    return copied
+
+
+def sync_egse_session_logs(logger: Any) -> None:
+    """Copy EB external logs (CmdTool and RS422) into this app session log folder."""
+    session_dir = Path(const.LOG_PATH)
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    base_dir = Path(egse_tools_path)
+    rs422_dir = base_dir / "RS422if_log"
+
+    copied_cmdtool = _copy_session_logs_from_dir(
+        base_dir,
+        session_dir / "EB_EGSE",
+        baseline_files=_session_existing_root_logs,
+        logger=logger,
+    )
+    copied_rs422 = _copy_session_logs_from_dir(
+        rs422_dir,
+        session_dir / "RS422if_log",
+        baseline_files=_session_existing_rs422_logs,
+        logger=logger,
+    )
+
+    if copied_cmdtool or copied_rs422:
+        logger.info(
+            "Synced EB session logs into %s (EB_EGSE=%d, RS422if_log=%d)",
+            session_dir,
+            copied_cmdtool,
+            copied_rs422,
+        )
+
+
+def sync_egse_session_logs_with_retry(logger: Any, retries: int = 5, delay_s: float = 0.4) -> None:
+    """Retry log sync briefly to catch files created shortly after stop command returns."""
+    for attempt in range(max(retries, 1)):
+        sync_egse_session_logs(logger)
+
+        base_dir = Path(egse_tools_path)
+        rs422_dir = base_dir / "RS422if_log"
+        new_root = any(
+            p.is_file() and p.name not in _session_existing_root_logs
+            for pattern in ("*.log", "*.LOG")
+            for p in base_dir.glob(pattern)
+        )
+        new_rs422 = any(
+            p.is_file() and p.name not in _session_existing_rs422_logs
+            for pattern in ("*.log", "*.LOG")
+            for p in rs422_dir.glob(pattern)
+        )
+        if not new_root and not new_rs422:
+            return
+        if attempt < retries - 1:
+            time.sleep(max(delay_s, 0.05))
 
 
 # EGSE log management functions
@@ -535,28 +626,46 @@ def locate_latest_egse_log() -> Path | None:
 
 def start_egse_tools(logger) -> None:
     """Method that runs the batch file to start the EGSE tools."""
-    global egse_started, egse_log_file
+    global egse_started, egse_log_file, _egse_session_started_at
+    global _session_existing_root_logs, _session_existing_rs422_logs
+    session_start_marker = time.time()
+    base_dir = Path(egse_tools_path)
+    rs422_dir = base_dir / "RS422if_log"
+    _session_existing_root_logs = {
+        p.name for pattern in ("*.log", "*.LOG") for p in base_dir.glob(pattern) if p.is_file()
+    }
+    _session_existing_rs422_logs = {
+        p.name for pattern in ("*.log", "*.LOG") for p in rs422_dir.glob(pattern) if p.is_file()
+    }
     try:
         logger.info("Starting EB EGSE Tools...")
         interface = get_egse_interface()
         if interface.start_egse():
             egse_started = True
+            _egse_session_started_at = session_start_marker
             logger.info("[OK] EGSE tools started successfully")
         else:
             egse_started = False
+            _egse_session_started_at = None
+            _session_existing_root_logs.clear()
+            _session_existing_rs422_logs.clear()
             logger.error(
                 "[ERROR] Failed to start EGSE tools. Verify the EGSE tools folder and that Start_tools.bat exists."
             )
     except Exception as exc:
         logger.error(f"[ERROR] Error starting EGSE: {exc}")
         egse_started = False
+        _egse_session_started_at = None
+        _session_existing_root_logs.clear()
+        _session_existing_rs422_logs.clear()
 
     locate_latest_egse_log()
 
 
 def stop_egse_tools(logger) -> None:
     """Stop the EGSE tools."""
-    global egse_started
+    global egse_started, _egse_session_started_at
+    global _session_existing_root_logs, _session_existing_rs422_logs
     try:
         logger.info("Stopping EB EGSE Tools...")
         interface = get_egse_interface()  #! To be checked after moving EGSEInterface to a separate module
@@ -565,3 +674,8 @@ def stop_egse_tools(logger) -> None:
             logger.info("[OK] EGSE tools stopped successfully")
     except Exception as e:
         logger.error(f"[ERROR] Error stopping EGSE: {e}")
+    finally:
+        sync_egse_session_logs_with_retry(logger)
+        _egse_session_started_at = None
+        _session_existing_root_logs.clear()
+        _session_existing_rs422_logs.clear()

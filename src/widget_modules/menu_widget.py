@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Std library
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -76,17 +77,38 @@ def create_menu(
                     )
                     lbl_eb = ui.label("EB")
                     lbl_eb.style(f"font-size: {menu_label_size}")
-                    ui.space()
-                    lbl_light = ui.label("Light")
-                    lbl_light.style(f"font-size: {menu_label_size}")
+
+                    def _current_theme() -> str:
+                        return getattr(app.state, "theme_state", {}).get("value", "dark")
+
+                    def _theme_icon(theme: str) -> str:
+                        # Show the icon for the target theme when pressed.
+                        return "light_mode" if theme == "dark" else "brightness_2"
+
+                    def _theme_icon_color(_theme: str) -> str:
+                        # Keep icon color sourced from active theme tokens.
+                        return "var(--text-color)"
+
+                    theme_button = ui.button(icon=_theme_icon(_current_theme())).props("flat dense round")
+                    theme_button.props("text-color=grey-7")
+                    theme_button.style(f"color: {_theme_icon_color(_current_theme())};")
+
+                    def _toggle_theme() -> None:
+                        next_theme = "light" if _current_theme() == "dark" else "dark"
+                        getattr(app.state, "set_theme", lambda _theme: None)(next_theme)
+                        theme_button.props(f"icon={_theme_icon(next_theme)}")
+                        theme_button.props("text-color=grey-7")
+                        theme_button.style(f"color: {_theme_icon_color(next_theme)};")
+
+                    theme_button.on_click(_toggle_theme)
+                    lbl_real = ui.label("Real")
+                    lbl_real.style(f"font-size: {menu_label_size}")
                     ui.switch(
-                        value=(getattr(app.state, "theme_state", {}).get("value", "light") == "dark"),
-                        on_change=lambda e: getattr(app.state, "set_theme", lambda _theme: None)(
-                            "dark" if e.value else "light"
-                        ),
+                        value=(str(state.get("hk_display_mode", "REAL")).upper() == "ADU"),
+                        on_change=lambda e: _set_hk_display_mode(state, "ADU" if e.value else "REAL"),
                     )
-                    lbl_dark = ui.label("Dark")
-                    lbl_dark.style(f"font-size: {menu_label_size}")
+                    lbl_adu = ui.label("ADU")
+                    lbl_adu.style(f"font-size: {menu_label_size}")
                 model_options = const.MODELS
                 model_labels = list(model_options)
                 model_keys = {label: label for label in model_options}
@@ -200,7 +222,7 @@ def create_menu(
                     "w-full whitespace-nowrap rounded-full w-36 h-12"
                 )
                 ui.button(
-                    "Stop", color="negative", on_click=lambda: stop_and_shutdown(state, state["stop_event"])
+                    "Shutdown", color="negative", on_click=lambda: stop_and_shutdown(state, state["stop_event"])
                 ).classes("w-full whitespace-nowrap rounded-full w-36 h-12")
 
     def _sync_egse_tools_buttons(mode: str) -> None:
@@ -243,6 +265,43 @@ def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
     lock_ctx = psu_lock if psu_lock is not None else nullcontext()
     with lock_ctx:
         psu.apply_voltage_mode(port, new_mode, state.get("mode", "OB"))
+
+
+def _set_hk_display_mode(state: dict[str, Any], mode: str) -> None:
+    mode_upper = str(mode or "REAL").upper()
+    if mode_upper not in {"ADU", "REAL"}:
+        mode_upper = "REAL"
+
+    state["hk_display_mode"] = mode_upper
+    app.state.hk_display_mode = mode_upper
+
+    for controller in (state.get("packet_viewer_controllers") or {}).values():
+        try:
+            controller.refresh()
+        except Exception:
+            continue
+
+    for key in ("eb_metrics_card", "ob_metrics_card"):
+        controller = state.get(key)
+        if controller is None:
+            continue
+        packet = getattr(controller, "last_packet", None)
+        if packet is not None:
+            try:
+                controller.update_from_packet(packet)
+            except Exception:
+                continue
+
+    # Reset plot traces to avoid mixing REAL and ADU y-values in the same history window.
+    for key in ("trp_card", "voltage_card"):
+        plot_controller = state.get(key)
+        if plot_controller is None:
+            continue
+        try:
+            plot_controller.set_stream_enabled(False)
+            plot_controller.set_stream_enabled(True)
+        except Exception:
+            continue
 
 
 def _log_psu_snapshot(state: dict[str, Any]) -> None:
@@ -495,9 +554,25 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
     # Reuse the same method as the Stop EB EGSE Tools button
     _stop_egse_tools(state, sync_visibility_fn=None)
-    from nicegui import ui
 
-    ui.notify("EGSE Now shutdown. Please restart", color="warning", position="center", timeout=5000)
     if stop_event is not None:
         stop_event.set()
-    app.shutdown()
+
+    def _close_and_open_logs() -> None:
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(str(const.LOG_PATH))
+        except Exception as exc:
+            state["logger"].warning("Could not open session log folder: %s", exc)
+        ui.run_javascript(
+            "window.open('', '_self');window.close();if (!window.closed) { window.location.href = 'about:blank'; }"
+        )
+        ui.timer(0.25, app.shutdown, once=True)
+
+    with ui.dialog() as shutdown_dialog, ui.card().classes("w-96"):
+        ui.label("EGSE tools shut down.").classes("text-base")
+        ui.label("Close the window to open the session log folder.").classes("text-sm")
+        with ui.row().classes("justify-end w-full"):
+            ui.button("Close the window", color="negative", on_click=_close_and_open_logs)
+
+    shutdown_dialog.open()

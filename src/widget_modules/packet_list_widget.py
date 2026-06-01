@@ -87,6 +87,50 @@ class PacketListController:
         label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
         heading_size = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
 
+        # Match packet list table typography/colour to app label styling.
+        ui.add_head_html(
+            f"""
+            <style>
+            .packet-list-table {{
+                color: var(--text-primary) !important;
+            }}
+            .packet-list-table * {{
+                color: var(--text-primary) !important;
+                font-size: {label_size} !important;
+            }}
+            .packet-list-table .q-table__title {{
+                color: var(--accent_color) !important;
+                font-size: {label_size} !important;
+                font-weight: 600 !important;
+            }}
+            .packet-list-table .q-table thead th,
+            .packet-list-table .q-table thead tr th {{
+                color: var(--accent_color) !important;
+                font-size: {label_size} !important;
+                font-weight: 600 !important;
+                background: var(--primary-bg) !important;
+            }}
+            .packet-list-table .q-table tbody td,
+            .packet-list-table .q-table tbody tr td {{
+                color: var(--text-primary) !important;
+                font-size: {label_size} !important;
+                background: var(--secondary-bg) !important;
+            }}
+            .packet-list-table .q-table__bottom,
+            .packet-list-table .q-table__bottom *,
+            .packet-list-table .q-field__native,
+            .packet-list-table .q-select__dropdown-icon,
+            .packet-list-table .q-select__dropdown-icon *,
+            .packet-list-table .q-btn,
+            .packet-list-table .q-icon {{
+                color: var(--text-primary) !important;
+                font-size: {label_size} !important;
+            }}
+            </style>
+            """,
+            shared=True,
+        )
+
         self.dialog = ui.dialog()
 
         with self.dialog, ui.card().classes("w-full").style("background: var(--primary-bg);"):
@@ -110,12 +154,13 @@ class PacketListController:
                     rows=self.rows,
                     row_key="packet_key",  # Use packet_key as the unique row identifier
                 )
-                .classes("w-full")
+                .classes("w-full packet-list-table")
                 .style("background: var(--secondary-bg);")
             )
 
             # Style the table for full expansion
             self.table.props("flat bordered dense")
+            self.table.props("dark")
             self.table.props("rows-per-page-options=[50, 100, 250, 500]")
 
             # Add row selection handler

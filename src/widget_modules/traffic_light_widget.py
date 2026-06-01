@@ -32,8 +32,8 @@ class AlarmLight:
         """Creates the UI elements for the fault light and its dialog."""
         with ui.column().classes("items-center gap-1 cursor-pointer") as container:
             palette = getattr(app.state, "theme_palette", None)
-            label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-            ui.label(self.label).style(f"font-size: {label_size}")
+            self.label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+            ui.label(self.label).style(f"font-size: {self.label_size}")
             self.light = ui.element("div").classes("status-light status-light-lg ok")
         self.container = container
 
@@ -50,9 +50,9 @@ class AlarmLight:
                     ui.button("Clear selected", on_click=self.clear_selected_faults).props("size=sm")
                     ui.button("Clear all", on_click=self.clear_fault).props("size=sm")
                 with ui.expansion("History").classes("w-full"):
-                    self.history_text = ui.label("None").style(f"font-size: {label_size}").classes("whitespace-pre-wrap")
+                    self.history_text = ui.label("None").style(f"font-size: {self.label_size}").classes("whitespace-pre-wrap")
                     with ui.expansion("Ignored alarms").classes("w-full"):
-                        self.ignored_text = ui.label("None").style(f"font-size: {label_size}").classes("whitespace-pre-wrap")
+                        self.ignored_text = ui.label("None").style(f"font-size: {self.label_size}").classes("whitespace-pre-wrap")
 
     def _refresh_from_sources(self, *, track_history: bool) -> None:
         merged_details: list[str] = []
@@ -149,10 +149,10 @@ class AlarmLight:
                         detail,
                         value=detail in self._checked_details,
                         on_change=_on_change,
-                    ).style(f"font-size: {label_size}")
+                    ).style(f"font-size: {self.label_size}")
         elif self.is_fault:
-                with self.current_faults:
-                    ui.label(f"{self.label} currently reports a fault condition.").style(f"font-size: {label_size}")
+            with self.current_faults:
+                ui.label(f"{self.label} currently reports a fault condition.").style(f"font-size: {self.label_size}")
         else:
             with self.current_faults:
                 ui.label(f"{self.label} currently reports OK.").classes("text-sm")

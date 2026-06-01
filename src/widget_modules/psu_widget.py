@@ -126,32 +126,32 @@ def create_psu_channel_card(
         with ui.row().classes('justify-center w-full'):
             with ui.column().style('flex: 1; justify-content: flex-start;'):
                 with ui.row().classes('self-left'):
-                    enabled_switch = ui.switch(
-                        "Enabled",
-                        value=bool(channel["enabled"]),
-                        on_change=_on_toggle,
-                    )
-                    # LISN check toggle (only for CH4, only visible in EB mode)
-                    if is_ch4:
+                     enabled_switch = ui.switch(
+                         "Enabled",
+                         value=bool(channel["enabled"]),
+                         on_change=_on_toggle,
+                     )
+                     # LISN check toggle (only for CH4, only visible in EB mode)
+                     if is_ch4:
 
-                        def _on_lisn_toggle(e: Any) -> None:
-                            channel["lisn_check_enabled"] = bool(e.value)
+                         def _on_lisn_toggle(e: Any) -> None:
+                             channel["lisn_check_enabled"] = bool(e.value)
 
-                        lisn_toggle = ui.switch(
-                            "LISN check",
-                            value=bool(channel["lisn_check_enabled"]),
-                            on_change=_on_lisn_toggle,
-                        ).classes("ml-2")
+                         lisn_toggle = ui.switch(
+                             "LISN check",
+                             value=bool(channel["lisn_check_enabled"]),
+                             on_change=_on_lisn_toggle,
+                         ).classes("ml-2")
 
-                        # Only show LISN toggle in EB mode
-                        def _sync_lisn_toggle(mode: str) -> None:
-                            lisn_toggle.set_visibility(mode == "EB")
+                         # Only show LISN toggle in EB mode
+                         def _sync_lisn_toggle(mode: str) -> None:
+                             lisn_toggle.set_visibility(mode == "EB")
 
-                        state["plot_refreshers"].append(_sync_lisn_toggle)
-                        _sync_lisn_toggle(state.get("mode", "EB"))
+                         state["plot_refreshers"].append(_sync_lisn_toggle)
+                         _sync_lisn_toggle(state.get("mode", "EB"))
             with ui.column().classes('self-right'):
                 value_label = ui.label("mA: ---").classes('self-center text-xl text-right')
-        
+
         plot = plot_widget.create_plot_card(
             title,
             series=[plot_widget.SeriesConfig(label="mA", color=color)],
