@@ -151,8 +151,8 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
 
         # POST checks as in ebgui
         all_post_passed = (
-            # getattr(post, "POST_WARNING_FLAGS", None) == 0
-            getattr(post, "POST_ERROR_FLAGS", None) == 0
+            getattr(post, "POST_WARNING_FLAGS", None) == 0
+            and getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
             and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
@@ -161,13 +161,13 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x5318
             and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xDCAE
             and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
-            # and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x9D9B
+            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0xF624
         )
         if not all_post_passed:
             result["passed"] = False
             # Add details for each failed check
-            # if getattr(post, "POST_WARNING_FLAGS", None) != 0:
-            #     result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
+            if getattr(post, "POST_WARNING_FLAGS", None) != 0:
+                result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
             if getattr(post, "POST_ERROR_FLAGS", None) != 0:
                 result["details"].append(f"POST_ERROR_FLAGS: {getattr(post, 'POST_ERROR_FLAGS', None)}")
             if getattr(post, "NUM_BAD_FLASH_BLOCKS", None) != 0:
@@ -186,8 +186,8 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 result["details"].append(f"ASW_IMAGE_5_CRC: {getattr(post, 'ASW_IMAGE_5_CRC', None):#06x}")
             if getattr(post, "BSW_IMAGE_CRC", None) != 0xD2D7:
                 result["details"].append(f"BSW_IMAGE_CRC: {getattr(post, 'BSW_IMAGE_CRC', None):#06x}")
-            # if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0x9D9B:
-            #     result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
+            if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0xF624:
+                result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
             # Optionally, add converted values to details for debugging
             if tm_12v is not None:
                 result["details"].append(f"TM_12V: {tm_12v:.2f} V")
@@ -303,8 +303,12 @@ def perform_acq_check_sync(
             info_log.debug(
                 "Mode 2 acquisition: effective_spacing=%d ms, setup_overhead=%d s,"
                 " timeout=%d s (duration %d s + setup %d s + safety %d s)",
-                effective_spacing_ms, setup_overhead_s,
-                acq_timeout_s, acq_duration_s, setup_overhead_s, safety_s,
+                effective_spacing_ms,
+                setup_overhead_s,
+                acq_timeout_s,
+                acq_duration_s,
+                setup_overhead_s,
+                safety_s,
             )
         else:
             acq_timeout_s = 300
@@ -352,14 +356,18 @@ def perform_acq_check_sync(
             try:
                 latest_psu = const.psu_queue.get(timeout=2.0)
                 errors: list[str] = []
-                ch4_current_ma = consumption_check(["State6"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+                ch4_current_ma = (
+                    consumption_check(["State6"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+                )
                 thrm = getattr(latest_hk, "THRM_STATUS", None)
                 if errors:
                     count = len(errors)
                     numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
                     info_log.warning(
                         "SCI ACQ t+150s check \u2014 %d error%s: %s",
-                        count, "s" if count != 1 else "", "; ".join(numbered),
+                        count,
+                        "s" if count != 1 else "",
+                        "; ".join(numbered),
                     )
                     notify_negative(
                         f"SCI ACQ t+150s check failed ({count} error{'s' if count != 1 else ''}):\n"
@@ -381,14 +389,15 @@ def perform_acq_check_sync(
         if cos != _ACQ_STATE:
             sci_count_end = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
             acq_complete_msg = (
-                f"Acquisition complete — CURRENT_OPERATING_STATE=0x{cos:02X}, "
-                f"SCIENCE_PACKETS_SENT={sci_count_end}"
-            ) if cos is not None else (
-                f"Acquisition complete — SCIENCE_PACKETS_SENT={sci_count_end}"
+                (f"Acquisition complete — CURRENT_OPERATING_STATE=0x{cos:02X}, SCIENCE_PACKETS_SENT={sci_count_end}")
+                if cos is not None
+                else (f"Acquisition complete — SCIENCE_PACKETS_SENT={sci_count_end}")
             )
             info_log.info(
                 "Acquisition complete: CURRENT_OPERATING_STATE=0x%02X, SCIENCE_PACKETS_SENT=%s at %s",
-                cos if cos is not None else 0, sci_count_end, getattr(latest_hk, "TIME", None),
+                cos if cos is not None else 0,
+                sci_count_end,
+                getattr(latest_hk, "TIME", None),
             )
             notify_positive(acq_complete_msg)
             # Drain one SCI packet from the queue for logging if available
@@ -519,7 +528,7 @@ def verify_power_state(state: str) -> tuple[str, bool]:
     Returns (msg, passed) — the same contract as verify_safe_ret / verify_standby_ret.
     """
     _BOARD_STATES = {"State3", "State4", "State5", "State7"}
-    _TEC_STATES   = {"State4", "State5", "State7"}
+    _TEC_STATES = {"State4", "State5", "State7"}
 
     errors: list[str] = []
     ch4_current_ma: float | None = None
@@ -542,15 +551,11 @@ def verify_power_state(state: str) -> tuple[str, bool]:
         # --- Boards enabled (State3 / State4 / State5 / State7) ---
         if state in _BOARD_STATES:
             mech_board = bool(getattr(instr, "OB_MECHANISM_BOARD_ENABLED", 0))
-            det_board  = bool(getattr(instr, "OB_DETECTOR_BOARD_ENABLED",  0))
+            det_board = bool(getattr(instr, "OB_DETECTOR_BOARD_ENABLED", 0))
             if not mech_board:
-                errors.append(
-                    "Mech board not enabled (INSTR_STATUS_FLAGS.OB_MECHANISM_BOARD_ENABLED=0)"
-                )
+                errors.append("Mech board not enabled (INSTR_STATUS_FLAGS.OB_MECHANISM_BOARD_ENABLED=0)")
             if not det_board:
-                errors.append(
-                    "Det board not enabled (INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED=0)"
-                )
+                errors.append("Det board not enabled (INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED=0)")
 
         # --- TEC at 1 A (State4 / State5 / State7) ---
         if state in _TEC_STATES:
@@ -571,9 +576,7 @@ def verify_power_state(state: str) -> tuple[str, bool]:
                             _tec_ramped = True
                             break
                 if not _tec_ramped:
-                    errors.append(
-                        f"TEC current not at 1 A: {tec_current:.3f} A (expected > 1.0 A)"
-                    )
+                    errors.append(f"TEC current not at 1 A: {tec_current:.3f} A (expected > 1.0 A)")
 
         # --- Motor moving (State7) ---
         if state == "State7":
@@ -588,20 +591,16 @@ def verify_power_state(state: str) -> tuple[str, bool]:
         numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
         info_log.error(
             "%s verification failed: %d error%s — PSU_EB_I: %s mA",
-            state, count, "s" if count != 1 else "",
+            state,
+            count,
+            "s" if count != 1 else "",
             f"{ch4_current_ma:.2f}" if ch4_current_ma is not None else "N/A",
         )
-        msg = (
-            f"{state} verification failed: {count} error{'s' if count != 1 else ''}:\n"
-            + "\n".join(numbered)
-        )
+        msg = f"{state} verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
         _notify(msg, color="negative")
         return msg, False
     else:
-        msg = (
-            f"Power {state} OK — PSU_EB_I: {ch4_current_ma:.2f} mA, "
-            f"CURRENT_OPERATING_STATE: {cos}"
-        )
+        msg = f"Power {state} OK — PSU_EB_I: {ch4_current_ma:.2f} mA, CURRENT_OPERATING_STATE: {cos}"
         info_log.info(msg)
         _notify(msg, color="positive")
         return msg, True
@@ -729,7 +728,7 @@ def consumption_check(state_names, psu_sample: dict, errors: list[str], latest_h
 # detected (the firmware initialises to OFF when transitioning from disabled → auto).
 _heater_state_history: dict[str, dict] = {
     "Mech": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
-    "Det":  {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
+    "Det": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
 }
 
 
@@ -755,7 +754,12 @@ def verify_heater_states(
 
     info_log.info(
         "Heater check \u2014 THRM_STATUS: MM=%s MA=%s HMS=%s | DM=%s DA=%s HDS=%s",
-        int(mm), int(ma), act_hms, int(dm), int(da), act_hds,
+        int(mm),
+        int(ma),
+        act_hms,
+        int(dm),
+        int(da),
+        act_hds,
     )
 
     # --- Step 1: TC command check (informational only) ---
@@ -780,20 +784,20 @@ def verify_heater_states(
                 info_log.info("%s heater: Manual mode enabled — recording expected=ON", label)
             h.update(last_expected=True, prev_auto=False, prev_manual=True)
             if not act:
-                errors.append(
-                    f"{label} heater in Manual mode but HMS/HDS={act} (expected 1)"
-                )
+                errors.append(f"{label} heater in Manual mode but HMS/HDS={act} (expected 1)")
         elif mode_auto:
-            trp    = getattr(latest_hk, trp_attr,    None)
-            on_sp  = getattr(latest_hk, on_sp_attr,  None)
+            trp = getattr(latest_hk, trp_attr, None)
+            on_sp = getattr(latest_hk, on_sp_attr, None)
             off_sp = getattr(latest_hk, off_sp_attr, None)
             # Detect disabled→auto transition (firmware PREV_STATUS initialises to OFF)
             newly_enabled = not h["prev_auto"] and not h["prev_manual"]
             if newly_enabled:
                 info_log.info(
-                    "%s heater: Auto mode just enabled — TRP=%s [ON_SP=%s, OFF_SP=%s]"
-                    " — firmware initialises to OFF",
-                    label, trp, on_sp, off_sp,
+                    "%s heater: Auto mode just enabled — TRP=%s [ON_SP=%s, OFF_SP=%s] — firmware initialises to OFF",
+                    label,
+                    trp,
+                    on_sp,
+                    off_sp,
                 )
                 if h["last_expected"] is None:
                     h["last_expected"] = False  # firmware default at first enable
@@ -801,28 +805,34 @@ def verify_heater_states(
             if None in (trp, on_sp, off_sp):
                 info_log.warning(
                     "%s heater Auto mode — fields missing (%s=%s, %s=%s, %s=%s), skipping check",
-                    label, trp_attr, trp, on_sp_attr, on_sp, off_sp_attr, off_sp,
+                    label,
+                    trp_attr,
+                    trp,
+                    on_sp_attr,
+                    on_sp,
+                    off_sp_attr,
+                    off_sp,
                 )
                 return
             h["last_trp"] = trp
             info_log.info(
                 "%s heater Auto mode \u2014 TRP=%s [ON_SP=%s, OFF_SP=%s] last_expected=%s",
-                label, trp, on_sp, off_sp, h["last_expected"],
+                label,
+                trp,
+                on_sp,
+                off_sp,
+                h["last_expected"],
             )
             if trp < on_sp:
                 # Below ON threshold — heater must be ON; record boundary crossing
                 h["last_expected"] = True
                 if not act:
-                    errors.append(
-                        f"{label} heater: TRP={trp} < ON_SP={on_sp} \u2192 expected ON, got HMS/HDS={act}"
-                    )
+                    errors.append(f"{label} heater: TRP={trp} < ON_SP={on_sp} \u2192 expected ON, got HMS/HDS={act}")
             elif trp > off_sp:
                 # Above OFF threshold — heater must be OFF; record boundary crossing
                 h["last_expected"] = False
                 if act:
-                    errors.append(
-                        f"{label} heater: TRP={trp} > OFF_SP={off_sp} \u2192 expected OFF, got HMS/HDS={act}"
-                    )
+                    errors.append(f"{label} heater: TRP={trp} > OFF_SP={off_sp} \u2192 expected OFF, got HMS/HDS={act}")
             else:
                 # TRP in hysteresis band [ON_SP, OFF_SP] — use recorded history
                 exp = h["last_expected"]
@@ -834,7 +844,11 @@ def verify_heater_states(
                     info_log.info(
                         "%s heater: auto first detected with TRP=%s in band [%s, %s],"
                         " HMS/HDS=%s — using as history baseline (cannot verify initial state)",
-                        label, trp, on_sp, off_sp, act,
+                        label,
+                        trp,
+                        on_sp,
+                        off_sp,
+                        act,
                     )
                     h["last_expected"] = bool(act)
                 elif exp is True:
@@ -846,7 +860,11 @@ def verify_heater_states(
                     else:
                         info_log.info(
                             "%s heater: TRP=%s in band [%s, %s] \u2014 last boundary \u2192 ON, HMS/HDS=%s (OK)",
-                            label, trp, on_sp, off_sp, act,
+                            label,
+                            trp,
+                            on_sp,
+                            off_sp,
+                            act,
                         )
                 elif exp is False:
                     if act:
@@ -857,20 +875,28 @@ def verify_heater_states(
                     else:
                         info_log.info(
                             "%s heater: TRP=%s in band [%s, %s] \u2014 last boundary \u2192 OFF, HMS/HDS=%s (OK)",
-                            label, trp, on_sp, off_sp, act,
+                            label,
+                            trp,
+                            on_sp,
+                            off_sp,
+                            act,
                         )
                 else:
                     # No history yet (e.g. TRP has been in band since enable) — cannot verify
                     info_log.info(
                         "%s heater: TRP=%s in band [%s, %s] \u2014 no boundary history, HMS/HDS=%s",
-                        label, trp, on_sp, off_sp, act,
+                        label,
+                        trp,
+                        on_sp,
+                        off_sp,
+                        act,
                     )
         else:
             # Heater not commanded — reset history ready for the next enable event
             h.update(last_expected=None, last_trp=None, prev_auto=False, prev_manual=False)
 
     _check_htr("Mech", mm, ma, "OB_MECHANISM_TRP", "OB_THERMAL_MECH_MIN", "OB_THERMAL_MECH_MAX", act_hms)
-    _check_htr("Det",  dm, da, "OB_DETECTOR_TRP",  "OB_THERMAL_DET_MIN",  "OB_THERMAL_DET_MAX",  act_hds)
+    _check_htr("Det", dm, da, "OB_DETECTOR_TRP", "OB_THERMAL_DET_MIN", "OB_THERMAL_DET_MAX", act_hds)
 
     # Return active heater state names for consumption_check
     states: list[str] = []
@@ -1423,7 +1449,9 @@ _EB_FDIR_FLAGS = {
 
 
 def _decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, Any] | None = None) -> list[float] | None:
-    display_mode = str((state or {}).get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL")).upper()
+    display_mode = str(
+        (state or {}).get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL")
+    ).upper()
     values: list[float] = []
     for name in field_names:
         if display_mode == "ADU":
@@ -1639,9 +1667,7 @@ def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool
 
     if bool(getattr(hk, "ERROR_FLAGS", 0)):
         ns = getattr(hk, "ERROR_FLAGS_BITS", None)
-        eb_flags = sorted(
-            k for k, v in vars(ns).items() if v == 1 and k != "RESERVED"
-        ) if ns is not None else []
+        eb_flags = sorted(k for k, v in vars(ns).items() if v == 1 and k != "RESERVED") if ns is not None else []
         if const.MMS_MASK_OB_GENERAL_ERROR:
             eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
         if eb_flags:
@@ -1653,9 +1679,11 @@ def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool
     # OB_GENERAL_ERROR on EB is sticky: the OB register may already be 0 by the time
     # MMS fires.  Always include the raw byte value so operators have full context.
     ob_last_error_raw = getattr(hk, "OB_LAST_ERROR", None)
-    ob_err_active = sorted(
-        k for k, v in vars(ns).items() if v == 1 and k not in {"UNUSED1", "UNUSED2"}
-    ) if (ns := getattr(hk, "ERRORS", None)) is not None else []
+    ob_err_active = (
+        sorted(k for k, v in vars(ns).items() if v == 1 and k not in {"UNUSED1", "UNUSED2"})
+        if (ns := getattr(hk, "ERRORS", None)) is not None
+        else []
+    )
     if ob_err_active:
         reasons.append(f"OB Errors: {', '.join(ob_err_active)} (OB_LAST_ERROR=0x{ob_last_error_raw:02X})")
     elif ob_last_error_raw is not None and ob_last_error_raw != 0:
@@ -1663,9 +1691,11 @@ def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool
 
     # Motor error details — decoded from OB_MOTOR_ERROR byte.
     ob_motor_error_raw = getattr(hk, "OB_MOTOR_ERROR", None)
-    mtr_err_active = sorted(
-        k for k, v in vars(ns).items() if v == 1 and k != "UNUSED"
-    ) if (ns := getattr(hk, "MTR_ERRORS", None)) is not None else []
+    mtr_err_active = (
+        sorted(k for k, v in vars(ns).items() if v == 1 and k != "UNUSED")
+        if (ns := getattr(hk, "MTR_ERRORS", None)) is not None
+        else []
+    )
     if mtr_err_active:
         reasons.append(f"OB Motor Errors: {', '.join(mtr_err_active)} (OB_MOTOR_ERROR=0x{ob_motor_error_raw:02X})")
     elif ob_motor_error_raw is not None and ob_motor_error_raw != 0:
