@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Std library
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,11 @@ class PsuChannelController:
     plot: plot_widget.PlotCardController
     card: Any
     enabled_switch: Any
+    ma_window_samples: int = 5
+    ma_buffer: Any = None
+
+    def __post_init__(self) -> None:
+        self.ma_buffer = deque(maxlen=max(1, int(self.ma_window_samples)))
 
     def set_visible(self, visible: bool) -> None:
         if visible:
@@ -44,15 +50,33 @@ class PsuChannelController:
         self.channel["live_voltage_key"] = live_voltage_key
         self.channel["live_current_key"] = live_current_key
         self.channel["replay_channel_by_mode"] = {"OB": replay_channels, "EB": replay_channels}
+        self.ma_buffer.clear()
         self.set_visible(visible)
 
     def push_sample(self, time_value: Any, current_a: float | None) -> None:
-        """Push a new sample to the channel's plot and update the value label."""
+        """Push a new sample to the channel's plot and update the value label.
+
+        A fixed 5-sample moving average is plotted to smooth high-rate PSU current
+        samples before display updates.
+        """
+        self.ingest_sample(current_a)
+        self.push_smoothed(time_value)
+
+    def ingest_sample(self, current_a: float | None) -> None:
+        """Ingest one raw current sample into the moving-average buffer."""
         if current_a is None:
             return
         current_ma = float(current_a) * 1000.0
-        self.value_label.set_text(f"mA: {current_ma:.1f}")
-        self.plot.push([time_value], [[current_ma]])
+        self.ma_buffer.append(current_ma)
+        averaged_ma = sum(self.ma_buffer) / len(self.ma_buffer)
+        self.value_label.set_text(f"mA: {averaged_ma:.1f}")
+
+    def push_smoothed(self, time_value: Any) -> None:
+        """Push the current moving-average value to the plot."""
+        if not self.ma_buffer:
+            return
+        averaged_ma = sum(self.ma_buffer) / len(self.ma_buffer)
+        self.plot.push([time_value], [[averaged_ma]])
 
     def set_enabled_from_psu(self, enabled: bool) -> None:
         """Synchronize UI switch state from live PSU status without issuing commands."""
@@ -123,34 +147,34 @@ def create_psu_channel_card(
 
     with ui.card().classes("flex-1 min-w-0") as card:
         title_label = ui.label(title).classes("text-xl font-bold")
-        with ui.row().classes('justify-center w-full'):
-            with ui.column().style('flex: 1; justify-content: flex-start;'):
-                with ui.row().classes('self-left'):
-                     enabled_switch = ui.switch(
-                         "Enabled",
-                         value=bool(channel["enabled"]),
-                         on_change=_on_toggle,
-                     )
-                     # LISN check toggle (only for CH4, only visible in EB mode)
-                     if is_ch4:
+        with ui.row().classes("justify-center w-full"):
+            with ui.column().style("flex: 1; justify-content: flex-start;"):
+                with ui.row().classes("self-left"):
+                    enabled_switch = ui.switch(
+                        "Enabled",
+                        value=bool(channel["enabled"]),
+                        on_change=_on_toggle,
+                    )
+                    # LISN check toggle (only for CH4, only visible in EB mode)
+                    if is_ch4:
 
-                         def _on_lisn_toggle(e: Any) -> None:
-                             channel["lisn_check_enabled"] = bool(e.value)
+                        def _on_lisn_toggle(e: Any) -> None:
+                            channel["lisn_check_enabled"] = bool(e.value)
 
-                         lisn_toggle = ui.switch(
-                             "LISN check",
-                             value=bool(channel["lisn_check_enabled"]),
-                             on_change=_on_lisn_toggle,
-                         ).classes("ml-2")
+                        lisn_toggle = ui.switch(
+                            "LISN check",
+                            value=bool(channel["lisn_check_enabled"]),
+                            on_change=_on_lisn_toggle,
+                        ).classes("ml-2")
 
-                         # Only show LISN toggle in EB mode
-                         def _sync_lisn_toggle(mode: str) -> None:
-                             lisn_toggle.set_visibility(mode == "EB")
+                        # Only show LISN toggle in EB mode
+                        def _sync_lisn_toggle(mode: str) -> None:
+                            lisn_toggle.set_visibility(mode == "EB")
 
-                         state["plot_refreshers"].append(_sync_lisn_toggle)
-                         _sync_lisn_toggle(state.get("mode", "EB"))
-            with ui.column().classes('self-right'):
-                value_label = ui.label("mA: ---").classes('self-center text-xl text-right')
+                        state["plot_refreshers"].append(_sync_lisn_toggle)
+                        _sync_lisn_toggle(state.get("mode", "EB"))
+            with ui.column().classes("self-right"):
+                value_label = ui.label("mA: ---").classes("self-center text-xl text-right")
 
         plot = plot_widget.create_plot_card(
             title,

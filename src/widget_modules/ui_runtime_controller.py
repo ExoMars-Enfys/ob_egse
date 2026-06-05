@@ -32,6 +32,57 @@ info_log = logging.getLogger("info_log")
 # Script force-pause control
 
 _FORCE_PAUSE_EVENT = threading.Event()
+_SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
+
+
+def _get_smoothed_psu_sample(
+    psu_queue: Any,
+    *,
+    timeout: float = 2.0,
+    window_samples: int = _SCRIPT_PSU_MA_WINDOW_SAMPLES,
+) -> dict[str, Any]:
+    """Read PSU queue samples and return a sample with MA-smoothed current fields.
+
+    The first sample is read with timeout. Any immediately available additional
+    samples are drained up to *window_samples* to build a fixed-size moving
+    average used by script-side current checks.
+    """
+    first_sample = psu_queue.get(timeout=timeout)
+    samples = [first_sample]
+    max_samples = max(1, int(window_samples))
+
+    for _ in range(max_samples - 1):
+        try:
+            samples.append(psu_queue.get_nowait())
+        except Empty:
+            break
+
+    if not isinstance(first_sample, dict):
+        return first_sample
+
+    averaged_sample = dict(first_sample)
+    latest_sample = samples[-1] if samples else first_sample
+    if isinstance(latest_sample, dict):
+        averaged_sample["TIME"] = latest_sample.get("TIME", averaged_sample.get("TIME"))
+        averaged_sample["STATUS"] = latest_sample.get("STATUS", averaged_sample.get("STATUS"))
+
+    current_keys = ("PSU_ROV_HTR_I", "PSU_EB_I", "CH1_I", "CH2_I", "CH3_I", "CH4_I")
+    for key in current_keys:
+        values: list[float] = []
+        for sample in samples:
+            if not isinstance(sample, dict):
+                continue
+            value = sample.get(key)
+            if value is None:
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if values:
+            averaged_sample[key] = sum(values) / len(values)
+
+    return averaged_sample
 
 
 # --- HK and POST check for scripts (ported from ebgui) ---
@@ -354,7 +405,7 @@ def perform_acq_check_sync(
         if not _acq_150s_checked and time.monotonic() - start_time >= 150.0:
             _acq_150s_checked = True
             try:
-                latest_psu = const.psu_queue.get(timeout=2.0)
+                latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
                 errors: list[str] = []
                 ch4_current_ma = (
                     consumption_check(["State6"], latest_psu, errors, latest_hk) if latest_psu is not None else None
@@ -436,7 +487,7 @@ def verify_safe_ret():
     # This block performs the SAFE RET verification after issuing a RET and HK request.
     try:
         latest_post = const.eb_post_queue.get(timeout=2.0)
-        latest_psu = const.psu_queue.get(timeout=2.0)
+        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
     except Empty:
         errors.append("\nMissing POST or PSU queue data after RET")
         latest_post = None
@@ -478,7 +529,7 @@ def verify_standby_ret():
         latest_hk = wait_for_fresh_hk(timeout=5.0)
         if latest_hk is None:
             errors.append("Timed out waiting for fresh HK after STANDBY")
-        latest_psu = const.psu_queue.get(timeout=2.0)
+        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
     except Empty:
         errors.append("\nMissing PSU queue data after STANDBY")
         latest_psu = None
@@ -535,7 +586,7 @@ def verify_power_state(state: str) -> tuple[str, bool]:
 
     try:
         latest_hk = get_latest_hk()
-        latest_psu = const.psu_queue.get(timeout=2.0)
+        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
     except Empty:
         errors.append(f"Missing HK or PSU queue data for {state} verification")
         latest_hk = None
@@ -1253,19 +1304,28 @@ def _update_psu_readings(state: dict[str, Any], psu_sample: dict[str, Any]) -> N
         readings[key] = psu_sample.get(source_key)
 
 
-def _update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
+def _update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any], *, plot_sample: bool = True) -> None:
     for card in psu_cards:
         status_key = card.channel.get("status_key")
         if isinstance(status_key, str) and status_key in psu_sample and psu_sample.get(status_key) is not None:
             card.set_enabled_from_psu(bool(psu_sample.get(status_key)))
         current_key = card.channel.get("live_current_key")
         if isinstance(current_key, str):
-            card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
+            if plot_sample:
+                card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
+            else:
+                card.ingest_sample(psu_sample.get(current_key))
 
 
 def _apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
     _update_psu_readings(state, psu_sample)
     _update_psu_cards(psu_cards, psu_sample)
+
+
+def _ingest_live_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
+    """Feed live PSU samples into MA buffers without plotting each one."""
+    _update_psu_readings(state, psu_sample)
+    _update_psu_cards(psu_cards, psu_sample, plot_sample=False)
 
 
 def _build_replay_psu_sample(state: dict[str, Any], psu_cards: list[Any], record: dict[str, Any]) -> dict[str, Any]:
@@ -1377,10 +1437,13 @@ def create_poll_psu(*, state: dict[str, Any], const: Any, psu_cards: list[Any]) 
         while not const.psu_queue.empty() and processed < max_live_samples_per_tick:
             saw_live_psu = True
             latest_live_sample = const.psu_queue.get()
+            _ingest_live_psu_sample(state, psu_cards, latest_live_sample)
             processed += 1
 
         if latest_live_sample is not None:
-            _apply_psu_sample(state, psu_cards, latest_live_sample)
+            # Draw one point per UI tick while MA includes all drained live samples.
+            for card in psu_cards:
+                card.push_smoothed(latest_live_sample.get("TIME"))
 
         if saw_live_psu:
             return
@@ -1832,6 +1895,7 @@ def create_poll_tm(
     packet_viewer_controllers: dict[str, Any],
     trp_card: Any,
     voltage_card: Any,
+    hk_explorer_card: Any = None,
 ) -> Any:
     """Create TM polling callback bound to current controllers and state."""
 
@@ -1920,6 +1984,8 @@ def create_poll_tm(
                             logger.exception("Could not schedule MMS task: %s", exc)
 
             _update_plot_cards(state, hk, trp_card, voltage_card)
+            if hk_explorer_card is not None:
+                hk_explorer_card.push_data({"EB_HK": hk})
             packet_list_controller = state.get("packet_list_controller")
             _update_packet_viewer(mode, packet_viewer_controllers, hk, packet_list_controller)
 
