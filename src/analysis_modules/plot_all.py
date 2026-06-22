@@ -6,12 +6,13 @@ on a single shared datetime x-axis.  Zooming any subplot updates all others.
 
 import sys
 import re
+import argparse
+import csv
+import tkinter as tk
+from tkinter import filedialog
+from tkinter import messagebox
 from pathlib import Path
 from datetime import datetime, timedelta
-
-# Ensure Unicode characters (e.g. box-drawing) survive PowerShell piping
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import numpy as np
 import matplotlib as mpl
@@ -29,16 +30,59 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utility_modules import eb_packet_utility
 from utility_modules.eb_packet_utility import parse_eb_hk, decode_eb_trps, adu_to_temp
+from utility_modules.psu_log_utility import load_psu_channel_samples
+
+# Ensure Unicode characters (e.g. box-drawing) survive PowerShell piping
+_reconfigure = getattr(sys.stdout, "reconfigure", None)
+if callable(_reconfigure):
+    _reconfigure(encoding="utf-8", errors="replace")
 
 LOG_PATH = Path(
     r"C:\Users\GK\OneDrive - University College London\General - Enfys - Shared\Test\EMC\Logs\2nd Week\RS422if_2026-05-13_13-23-35.log"
 )
+RS422_TIME_OFFSET_HOURS = 1.0
+
+
+def _parse_rs422_timestamp(line, offset):
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})", line)
+    if not match:
+        return None
+    try:
+        y, mo, d, h, mi, s = [int(v) for v in match.groups()]
+        return datetime(y, mo, d, h, mi, s) + offset
+    except Exception:
+        return None
+
+
+def build_psu_arrays(psu_log_path):
+    """Load PSU CH3/CH4 voltage and current samples for plotting."""
+    samples = load_psu_channel_samples(psu_log_path)
+    data = {
+        "CH3": {"times": [], "v": [], "i": []},
+        "CH4": {"times": [], "v": [], "i": []},
+    }
+    for sample in samples:
+        ts = sample.get("TIME")
+        channels = sample.get("CHANNELS", {})
+        if ts is None:
+            continue
+        for ch in ("CH3", "CH4"):
+            vals = channels.get(ch, {})
+            v = vals.get("V")
+            i = vals.get("I")
+            # Keep per-channel timing independent; skip rows where neither exists.
+            if v is None and i is None:
+                continue
+            data[ch]["times"].append(ts)
+            data[ch]["v"].append(float(v) if v is not None else np.nan)
+            data[ch]["i"].append(float(i) if i is not None else np.nan)
+    return data
 
 
 # ── HK extraction ─────────────────────────────────────────────────────────────
 
 
-def extract_hk_packets(log_path):
+def extract_hk_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET_HOURS)):
     hk_packets = []
     try:
         with open(log_path, "r", encoding="utf-8") as f:
@@ -67,14 +111,10 @@ def extract_hk_packets(log_path):
 
             packet_timestamp = None
             for search_offset in range(max(0, tm_index - 5), tm_index):
-                match = re.search(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})", lines[search_offset])
-                if match:
-                    try:
-                        packet_timestamp = datetime(*map(int, match.groups()))
-                        last_timestamp = packet_timestamp
-                        break
-                    except Exception:
-                        pass
+                packet_timestamp = _parse_rs422_timestamp(lines[search_offset], rs422_offset)
+                if packet_timestamp is not None:
+                    last_timestamp = packet_timestamp
+                    break
 
             if packet_timestamp is None and last_timestamp is not None:
                 packet_timestamp = last_timestamp + timedelta(seconds=0.1)
@@ -157,6 +197,35 @@ def build_hk_arrays(hk_packets):
     return timestamps, temp_data, volt_data
 
 
+def list_numeric_hk_fields(hk_packets):
+    """Return sorted HK field names that contain at least one numeric value."""
+    names = set()
+    for hk in hk_packets:
+        for key, value in vars(hk).items():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float, np.number)):
+                names.add(key)
+    return sorted(names)
+
+
+def build_hk_field_series(hk_packets, field_name):
+    """Build timestamp/value arrays for one HK field, coercing missing/non-numeric to NaN."""
+    ts = []
+    vals = []
+    for hk in hk_packets:
+        ts.append(hk.TIME)
+        value = getattr(hk, field_name, np.nan)
+        if isinstance(value, bool):
+            vals.append(np.nan)
+            continue
+        try:
+            vals.append(float(value))
+        except Exception:
+            vals.append(np.nan)
+    return ts, vals
+
+
 # ── Acquisition window extraction ───────────────────────────────────────────
 
 _ACQ_STATE = 0x08  # CURRENT_OPERATING_STATE value for Acquisition
@@ -224,7 +293,7 @@ _SET_ACQ_PAYLOAD_LEN = 0x16
 _SAMPLE_TIME_UNIT_MS = 10  # 1 unit = 10 ms
 
 
-def extract_acq_configs_tcs(log_path):
+def extract_acq_configs_tcs(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET_HOURS)):
     """Parse all set_acq_configs TCs from the RS422 log.
 
     Returns a list of dicts (sorted by timestamp):
@@ -237,9 +306,9 @@ def extract_acq_configs_tcs(log_path):
 
     last_timestamp = None
     for i, line in enumerate(lines):
-        m = re.search(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})", line)
-        if m:
-            last_timestamp = datetime(*map(int, m.groups()))
+        maybe_ts = _parse_rs422_timestamp(line, rs422_offset)
+        if maybe_ts is not None:
+            last_timestamp = maybe_ts
 
         if line != "Telecommand:" or i + 1 >= len(lines):
             continue
@@ -263,9 +332,9 @@ def extract_acq_configs_tcs(log_path):
         # Timestamp: may appear right after the byte line
         ts = last_timestamp
         if i + 2 < len(lines):
-            m2 = re.search(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})", lines[i + 2])
-            if m2:
-                ts = datetime(*map(int, m2.groups()))
+            maybe_ts2 = _parse_rs422_timestamp(lines[i + 2], rs422_offset)
+            if maybe_ts2 is not None:
+                ts = maybe_ts2
                 last_timestamp = ts
 
         if ts is None:
@@ -348,16 +417,16 @@ def _extract_sci_series(sci_data):
     }
 
 
-def extract_sci_packets(log_path):
+def extract_sci_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET_HOURS)):
     with open(log_path, "r", encoding="utf-8") as f:
         all_lines = [line.strip() for line in f]
 
     sci_packets = []
     last_timestamp = None
     for i, line in enumerate(all_lines):
-        match = re.search(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})", line)
-        if match:
-            last_timestamp = datetime(*map(int, match.groups()))
+        maybe_ts = _parse_rs422_timestamp(line, rs422_offset)
+        if maybe_ts is not None:
+            last_timestamp = maybe_ts
         if line.startswith("Telemetry Data:") and i + 1 < len(all_lines):
             byte_string = all_lines[i + 1]
             if not byte_string:
@@ -469,6 +538,8 @@ class ClickHandler:
         packet_boundaries,
         ax_swir,
         ax_mwir,
+        error_events,
+        click_axes,
     ):
         # Convert datetimes to matplotlib float for fast nearest-point lookup
         self.sci_dates_num = mdates.date2num(sci_datetimes)
@@ -481,9 +552,53 @@ class ClickHandler:
         self.packet_boundaries = packet_boundaries
         self.ax_swir = ax_swir
         self.ax_mwir = ax_mwir
+        self.error_events = list(error_events or [])
+        self.click_axes = tuple(click_axes or ())
+
+    def _show_error_popup(self, ts, eb, ob, mtr):
+        title = f"Error details @ {ts.strftime('%Y-%m-%d %H:%M:%S')}"
+        lines = [
+            f"Timestamp: {ts.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "EB Error Flags:",
+            "  " + (", ".join(eb) if eb else "none"),
+            "",
+            "OB Errors:",
+            "  " + (", ".join(ob) if ob else "none"),
+            "",
+            "Motor Errors:",
+            "  " + (", ".join(mtr) if mtr else "none"),
+        ]
+        message = "\n".join(lines)
+        try:
+            messagebox.showinfo(title, message)
+        except Exception:
+            # Fallback if GUI popup is unavailable.
+            print(f"\n[{title}]\n{message}")
+
+    def _try_error_popup(self, event):
+        if event.inaxes not in self.click_axes or event.xdata is None or not self.error_events:
+            return False
+
+        error_times_num = np.array([mdates.date2num(ts) for ts, _eb, _ob, _mtr in self.error_events], dtype=float)
+        idx = int(np.argmin(np.abs(error_times_num - event.xdata)))
+        xlim = event.inaxes.get_xlim()
+        span_days = max(abs(xlim[1] - xlim[0]), 1e-12)
+        tolerance_days = max(0.3 / 86400.0, span_days * 0.005)
+        if abs(error_times_num[idx] - event.xdata) > tolerance_days:
+            return False
+
+        ts, eb, ob, mtr = self.error_events[idx]
+        self._show_error_popup(ts, eb, ob, mtr)
+        return True
 
     def on_click(self, event):
+        if self._try_error_popup(event):
+            return
+
         if event.inaxes not in (self.ax_swir, self.ax_mwir) or event.xdata is None:
+            return
+        if len(self.sci_dates_num) == 0:
             return
 
         idx = int(np.argmin(np.abs(self.sci_dates_num - event.xdata)))
@@ -658,7 +773,6 @@ def _fmt_pct(frac):
 
 
 def _print_jump_section(label, jumps_by_frac, unit, val_fmt):
-    fracs = sorted(jumps_by_frac.keys())  # ascending: 2.5% before 5%
     # Collect all events, annotating which threshold(s) they breach
     # Key: (channel, timestamp) → (value, delta, set_of_fracs)
     seen: dict = {}
@@ -670,7 +784,7 @@ def _print_jump_section(label, jumps_by_frac, unit, val_fmt):
                     seen[k] = (val, delta, set())
                 seen[k][2].add(frac)
     if not seen:
-        print(f"  (none)")
+        print("  (none)")
         return
     for (ch, ts), (val, delta, hit_fracs) in sorted(seen.items(), key=lambda x: x[0][1]):
         tags = ", ".join(f">{_fmt_pct(f)}" for f in sorted(hit_fracs, reverse=True))
@@ -692,9 +806,96 @@ def print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events=None):
     _print_jump_section("Temperature", temp_jumps, "°C", lambda v: f"{v:.2f}")
     print(f"\nVoltage jumps  [thresholds: {', '.join(f'>{_fmt_pct(f)}' for f in sorted(volt_jumps))}]:")
     _print_jump_section("Voltage", volt_jumps, "V", lambda v: f"{v:.3f}")
-    print(f"\nError flag transitions (EB error flags / OB errors / MTR errors):")
+    print("\nError flag transitions (EB error flags / OB errors / MTR errors):")
     _print_error_states_section(error_events or [])
     print(f"{'─' * 60}\n")
+
+
+def build_error_byte_arrays(hk_packets):
+    """Build raw error/warning byte/flag arrays from HK packets."""
+    ts = [hk.TIME for hk in hk_packets]
+
+    def _get_num(hk, field):
+        val = getattr(hk, field, 0)
+        try:
+            return float(val)
+        except Exception:
+            return np.nan
+
+    data = {
+        "EB_ERROR_FLAGS": [_get_num(hk, "ERROR_FLAGS") for hk in hk_packets],
+        "EB_WARNING_FLAGS": [_get_num(hk, "WARNING_FLAGS") for hk in hk_packets],
+        "FDIR_ALARM_FLAGS": [_get_num(hk, "FDIR_ALARM_FLAGS") for hk in hk_packets],
+        "FDIR_WARNING_FLAGS": [_get_num(hk, "FDIR_WARNING_FLAGS") for hk in hk_packets],
+        "OB_LAST_ERROR": [_get_num(hk, "OB_LAST_ERROR") for hk in hk_packets],
+        "OB_MOTOR_ERROR": [_get_num(hk, "OB_MOTOR_ERROR") for hk in hk_packets],
+    }
+    return ts, data
+
+
+PANEL_ORDER = ["temp", "volt", "err", "psu_ch3", "psu_ch4", "swir", "mwir"]
+PANEL_LABELS = {
+    "temp": "Temperatures",
+    "volt": "Voltages",
+    "err": "Error / Warning Bytes",
+    "psu_ch3": "PSU Current CH3",
+    "psu_ch4": "PSU Current CH4",
+    "swir": "SWIR",
+    "mwir": "MWIR",
+}
+
+TEMP_PLOT_SPECS = [
+    ("OB_DIGITAL", "OB Digital", "o-", 3),
+    ("OB_DETECTOR", "OB Detector", "s-", 3),
+    ("OB_MECHANISM", "OB Mechanism", "^-", 3),
+    ("OB_MOTOR", "OB Motor", "v-", 3),
+    ("EB_MCU", "EB MCU", "D-", 3),
+    ("EB_PSU_BOARD", "EB PSU Board", "p-", 3),
+    ("EB_INTERNAL_TRP", "EB Int. TRP", "H-", 3),
+    ("EB_PELTIER", "EB Peltier", "*-", 6),
+]
+
+VOLT_PLOT_SPECS = [
+    ("EB_12V", "EB +12V", "o-", 3),
+    ("EB_NEG12V", "EB -12V", "s-", 3),
+    ("EB_5V", "EB 5V", "^-", 3),
+    ("EB_3V3", "EB 3.3V", "v-", 3),
+    ("EB_TEC_RAIL", "EB TEC Rail", "D-", 3),
+    ("OB_3V3", "OB 3.3V", "p-", 3),
+    ("OB_1V5", "OB 1.5V", "H-", 3),
+]
+
+ERR_PLOT_SPECS = [
+    ("EB_ERROR_FLAGS", "EB ERROR_FLAGS"),
+    ("EB_WARNING_FLAGS", "EB WARNING_FLAGS"),
+    ("FDIR_ALARM_FLAGS", "FDIR ALARM_FLAGS"),
+    ("FDIR_WARNING_FLAGS", "FDIR WARNING_FLAGS"),
+    ("OB_LAST_ERROR", "OB LAST_ERROR"),
+    ("OB_MOTOR_ERROR", "OB MOTOR_ERROR"),
+]
+
+SCI_PLOT_SPECS = {
+    "swir": [
+        ("SWIR_LOW", "SWIR_LOW"),
+        ("SWIR_MED", "SWIR_MED"),
+        ("SWIR_HIGH", "SWIR_HIGH"),
+    ],
+    "mwir": [
+        ("MWIR_LOW", "MWIR_LOW"),
+        ("MWIR_MED", "MWIR_MED"),
+        ("MWIR_HIGH", "MWIR_HIGH"),
+    ],
+}
+
+PARAM_OPTIONS = {
+    "temp": [k for k, _lbl, _style, _ms in TEMP_PLOT_SPECS],
+    "volt": [k for k, _lbl in [(s[0], s[1]) for s in VOLT_PLOT_SPECS]],
+    "err": [k for k, _lbl in ERR_PLOT_SPECS],
+    "psu_ch3": ["CH3_I"],
+    "psu_ch4": ["CH4_I"],
+    "swir": [k for k, _lbl in SCI_PLOT_SPECS["swir"]],
+    "mwir": [k for k, _lbl in SCI_PLOT_SPECS["mwir"]],
+}
 
 
 # ── Drawing helper ───────────────────────────────────────────────────────────
@@ -703,6 +904,9 @@ def print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events=None):
 def _draw_all_axes(
     ax_temp,
     ax_volt,
+    ax_err,
+    ax_psu_ch3,
+    ax_psu_ch4,
     ax_swir,
     ax_mwir,
     fig,
@@ -720,126 +924,371 @@ def _draw_all_axes(
     mwir_med,
     mwir_high,
     packet_boundaries,
+    psu_data=None,
+    error_events=None,
+    err_ts=None,
+    err_data=None,
+    panel_visibility=None,
+    selected_params=None,
+    custom_axes=None,
+    custom_series=None,
 ):
-    """Clear and redraw all four subplots in-place."""
-    for ax in (ax_temp, ax_volt, ax_swir, ax_mwir):
+    """Clear and redraw all subplots in-place."""
+    panel_visibility = panel_visibility or {k: True for k in PANEL_ORDER}
+    selected_params = selected_params or {k: set(v) for k, v in PARAM_OPTIONS.items()}
+
+    custom_axes = custom_axes or []
+    custom_series = custom_series or {}
+
+    axes = [ax_temp, ax_volt, ax_err, ax_psu_ch3, ax_psu_ch4, ax_swir, ax_mwir] + [ax for _field, ax in custom_axes]
+    for ax in axes:
         ax.cla()
+        ax.set_visible(True)
+
+    panel_axes = {
+        "temp": ax_temp,
+        "volt": ax_volt,
+        "err": ax_err,
+        "psu_ch3": ax_psu_ch3,
+        "psu_ch4": ax_psu_ch4,
+        "swir": ax_swir,
+        "mwir": ax_mwir,
+    }
+
+    for panel, ax in panel_axes.items():
+        if ax is None:
+            continue
+        if not panel_visibility.get(panel, True):
+            ax.set_visible(False)
+
+    active_error_times = [ts for ts, eb, ob, mtr in (error_events or []) if eb or ob or mtr]
+
+    def _selected(group):
+        vals = selected_params.get(group, PARAM_OPTIONS[group])
+        return set(vals)
+
+    def _has_param(group, name):
+        return name in _selected(group)
+
+    def _show_no_params(ax, title):
+        ax.set_title(title)
+        ax.text(
+            0.5,
+            0.5,
+            "No parameters selected",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="gray",
+        )
+        ax.grid(True, alpha=0.3)
 
     # Temperatures
-    ax_temp.plot(hk_timestamps, temp_data["OB_DIGITAL"], "o-", label="OB Digital", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["OB_DETECTOR"], "s-", label="OB Detector", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["OB_MECHANISM"], "^-", label="OB Mechanism", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["OB_MOTOR"], "v-", label="OB Motor", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["EB_MCU"], "D-", label="EB MCU", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["EB_PSU_BOARD"], "p-", label="EB PSU Board", markersize=3)
-    ax_temp.plot(hk_timestamps, temp_data["EB_INTERNAL_TRP"], "H-", label="EB Int. TRP", markersize=3)
-    if any(not np.isnan(v) for v in temp_data["EB_PELTIER"]):
-        ax_temp.plot(hk_timestamps, temp_data["EB_PELTIER"], "*-", label="EB Peltier", markersize=6)
-    ax_temp.set_ylabel("Temperature (°C)")
-    ax_temp.set_title("Temperatures")
-    ax_temp.legend(loc="best", fontsize=7)
-    ax_temp.grid(True, alpha=0.3)
-    for t_start, t_end, _ in gaps:
-        ax_temp.axvspan(t_start, t_end, color="red", alpha=0.15, zorder=0)
-    for frac in sorted(temp_jumps.keys()):
-        colour, sz = _JUMP_COLOURS[frac]
-        for ch, entries in temp_jumps[frac].items():
-            ax_temp.scatter(
-                [e[0] for e in entries],
-                [e[1] for e in entries],
-                marker="x",
-                color=colour,
-                s=sz,
-                linewidths=1.5,
-                zorder=5,
-            )
+    if ax_temp.get_visible():
+        plotted_temp = 0
+        for key, label, style, ms in TEMP_PLOT_SPECS:
+            if not _has_param("temp", key):
+                continue
+            if key not in temp_data:
+                continue
+            if key == "EB_PELTIER" and not any(not np.isnan(v) for v in temp_data[key]):
+                continue
+            ax_temp.plot(hk_timestamps, temp_data[key], style, label=label, markersize=ms)
+            plotted_temp += 1
+        if plotted_temp == 0:
+            _show_no_params(ax_temp, "Temperatures")
+        else:
+            ax_temp.set_ylabel("Temperature (°C)")
+            ax_temp.set_title("Temperatures")
+            ax_temp.grid(True, alpha=0.3)
+            for frac in sorted(temp_jumps.keys()):
+                colour, sz = _JUMP_COLOURS[frac]
+                for ch, entries in temp_jumps[frac].items():
+                    if not _has_param("temp", ch):
+                        continue
+                    ax_temp.scatter(
+                        [e[0] for e in entries],
+                        [e[1] for e in entries],
+                        marker="x",
+                        color=colour,
+                        s=sz,
+                        linewidths=1.5,
+                        zorder=5,
+                    )
+            for i, ts in enumerate(active_error_times):
+                ax_temp.axvline(
+                    ts,
+                    color="crimson",
+                    linestyle="--",
+                    linewidth=1.0,
+                    alpha=0.75,
+                    label="Error" if i == 0 else None,
+                )
+            handles, labels = ax_temp.get_legend_handles_labels()
+            if handles:
+                ax_temp.legend(loc="best", fontsize=7)
 
     # Voltages
-    ax_volt.plot(hk_timestamps, volt_data["EB_12V"], "o-", label="EB +12V", markersize=3)
-    ax_volt.plot(hk_timestamps, volt_data["EB_NEG12V"], "s-", label="EB -12V", markersize=3)
-    ax_volt.plot(hk_timestamps, volt_data["EB_5V"], "^-", label="EB 5V", markersize=3)
-    ax_volt.plot(hk_timestamps, volt_data["EB_3V3"], "v-", label="EB 3.3V", markersize=3)
-    if any(not np.isnan(v) for v in volt_data["EB_TEC_RAIL"]):
-        ax_volt.plot(hk_timestamps, volt_data["EB_TEC_RAIL"], "D-", label="EB TEC Rail", markersize=3)
-    ax_volt.plot(hk_timestamps, volt_data["OB_3V3"], "p-", label="OB 3.3V", markersize=3)
-    ax_volt.plot(hk_timestamps, volt_data["OB_1V5"], "H-", label="OB 1.5V", markersize=3)
-    ax_volt.set_ylabel("Voltage (V)")
-    ax_volt.set_title("Voltages")
-    ax_volt.legend(loc="best", fontsize=7)
-    ax_volt.grid(True, alpha=0.3)
-    for t_start, t_end, _ in gaps:
-        ax_volt.axvspan(t_start, t_end, color="red", alpha=0.15, zorder=0)
-    for frac in sorted(volt_jumps.keys()):
-        colour, sz = _JUMP_COLOURS[frac]
-        for ch, entries in volt_jumps[frac].items():
-            ax_volt.scatter(
-                [e[0] for e in entries],
-                [e[1] for e in entries],
-                marker="x",
-                color=colour,
-                s=sz,
-                linewidths=1.5,
-                zorder=5,
+    if ax_volt.get_visible():
+        plotted_volt = 0
+        for key, label, style, ms in VOLT_PLOT_SPECS:
+            if not _has_param("volt", key):
+                continue
+            if key not in volt_data:
+                continue
+            if key == "EB_TEC_RAIL" and not any(not np.isnan(v) for v in volt_data[key]):
+                continue
+            ax_volt.plot(hk_timestamps, volt_data[key], style, label=label, markersize=ms)
+            plotted_volt += 1
+        if plotted_volt == 0:
+            _show_no_params(ax_volt, "Voltages")
+        else:
+            ax_volt.set_ylabel("Voltage (V)")
+            ax_volt.set_title("Voltages")
+            ax_volt.grid(True, alpha=0.3)
+            for frac in sorted(volt_jumps.keys()):
+                colour, sz = _JUMP_COLOURS[frac]
+                for ch, entries in volt_jumps[frac].items():
+                    if not _has_param("volt", ch):
+                        continue
+                    ax_volt.scatter(
+                        [e[0] for e in entries],
+                        [e[1] for e in entries],
+                        marker="x",
+                        color=colour,
+                        s=sz,
+                        linewidths=1.5,
+                        zorder=5,
+                    )
+            for ts in active_error_times:
+                ax_volt.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.55)
+            handles, labels = ax_volt.get_legend_handles_labels()
+            if handles:
+                ax_volt.legend(loc="best", fontsize=7)
+
+    # Error/warning bytes
+    if ax_err.get_visible():
+        plotted_err = 0
+        if err_ts and err_data:
+            for key, label in ERR_PLOT_SPECS:
+                if not _has_param("err", key):
+                    continue
+                ax_err.plot(err_ts, err_data[key], linewidth=1.0, label=label)
+                plotted_err += 1
+        if plotted_err == 0:
+            _show_no_params(ax_err, "Error / Warning Bytes")
+        else:
+            for ts in active_error_times:
+                ax_err.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.7)
+            ax_err.set_ylabel("Error Bytes")
+            ax_err.set_title("Error / Warning Bytes")
+            ax_err.grid(True, alpha=0.3)
+            handles, labels = ax_err.get_legend_handles_labels()
+            if handles:
+                ax_err.legend(loc="best", fontsize=7)
+
+    # Reflow visible base panels so hidden panels do not leave blank vertical gaps.
+    base_axes = [
+        ax
+        for ax, panel in (
+            (ax_temp, "temp"),
+            (ax_volt, "volt"),
+            (ax_err, "err"),
+            (ax_psu_ch3, "psu_ch3"),
+            (ax_psu_ch4, "psu_ch4"),
+            (ax_swir, "swir"),
+            (ax_mwir, "mwir"),
+        )
+        if ax is not None and panel_visibility.get(panel, True)
+    ]
+    custom_visible_axes = [ax for _field, ax in custom_axes if ax is not None]
+    custom_top = max((ax.get_position().y1 for ax in custom_visible_axes), default=0.0)
+    base_top = 0.88
+    base_bottom = max(0.06, custom_top + 0.03)
+    if base_axes and base_bottom < base_top:
+        gap = 0.012
+        total_h = base_top - base_bottom
+        h = max(0.05, (total_h - gap * (len(base_axes) - 1)) / len(base_axes))
+        y = base_top - h
+        for ax in base_axes:
+            ax.set_position((0.08, y, 0.86, h))
+            y -= h + gap
+
+    def _plot_psu_axis(ax_psu, panel_key, channel, title):
+        if ax_psu is None or not ax_psu.get_visible():
+            return
+
+        param_name = f"{channel}_I"
+        if not _has_param(panel_key, param_name):
+            _show_no_params(ax_psu, title)
+            return
+
+        if psu_data is None:
+            ax_psu.text(
+                0.5,
+                0.5,
+                f"No PSU {channel} current data",
+                transform=ax_psu.transAxes,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="gray",
             )
+            ax_psu.set_ylabel("PSU I (A)")
+            ax_psu.set_title(title)
+            ax_psu.grid(True, alpha=0.3)
+            return
+
+        times = psu_data[channel]["times"]
+        currents = psu_data[channel]["i"]
+        finite = [(t, i) for t, i in zip(times, currents) if np.isfinite(i)]
+        if hk_timestamps:
+            hk_start = hk_timestamps[0]
+            hk_end = hk_timestamps[-1]
+            finite = [(t, i) for t, i in finite if hk_start <= t <= hk_end]
+
+        if finite:
+            psu_t, psu_i = zip(*finite)
+            ax_psu.plot(psu_t, [i * 1000 for i in psu_i], "o-", markersize=2, label=f"{channel} I")
+            handles, labels = ax_psu.get_legend_handles_labels()
+            if handles:
+                ax_psu.legend(loc="best", fontsize=7)
+        else:
+            ax_psu.text(
+                0.5,
+                0.5,
+                f"No overlapping PSU {channel} current samples",
+                transform=ax_psu.transAxes,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="gray",
+            )
+
+        ax_psu.set_ylabel("PSU I (mA)")
+        ax_psu.set_title(title)
+        ax_psu.grid(True, alpha=0.3)
+        for ts in active_error_times:
+            ax_psu.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.45)
+
+    _plot_psu_axis(ax_psu_ch3, "psu_ch3", "CH3", "PSU Current (CH3)")
+    _plot_psu_axis(ax_psu_ch4, "psu_ch4", "CH4", "PSU Current (CH4)")
 
     # SWIR
-    if sci_datetimes:
-        ax_swir.scatter(sci_datetimes, swir_low, s=2, label="SWIR_LOW", alpha=0.6)
-        ax_swir.plot(sci_datetimes, swir_low, linewidth=0.3, alpha=0.4)
-        ax_swir.scatter(sci_datetimes, swir_med, s=2, label="SWIR_MED", alpha=0.6)
-        ax_swir.plot(sci_datetimes, swir_med, linewidth=0.3, alpha=0.4)
-        ax_swir.scatter(sci_datetimes, swir_high, s=2, label="SWIR_HIGH", alpha=0.6)
-        ax_swir.plot(sci_datetimes, swir_high, linewidth=0.3, alpha=0.4)
-        for start_idx, _end, packet_num, _ts in packet_boundaries:
-            ax_swir.axvline(x=sci_datetimes[start_idx], color="red", linestyle="--", linewidth=1, alpha=0.5)
-            ax_swir.text(
-                sci_datetimes[start_idx],
-                0.95,
-                f"{packet_num}",
-                transform=ax_swir.get_xaxis_transform(),
-                rotation=90,
-                va="top",
-                ha="right",
-                fontsize=8,
-                color="red",
-                alpha=0.7,
-            )
-    ax_swir.set_ylabel("Intensity")
-    ax_swir.set_title("SWIR")
-    ax_swir.legend(loc="upper right", fontsize=7)
-    ax_swir.grid(True, alpha=0.3)
+    if ax_swir.get_visible():
+        swir_map = {"SWIR_LOW": swir_low, "SWIR_MED": swir_med, "SWIR_HIGH": swir_high}
+        plotted_swir = 0
+        if sci_datetimes:
+            for key, label in SCI_PLOT_SPECS["swir"]:
+                if not _has_param("swir", key):
+                    continue
+                vals = swir_map[key]
+                ax_swir.scatter(sci_datetimes, vals, s=2, label=label, alpha=0.6)
+                ax_swir.plot(sci_datetimes, vals, linewidth=0.3, alpha=0.4)
+                plotted_swir += 1
+            if plotted_swir > 0:
+                for _start, _end, packet_num, packet_rx_ts in packet_boundaries:
+                    ax_swir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
+                    ax_swir.text(
+                        packet_rx_ts,
+                        0.95,
+                        f"{packet_num}",
+                        transform=ax_swir.get_xaxis_transform(),
+                        rotation=90,
+                        va="top",
+                        ha="left",
+                        fontsize=8,
+                        color="red",
+                        alpha=0.7,
+                    )
+        if plotted_swir == 0:
+            _show_no_params(ax_swir, "SWIR")
+        else:
+            ax_swir.set_ylabel("Intensity")
+            ax_swir.set_title("SWIR")
+            ax_swir.grid(True, alpha=0.3)
+            for ts in active_error_times:
+                ax_swir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+            handles, labels = ax_swir.get_legend_handles_labels()
+            if handles:
+                ax_swir.legend(loc="upper right", fontsize=7)
 
     # MWIR
-    if sci_datetimes:
-        ax_mwir.scatter(sci_datetimes, mwir_low, s=2, label="MWIR_LOW", alpha=0.6)
-        ax_mwir.plot(sci_datetimes, mwir_low, linewidth=0.3, alpha=0.4)
-        ax_mwir.scatter(sci_datetimes, mwir_med, s=2, label="MWIR_MED", alpha=0.6)
-        ax_mwir.plot(sci_datetimes, mwir_med, linewidth=0.3, alpha=0.4)
-        ax_mwir.scatter(sci_datetimes, mwir_high, s=2, label="MWIR_HIGH", alpha=0.6)
-        ax_mwir.plot(sci_datetimes, mwir_high, linewidth=0.3, alpha=0.4)
-        for start_idx, _end, packet_num, _ts in packet_boundaries:
-            ax_mwir.axvline(x=sci_datetimes[start_idx], color="red", linestyle="--", linewidth=1, alpha=0.5)
-            ax_mwir.text(
-                sci_datetimes[start_idx],
-                0.95,
-                f"{packet_num}",
-                transform=ax_mwir.get_xaxis_transform(),
-                rotation=90,
-                va="top",
-                ha="right",
-                fontsize=8,
-                color="red",
-                alpha=0.7,
-            )
-    ax_mwir.set_ylabel("Intensity")
-    ax_mwir.set_title("MWIR")
-    ax_mwir.legend(loc="upper right", fontsize=7)
-    ax_mwir.grid(True, alpha=0.3)
+    if ax_mwir.get_visible():
+        mwir_map = {"MWIR_LOW": mwir_low, "MWIR_MED": mwir_med, "MWIR_HIGH": mwir_high}
+        plotted_mwir = 0
+        if sci_datetimes:
+            for key, label in SCI_PLOT_SPECS["mwir"]:
+                if not _has_param("mwir", key):
+                    continue
+                vals = mwir_map[key]
+                ax_mwir.scatter(sci_datetimes, vals, s=2, label=label, alpha=0.6)
+                ax_mwir.plot(sci_datetimes, vals, linewidth=0.3, alpha=0.4)
+                plotted_mwir += 1
+            if plotted_mwir > 0:
+                for _start, _end, packet_num, packet_rx_ts in packet_boundaries:
+                    ax_mwir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
+                    ax_mwir.text(
+                        packet_rx_ts,
+                        0.95,
+                        f"{packet_num}",
+                        transform=ax_mwir.get_xaxis_transform(),
+                        rotation=90,
+                        va="top",
+                        ha="left",
+                        fontsize=8,
+                        color="red",
+                        alpha=0.7,
+                    )
+        if plotted_mwir == 0:
+            _show_no_params(ax_mwir, "MWIR")
+        else:
+            ax_mwir.set_ylabel("Intensity")
+            ax_mwir.set_title("MWIR")
+            ax_mwir.grid(True, alpha=0.3)
+            for ts in active_error_times:
+                ax_mwir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+            handles, labels = ax_mwir.get_legend_handles_labels()
+            if handles:
+                ax_mwir.legend(loc="upper right", fontsize=7)
 
-    # x-axis formatting (shared axis — only bottom subplot needs the label)
-    ax_mwir.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-    ax_mwir.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax_mwir.set_xlabel("Time (HH:MM:SS)")
+    # Custom parameter subplots (same figure)
+    for field_name, ax_custom in custom_axes:
+        ts_vals = custom_series.get(field_name)
+        ax_custom.cla()
+        if not ts_vals:
+            ax_custom.text(
+                0.5,
+                0.5,
+                "No data",
+                transform=ax_custom.transAxes,
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="gray",
+            )
+            ax_custom.set_title(f"HK Parameter: {field_name}")
+            ax_custom.grid(True, alpha=0.3)
+            continue
+
+        ts, vals = ts_vals
+        ax_custom.plot(ts, vals, "o-", markersize=2, linewidth=0.8, label=field_name)
+        ax_custom.set_title(f"HK Parameter: {field_name}")
+        ax_custom.set_ylabel("Value")
+        ax_custom.grid(True, alpha=0.3)
+        handles, _labels = ax_custom.get_legend_handles_labels()
+        if handles:
+            ax_custom.legend(loc="best", fontsize=8)
+        for ts_err in active_error_times:
+            ax_custom.axvline(ts_err, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+
+    visible_axes = [ax for ax in axes if ax is not None and ax.get_visible()]
+    if visible_axes:
+        bottom_ax = visible_axes[-1]
+        bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        bottom_ax.set_xlabel("Time (HH:MM:SS)")
     fig.autofmt_xdate(rotation=45, ha="right")
 
 
@@ -847,151 +1296,701 @@ def _draw_all_axes(
 
 
 def main():
-    print(f"Reading: {LOG_PATH}")
-    if not LOG_PATH.exists():
-        print(f"Error: file not found: {LOG_PATH}")
-        return
+    parser = argparse.ArgumentParser(description="Combined HK/SCI plot with selectable multi-RS422 and PSU")
+    parser.add_argument("--rs422-log", type=Path, nargs="+", default=[LOG_PATH])
+    parser.add_argument("--psu-log", type=Path, default=None)
+    parser.add_argument("--rs422-offset-hours", type=float, default=RS422_TIME_OFFSET_HOURS)
+    args = parser.parse_args()
 
-    # ── Initial load ──────────────────────────────────────────────────────────
-    hk_packets = extract_hk_packets(LOG_PATH)
-    print(f"HK packets: {len(hk_packets)}")
-    hk_timestamps, temp_data, volt_data = build_hk_arrays(hk_packets)
-    gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
-    error_events = detect_error_states(hk_packets)
-    print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events)
+    rs422_offset = timedelta(hours=args.rs422_offset_hours)
 
-    acq_configs = extract_acq_configs_tcs(LOG_PATH)
-    if acq_configs:
-        print(f"set_acq_configs TCs ({len(acq_configs)}):")
-        for cfg in acq_configs:
-            mode_name = "fixed-point" if cfg["mode"] == 0x01 else "spectrum"
-            print(
-                f"  {cfg['timestamp'].strftime('%H:%M:%S')}  Mode={cfg['mode']} ({mode_name}),"
-                f" SampleTime={cfg['sample_time_raw']} ({cfg['spacing_ms']:.0f}ms),"
-                f" Duration={cfg['duration_raw']}"
-            )
+    def _title_for_logs(paths):
+        names = [p.name for p in paths]
+        if not names:
+            return "Combined Analysis"
+        if len(names) == 1:
+            return f"Combined Analysis — {names[0]}"
+        return f"Combined Analysis — {names[0]} + {len(names) - 1} more"
 
-    sci_packets = extract_sci_packets(LOG_PATH)
-    print(f"Science packets: {len(sci_packets)}")
-    (sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, packet_boundaries) = build_sci_arrays(
-        sci_packets, acq_configs
-    )
+    def _analyze(log_paths, psu_log):
+        valid_logs = []
+        all_hk = []
+        all_acq = []
+        all_sci = []
 
-    acq_windows = extract_acq_windows(hk_packets)
-    if acq_windows:
-        print(f"Acquisition windows ({len(acq_windows)}):")
-        for ws, we in acq_windows:
-            print(f"  {ws.strftime('%H:%M:%S')} → {we.strftime('%H:%M:%S')}")
-    else:
-        print("No acquisition windows found in HK — showing all science data")
-    (swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high) = filter_sci_to_acq_windows(
-        sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, acq_windows
-    )
+        for lp in log_paths:
+            if not lp.exists():
+                print(f"Warning: RS422 log not found: {lp}")
+                continue
+            valid_logs.append(lp)
+            print(f"Reading: {lp}")
+            hk = extract_hk_packets(lp, rs422_offset=rs422_offset)
+            acq = extract_acq_configs_tcs(lp, rs422_offset=rs422_offset)
+            sci = extract_sci_packets(lp, rs422_offset=rs422_offset)
+            print(f"  HK: {len(hk)}  set_acq_configs: {len(acq)}  SCI: {len(sci)}")
+            all_hk.extend(hk)
+            all_acq.extend(acq)
+            all_sci.extend(sci)
 
-    # ── Figure: 4 subplots, all sharing the same datetime x-axis ─────────────
-    fig, (ax_temp, ax_volt, ax_swir, ax_mwir) = plt.subplots(4, 1, figsize=(16, 14), sharex=True)
-    fig.suptitle(f"Combined Analysis — {LOG_PATH.name}", fontsize=13, fontweight="bold")
-    fig.subplots_adjust(top=0.93, hspace=0.35)
+        if not all_hk:
+            print("Error: no HK packets found across selected RS422 logs")
+            return None
 
-    # ── Reload button ─────────────────────────────────────────────────────────
-    ax_btn = fig.add_axes([0.88, 0.955, 0.09, 0.028])
-    btn_reload = Button(ax_btn, "\u27f3 Reload", color="lightsteelblue", hovercolor="deepskyblue")
+        all_hk.sort(key=lambda hk: hk.TIME)
+        all_acq.sort(key=lambda cfg: cfg["timestamp"])
+        all_sci.sort(key=lambda pkt: (pkt["timestamp"] is None, pkt["timestamp"]))
 
-    # Mutable state so the closure can track and disconnect the click handler
-    state = {"cid": None}
+        hk_timestamps, temp_data, volt_data = build_hk_arrays(all_hk)
+        err_ts, err_data = build_error_byte_arrays(all_hk)
+        gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
+        error_events = detect_error_states(all_hk)
+        print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events)
 
-    def _reload(_event=None):
-        print(f"\n--- Reload ---")
-        print(f"Reading: {LOG_PATH}")
+        print(f"set_acq_configs TCs (combined): {len(all_acq)}")
+        print(f"Science packets (combined): {len(all_sci)}")
+        sci = build_sci_arrays(all_sci, all_acq)
+        sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, packet_boundaries = sci
 
-        hk_pkts = extract_hk_packets(LOG_PATH)
-        print(f"HK packets: {len(hk_pkts)}")
-        ts, td, vd = build_hk_arrays(hk_pkts)
-        g, tj, vj = detect_hk_anomalies(ts, td, vd)
-        err_evts = detect_error_states(hk_pkts)
-        print_anomaly_summary(g, tj, vj, err_evts)
-
-        acq_cfgs = extract_acq_configs_tcs(LOG_PATH)
-        if acq_cfgs:
-            print(f"set_acq_configs TCs ({len(acq_cfgs)}):")
-            for cfg in acq_cfgs:
-                mode_name = "fixed-point" if cfg["mode"] == 0x01 else "spectrum"
-                print(
-                    f"  {cfg['timestamp'].strftime('%H:%M:%S')}  Mode={cfg['mode']} ({mode_name}),"
-                    f" SampleTime={cfg['sample_time_raw']} ({cfg['spacing_ms']:.0f}ms),"
-                    f" Duration={cfg['duration_raw']}"
-                )
-
-        sp = extract_sci_packets(LOG_PATH)
-        print(f"Science packets: {len(sp)}")
-        sd, sl, sm, sh, ml, mm, mh, pb = build_sci_arrays(sp, acq_cfgs)
-
-        acq_wins = extract_acq_windows(hk_pkts)
-        if acq_wins:
-            print(f"Acquisition windows ({len(acq_wins)}):")
-            for ws, we in acq_wins:
+        acq_windows = extract_acq_windows(all_hk)
+        if acq_windows:
+            print(f"Acquisition windows ({len(acq_windows)}):")
+            for ws, we in acq_windows:
                 print(f"  {ws.strftime('%H:%M:%S')} → {we.strftime('%H:%M:%S')}")
         else:
             print("No acquisition windows found in HK — showing all science data")
-        sl, sm, sh, ml, mm, mh = filter_sci_to_acq_windows(sd, sl, sm, sh, ml, mm, mh, acq_wins)
 
-        _draw_all_axes(ax_temp, ax_volt, ax_swir, ax_mwir, fig, ts, td, vd, g, tj, vj, sd, sl, sm, sh, ml, mm, mh, pb)
+        swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high = filter_sci_to_acq_windows(
+            sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, acq_windows
+        )
 
-        if state["cid"] is not None:
-            fig.canvas.mpl_disconnect(state["cid"])
-            state["cid"] = None
-        if sd:
-            hdlr = ClickHandler(sd, sl, sm, sh, ml, mm, mh, pb, ax_swir, ax_mwir)
-            state["cid"] = fig.canvas.mpl_connect("button_press_event", hdlr.on_click)
-            print("\nClick on SWIR/MWIR data points to inspect intensity values.")
+        psu_data = None
+        if psu_log is not None:
+            if psu_log.exists():
+                psu_data = build_psu_arrays(psu_log)
+                print(f"Loaded PSU samples from: {psu_log}")
 
-        fig.canvas.draw_idle()
+                ch4_times = psu_data["CH4"]["times"]
+                ch4_curr = psu_data["CH4"]["i"]
+                finite_ch4 = [(t, i) for t, i in zip(ch4_times, ch4_curr) if np.isfinite(i)]
+                if finite_ch4:
+                    psu_start = finite_ch4[0][0]
+                    psu_end = finite_ch4[-1][0]
+                    hk_start = hk_timestamps[0]
+                    hk_end = hk_timestamps[-1]
+                    overlap_n = sum(1 for t, _i in finite_ch4 if hk_start <= t <= hk_end)
+                    print(
+                        f"PSU CH4 current samples: {len(finite_ch4)} "
+                        f"({psu_start.strftime('%H:%M:%S')} → {psu_end.strftime('%H:%M:%S')}), "
+                        f"overlap with HK range: {overlap_n}"
+                    )
+                else:
+                    print("PSU CH4 current samples: 0 finite values in selected PSU log")
+            else:
+                print(f"Warning: PSU log not found: {psu_log}")
 
-    btn_reload.on_clicked(_reload)
+        hk_field_options = list_numeric_hk_fields(all_hk)
 
-    # ── Initial draw ──────────────────────────────────────────────────────────
-    _draw_all_axes(
-        ax_temp,
-        ax_volt,
-        ax_swir,
-        ax_mwir,
-        fig,
-        hk_timestamps,
-        temp_data,
-        volt_data,
-        gaps,
-        temp_jumps,
-        volt_jumps,
-        sci_datetimes,
-        swir_low,
-        swir_med,
-        swir_high,
-        mwir_low,
-        mwir_med,
-        mwir_high,
-        packet_boundaries,
+        return {
+            "valid_logs": valid_logs,
+            "hk_packets": all_hk,
+            "hk_field_options": hk_field_options,
+            "hk_timestamps": hk_timestamps,
+            "temp_data": temp_data,
+            "volt_data": volt_data,
+            "gaps": gaps,
+            "temp_jumps": temp_jumps,
+            "volt_jumps": volt_jumps,
+            "error_events": error_events,
+            "err_ts": err_ts,
+            "err_data": err_data,
+            "sci_datetimes": sci_datetimes,
+            "swir_low": swir_low,
+            "swir_med": swir_med,
+            "swir_high": swir_high,
+            "mwir_low": mwir_low,
+            "mwir_med": mwir_med,
+            "mwir_high": mwir_high,
+            "packet_boundaries": packet_boundaries,
+            "psu_data": psu_data,
+        }
+
+    def _pick_rs422_files(current):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        start_dir = str(current[0].parent if current else LOG_PATH.parent)
+        try:
+            chosen = filedialog.askopenfilenames(
+                title="Select one or more RS422 logs",
+                initialdir=start_dir,
+                filetypes=[("Log files", "*.log *.LOG *.txt"), ("All files", "*.*")],
+            )
+        finally:
+            root.destroy()
+        return [Path(p) for p in chosen] if chosen else None
+
+    def _pick_psu_file(current):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        start_dir = str(current.parent if current is not None else LOG_PATH.parent)
+        try:
+            chosen = filedialog.askopenfilename(
+                title="Select PSU log",
+                initialdir=start_dir,
+                filetypes=[("Log files", "*.log *.LOG *.txt"), ("All files", "*.*")],
+            )
+        finally:
+            root.destroy()
+        return Path(chosen) if chosen else None
+
+    def _show_errors_popup(_event=None):
+        events_obj = state.get("error_events")
+        events = events_obj if isinstance(events_obj, list) else []
+        active_events = [evt for evt in events if evt[1] or evt[2] or evt[3]]
+
+        def _save_error_events():
+            if not active_events:
+                messagebox.showinfo("Save error transitions", "No active error transitions to save.")
+                return
+
+            save_path = filedialog.asksaveasfilename(
+                title="Save error transitions",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt"), ("All files", "*.*")],
+            )
+            if not save_path:
+                return
+
+            try:
+                if str(save_path).lower().endswith(".txt"):
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(f"Detected active error transitions: {len(active_events)}\n\n")
+                        for idx, (ts, eb, ob, mtr) in enumerate(active_events, start=1):
+                            f.write(f"{idx}. Timestamp: {ts.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write(f"   EB Error Flags : {', '.join(eb) if eb else 'none'}\n")
+                            f.write(f"   OB Errors      : {', '.join(ob) if ob else 'none'}\n")
+                            f.write(f"   Motor Errors   : {', '.join(mtr) if mtr else 'none'}\n\n")
+                else:
+                    with open(save_path, "w", encoding="utf-8", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["index", "timestamp", "eb_error_flags", "ob_errors", "motor_errors"])
+                        for idx, (ts, eb, ob, mtr) in enumerate(active_events, start=1):
+                            writer.writerow(
+                                [
+                                    idx,
+                                    ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "; ".join(eb),
+                                    "; ".join(ob),
+                                    "; ".join(mtr),
+                                ]
+                            )
+                messagebox.showinfo("Save error transitions", f"Saved: {save_path}")
+            except Exception as ex:
+                messagebox.showerror("Save error transitions", f"Failed to save file:\n{ex}")
+
+        root = getattr(tk, "_default_root", None)
+        owns_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            owns_root = True
+
+        win = tk.Toplevel(root)
+        win.title("Detected Error Transitions")
+        win.geometry("920x560")
+
+        frame = tk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        text = tk.Text(frame, wrap="none", font=("Consolas", 10))
+        y_scroll = tk.Scrollbar(frame, orient="vertical", command=text.yview)
+        x_scroll = tk.Scrollbar(frame, orient="horizontal", command=text.xview)
+        text.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+
+        text.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        if not active_events:
+            text.insert("end", "No active error transitions detected in the current selection.\n")
+        else:
+            text.insert("end", f"Detected active error transitions: {len(active_events)}\n\n")
+            for idx, (ts, eb, ob, mtr) in enumerate(active_events, start=1):
+                text.insert("end", f"{idx}. Timestamp: {ts.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                text.insert("end", f"   EB Error Flags : {', '.join(eb) if eb else 'none'}\n")
+                text.insert("end", f"   OB Errors      : {', '.join(ob) if ob else 'none'}\n")
+                text.insert("end", f"   Motor Errors   : {', '.join(mtr) if mtr else 'none'}\n\n")
+
+        text.configure(state="disabled")
+        button_row = tk.Frame(win)
+        button_row.pack(pady=(0, 10))
+        tk.Button(button_row, text="Save", command=_save_error_events).pack(side="left", padx=(0, 8))
+        tk.Button(button_row, text="Close", command=win.destroy).pack(side="left")
+
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
+
+        if owns_root:
+
+            def _close_and_cleanup():
+                win.destroy()
+                root.destroy()
+
+            win.protocol("WM_DELETE_WINDOW", _close_and_cleanup)
+            win.mainloop()
+
+    def _show_plot_selector(_event=None):
+        root = getattr(tk, "_default_root", None)
+        owns_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            owns_root = True
+
+        win = tk.Toplevel(root)
+        win.title("Select Visible Plots")
+        win.geometry("320x320")
+
+        frame = tk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        current = state.get("panel_visibility")
+        if not isinstance(current, dict):
+            current = {k: True for k in PANEL_ORDER}
+
+        vars_map = {}
+        for panel in PANEL_ORDER:
+            var = tk.BooleanVar(value=bool(current.get(panel, True)))
+            vars_map[panel] = var
+            tk.Checkbutton(frame, text=PANEL_LABELS[panel], variable=var).pack(anchor="w", pady=2)
+
+        def _apply():
+            new_vis = {k: bool(v.get()) for k, v in vars_map.items()}
+            if not any(new_vis.values()):
+                messagebox.showwarning("Select Visible Plots", "At least one plot must remain visible.")
+                return
+            state["panel_visibility"] = new_vis
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+            win.destroy()
+
+        btn_row = tk.Frame(win)
+        btn_row.pack(pady=(0, 10))
+        tk.Button(btn_row, text="Apply", command=_apply).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
+
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
+
+        if owns_root:
+
+            def _close_and_cleanup():
+                win.destroy()
+                root.destroy()
+
+            win.protocol("WM_DELETE_WINDOW", _close_and_cleanup)
+            win.mainloop()
+
+    def _show_parameter_selector(_event=None):
+        root = getattr(tk, "_default_root", None)
+        owns_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            owns_root = True
+
+        win = tk.Toplevel(root)
+        win.title("Select Parameters To Plot")
+        win.geometry("560x620")
+
+        outer = tk.Frame(win)
+        outer.pack(fill="both", expand=True, padx=10, pady=10)
+
+        canvas = tk.Canvas(outer, borderwidth=0)
+        y_scroll = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        body = tk.Frame(canvas)
+        body.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=y_scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        y_scroll.pack(side="right", fill="y")
+
+        current_params = state.get("selected_params")
+        if not isinstance(current_params, dict):
+            current_params = {k: set(v) for k, v in PARAM_OPTIONS.items()}
+
+        vars_map = {}
+        for panel in PANEL_ORDER:
+            group = tk.LabelFrame(body, text=PANEL_LABELS[panel])
+            group.pack(fill="x", padx=4, pady=4)
+            vars_map[panel] = {}
+            selected = current_params.get(panel, set(PARAM_OPTIONS[panel]))
+            for param in PARAM_OPTIONS[panel]:
+                var = tk.BooleanVar(value=param in selected)
+                vars_map[panel][param] = var
+                tk.Checkbutton(group, text=param, variable=var).pack(anchor="w", padx=6, pady=1)
+
+        def _apply():
+            new_selected = {}
+            for panel in PANEL_ORDER:
+                chosen = {p for p, var in vars_map[panel].items() if bool(var.get())}
+                if not chosen:
+                    messagebox.showwarning(
+                        "Select Parameters To Plot",
+                        f"At least one parameter is required for {PANEL_LABELS[panel]}.",
+                    )
+                    return
+                new_selected[panel] = chosen
+            state["selected_params"] = new_selected
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+            win.destroy()
+
+        btn_row = tk.Frame(win)
+        btn_row.pack(pady=(6, 10))
+        tk.Button(btn_row, text="Apply", command=_apply).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="New Graph", command=_open_custom_parameter_plot).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
+
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
+
+        if owns_root:
+
+            def _close_and_cleanup():
+                win.destroy()
+                root.destroy()
+
+            win.protocol("WM_DELETE_WINDOW", _close_and_cleanup)
+            win.mainloop()
+
+    def _open_custom_parameter_plot(_event=None):
+        last_result = state.get("last_result")
+        if not isinstance(last_result, dict):
+            messagebox.showinfo("Add Parameter", "Load data first before adding a parameter plot.")
+            return
+
+        hk_packets = last_result.get("hk_packets")
+        if not isinstance(hk_packets, list) or not hk_packets:
+            messagebox.showinfo("Add Parameter", "No HK packet data available for dynamic parameter plotting.")
+            return
+
+        field_options = last_result.get("hk_field_options")
+        if not isinstance(field_options, list) or not field_options:
+            messagebox.showinfo("Add Parameter", "No numeric HK parameters found in the current data.")
+            return
+
+        root = getattr(tk, "_default_root", None)
+        owns_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            owns_root = True
+
+        win = tk.Toplevel(root)
+        win.title("Add Parameter Plot")
+        win.geometry("420x520")
+
+        tk.Label(win, text="Select an HK parameter to plot in a new graph:").pack(anchor="w", padx=10, pady=(10, 4))
+
+        search_var = tk.StringVar()
+        entry = tk.Entry(win, textvariable=search_var)
+        entry.pack(fill="x", padx=10, pady=(0, 8))
+
+        list_frame = tk.Frame(win)
+        list_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        listbox = tk.Listbox(list_frame, exportselection=False)
+        y_scroll = tk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
+        listbox.configure(yscrollcommand=y_scroll.set)
+        listbox.pack(side="left", fill="both", expand=True)
+        y_scroll.pack(side="right", fill="y")
+
+        def _refresh_list(*_args):
+            q = search_var.get().strip().lower()
+            listbox.delete(0, "end")
+            filtered = [name for name in field_options if q in name.lower()]
+            for name in filtered:
+                listbox.insert("end", name)
+            if filtered:
+                listbox.selection_set(0)
+
+        search_var.trace_add("write", _refresh_list)
+        _refresh_list()
+
+        def _plot_selected():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("Add Parameter", "Select a parameter first.")
+                return
+            field_name = listbox.get(sel[0])
+            ts, vals = build_hk_field_series(hk_packets, field_name)
+            finite_mask = np.isfinite(np.array(vals, dtype=float))
+            if not np.any(finite_mask):
+                messagebox.showwarning("Add Parameter", f"Parameter {field_name} has no numeric samples.")
+                return
+
+            custom_fields = state.get("custom_fields")
+            if not isinstance(custom_fields, list):
+                custom_fields = []
+                state["custom_fields"] = custom_fields
+            if field_name not in custom_fields:
+                custom_fields.append(field_name)
+
+            _sync_custom_axes()
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+            win.destroy()
+
+        btn_row = tk.Frame(win)
+        btn_row.pack(pady=(0, 10))
+        tk.Button(btn_row, text="Plot", command=_plot_selected).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
+
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
+
+        if owns_root:
+
+            def _close_and_cleanup():
+                win.destroy()
+                root.destroy()
+
+            win.protocol("WM_DELETE_WINDOW", _close_and_cleanup)
+            win.mainloop()
+
+    # Fixed layout: always include dedicated CH3 and CH4 PSU subplots.
+    fig, (ax_temp, ax_volt, ax_err, ax_psu_ch3, ax_psu_ch4, ax_swir, ax_mwir) = plt.subplots(
+        7, 1, figsize=(16, 21), sharex=True
     )
+    fig.subplots_adjust(top=0.90, hspace=0.35)
 
-    if sci_datetimes:
-        handler = ClickHandler(
-            sci_datetimes,
-            swir_low,
-            swir_med,
-            swir_high,
-            mwir_low,
-            mwir_med,
-            mwir_high,
-            packet_boundaries,
+    # Keep controls on a dedicated row below the title to avoid overlap.
+    ax_btn_plots = fig.add_axes((0.33, 0.92, 0.10, 0.024))
+    btn_plots = Button(ax_btn_plots, "Plots", color="lavender", hovercolor="thistle")
+    ax_btn_params = fig.add_axes((0.44, 0.92, 0.10, 0.024))
+    btn_params = Button(ax_btn_params, "Params", color="honeydew", hovercolor="palegreen")
+    ax_btn_errors = fig.add_axes((0.55, 0.92, 0.10, 0.024))
+    btn_errors = Button(ax_btn_errors, "Errors", color="mistyrose", hovercolor="lightcoral")
+    ax_btn_rs422 = fig.add_axes((0.66, 0.92, 0.10, 0.024))
+    btn_rs422 = Button(ax_btn_rs422, "Open RS422", color="lightgrey", hovercolor="gainsboro")
+    ax_btn_psu = fig.add_axes((0.77, 0.92, 0.10, 0.024))
+    btn_psu = Button(ax_btn_psu, "Open PSU", color="lightgrey", hovercolor="gainsboro")
+    ax_btn_reload = fig.add_axes((0.88, 0.92, 0.09, 0.024))
+    btn_reload = Button(ax_btn_reload, "\u27f3 Reload", color="lightsteelblue", hovercolor="deepskyblue")
+
+    state: dict[str, object] = {
+        "cid": None,
+        "rs422_logs": list(args.rs422_log),
+        "psu_log": args.psu_log,
+        "error_events": [],
+        "panel_visibility": {k: True for k in PANEL_ORDER},
+        "selected_params": {k: set(v) for k, v in PARAM_OPTIONS.items()},
+        "last_result": None,
+        "custom_fields": [],
+        "custom_axes": [],
+    }
+
+    def _sync_custom_axes():
+        custom_fields = state.get("custom_fields")
+        if not isinstance(custom_fields, list):
+            custom_fields = []
+            state["custom_fields"] = custom_fields
+
+        existing = state.get("custom_axes")
+        if isinstance(existing, list):
+            for _field, ax in existing:
+                try:
+                    ax.remove()
+                except Exception:
+                    pass
+
+        n = len(custom_fields)
+        if n == 0:
+            state["custom_axes"] = []
+            return
+
+        panel_h = 0.085
+        gap = 0.012
+        bottom_start = 0.045
+        custom_axes = []
+        for i, field in enumerate(custom_fields):
+            y = bottom_start + (n - 1 - i) * (panel_h + gap)
+            ax = fig.add_axes((0.08, y, 0.86, panel_h), sharex=ax_mwir)
+            custom_axes.append((field, ax))
+        state["custom_axes"] = custom_axes
+
+    def _apply_analysis(result):
+        state["last_result"] = result
+        panel_visibility = state.get("panel_visibility")
+        if not isinstance(panel_visibility, dict):
+            panel_visibility = {k: True for k in PANEL_ORDER}
+            state["panel_visibility"] = panel_visibility
+        selected_params = state.get("selected_params")
+        if not isinstance(selected_params, dict):
+            selected_params = {k: set(v) for k, v in PARAM_OPTIONS.items()}
+            state["selected_params"] = selected_params
+
+        _sync_custom_axes()
+        custom_axes = state.get("custom_axes")
+        if not isinstance(custom_axes, list):
+            custom_axes = []
+
+        custom_series = {}
+        hk_packets = result.get("hk_packets")
+        if isinstance(hk_packets, list):
+            for field_name, _ax in custom_axes:
+                custom_series[field_name] = build_hk_field_series(hk_packets, field_name)
+
+        _draw_all_axes(
+            ax_temp,
+            ax_volt,
+            ax_err,
+            ax_psu_ch3,
+            ax_psu_ch4,
             ax_swir,
             ax_mwir,
+            fig,
+            result["hk_timestamps"],
+            result["temp_data"],
+            result["volt_data"],
+            result["gaps"],
+            result["temp_jumps"],
+            result["volt_jumps"],
+            result["sci_datetimes"],
+            result["swir_low"],
+            result["swir_med"],
+            result["swir_high"],
+            result["mwir_low"],
+            result["mwir_med"],
+            result["mwir_high"],
+            result["packet_boundaries"],
+            result["psu_data"],
+            result["error_events"],
+            result["err_ts"],
+            result["err_data"],
+            panel_visibility,
+            selected_params,
+            custom_axes,
+            custom_series,
         )
-        state["cid"] = fig.canvas.mpl_connect("button_press_event", handler.on_click)
-        print("\nClick on SWIR/MWIR data points to inspect intensity values.")
+
+        cid = state.get("cid")
+        if isinstance(cid, int):
+            fig.canvas.mpl_disconnect(cid)
+            state["cid"] = None
+
+        popup_events = [evt for evt in result["error_events"] if evt[1] or evt[2] or evt[3]]
+        state["error_events"] = result["error_events"]
+
+        click_axes = []
+        if panel_visibility.get("temp", True):
+            click_axes.append(ax_temp)
+        if panel_visibility.get("volt", True):
+            click_axes.append(ax_volt)
+        if panel_visibility.get("err", True):
+            click_axes.append(ax_err)
+        if panel_visibility.get("psu_ch3", True):
+            click_axes.append(ax_psu_ch3)
+        if panel_visibility.get("psu_ch4", True):
+            click_axes.append(ax_psu_ch4)
+        if panel_visibility.get("swir", True):
+            click_axes.append(ax_swir)
+        if panel_visibility.get("mwir", True):
+            click_axes.append(ax_mwir)
+        for _field, ax_custom in custom_axes:
+            click_axes.append(ax_custom)
+
+        hdlr = ClickHandler(
+            result["sci_datetimes"],
+            result["swir_low"],
+            result["swir_med"],
+            result["swir_high"],
+            result["mwir_low"],
+            result["mwir_med"],
+            result["mwir_high"],
+            result["packet_boundaries"],
+            ax_swir,
+            ax_mwir,
+            popup_events,
+            tuple(click_axes),
+        )
+        state["cid"] = fig.canvas.mpl_connect("button_press_event", hdlr.on_click)
+        if popup_events:
+            print(
+                "\nClick near red error lines for popup details, use the Errors button for full list,"
+                " or click SWIR/MWIR points to inspect intensity values."
+            )
+        elif result["sci_datetimes"]:
+            print("\nUse the Errors button for full list, or click SWIR/MWIR data points to inspect intensity values.")
+        else:
+            print("\nUse the Errors button for full list of detected error transitions.")
+
+        fig.suptitle(_title_for_logs(result["valid_logs"]), fontsize=13, fontweight="bold", y=0.985)
+        fig.canvas.draw_idle()
+
+    def _reload(_event=None):
+        print("\n--- Reload ---")
+        logs = state.get("rs422_logs")
+        if not isinstance(logs, list):
+            logs = [LOG_PATH]
+            state["rs422_logs"] = logs
+        psu_log = state.get("psu_log")
+        if psu_log is not None and not isinstance(psu_log, Path):
+            psu_log = None
+            state["psu_log"] = None
+
+        result = _analyze(logs, psu_log)
+        if result is None:
+            return
+        _apply_analysis(result)
+
+    def _open_rs422(_event=None):
+        logs = state.get("rs422_logs")
+        if not isinstance(logs, list):
+            logs = [LOG_PATH]
+        chosen = _pick_rs422_files(logs)
+        if not chosen:
+            return
+        state["rs422_logs"] = chosen
+        print("Selected RS422 logs:")
+        for p in chosen:
+            print(f"  - {p}")
+        _reload()
+
+    def _open_psu(_event=None):
+        current = state.get("psu_log")
+        if current is not None and not isinstance(current, Path):
+            current = None
+        chosen = _pick_psu_file(current)
+        if chosen is None:
+            return
+        state["psu_log"] = chosen
+        print(f"Selected PSU log: {chosen}")
+        _reload()
+
+    btn_plots.on_clicked(_show_plot_selector)
+    btn_params.on_clicked(_show_parameter_selector)
+    btn_errors.on_clicked(_show_errors_popup)
+    btn_rs422.on_clicked(_open_rs422)
+    btn_psu.on_clicked(_open_psu)
+    btn_reload.on_clicked(_reload)
+
+    # Initial load
+    _reload()
 
     try:
         plt.show(block=True)
     except TypeError:
-        # Older matplotlib versions may not accept block kwarg
         plt.show()
 
 
