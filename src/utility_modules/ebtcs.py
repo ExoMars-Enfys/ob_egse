@@ -362,8 +362,8 @@ def set_tec_setpoint(interface, source, setpoint):
     return _send_named_tc(interface, "SET_TEC_SETPOINT", source, setpoint)
 
 
-def set_fdir_limits(interface, *args):
-    return _send_named_tc(interface, "SET_FDIR_LIMITS", *args)
+def set_fdir(interface, *args):
+    return _send_named_tc(interface, "SET_FDIR", *args)
 
 
 def en_mech_board(interface, enabled):

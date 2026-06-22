@@ -206,11 +206,11 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
-            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
-            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0x5C55
-            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0x01CB
-            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x5318
-            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xDCAE
+            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0x2B22
+            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0xD46C
+            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0x8156
+            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x0696
+            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0x6FEB
             and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
             and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0xF624
         )
@@ -225,15 +225,15 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 result["details"].append(f"NUM_BAD_FLASH_BLOCKS: {getattr(post, 'NUM_BAD_FLASH_BLOCKS', None)}")
             if getattr(post, "NUM_BAD_SRAM_BLOCKS", None) != 0:
                 result["details"].append(f"NUM_BAD_SRAM_BLOCKS: {getattr(post, 'NUM_BAD_SRAM_BLOCKS', None)}")
-            if getattr(post, "ASW_IMAGE_1_CRC", None) != 0xBAF7:
+            if getattr(post, "ASW_IMAGE_1_CRC", None) != 0x2B22:
                 result["details"].append(f"ASW_IMAGE_1_CRC: {getattr(post, 'ASW_IMAGE_1_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_2_CRC", None) != 0x5C55:
+            if getattr(post, "ASW_IMAGE_2_CRC", None) != 0xD46C:
                 result["details"].append(f"ASW_IMAGE_2_CRC: {getattr(post, 'ASW_IMAGE_2_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_3_CRC", None) != 0x01CB:
+            if getattr(post, "ASW_IMAGE_3_CRC", None) != 0x8156:
                 result["details"].append(f"ASW_IMAGE_3_CRC: {getattr(post, 'ASW_IMAGE_3_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_4_CRC", None) != 0x5318:
+            if getattr(post, "ASW_IMAGE_4_CRC", None) != 0x0696:
                 result["details"].append(f"ASW_IMAGE_4_CRC: {getattr(post, 'ASW_IMAGE_4_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_5_CRC", None) != 0xDCAE:
+            if getattr(post, "ASW_IMAGE_5_CRC", None) != 0x6FEB:
                 result["details"].append(f"ASW_IMAGE_5_CRC: {getattr(post, 'ASW_IMAGE_5_CRC', None):#06x}")
             if getattr(post, "BSW_IMAGE_CRC", None) != 0xD2D7:
                 result["details"].append(f"BSW_IMAGE_CRC: {getattr(post, 'BSW_IMAGE_CRC', None):#06x}")

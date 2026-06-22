@@ -144,11 +144,11 @@ enfys_tc_defs = {
         "valid_states": ("STANDBY", "ACQUISITION"),
         "verify": {"accepted_increment": 1, "last_tc_type": 0x0E},
     },
-    "SET_FDIR_LIMITS": {
+    "SET_FDIR": {
         "block_id": 0x0F,
-        "cmdtool_name": "ENFYS_SET_FDIR_LIMITS",
+        "cmdtool_name": "ENFYS_SET_FDIR",
         "aliases": (),
-        "arg_count": (69, 69),
+        "arg_count": (137, 137),
         "valid_states": ("SAFE", "STANDBY", "ACQUISITION"),
         "verify": {"accepted_increment": 1, "last_tc_type": 0x0F},
     },
