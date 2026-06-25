@@ -36,6 +36,10 @@ def load_psu_channel_samples(psu_log_path: str | Path) -> list[dict[str, Any]]:
     token_regex = re.compile(r"\bCH(?P<ch>[1-4])_(?P<kind>[VI])\s*(?P<val>[-+]?\d*\.?\d+)(?:[VA])?\b")
     # Also support compact lines like: "CH4 27.999V   0.0823A"
     compact_regex = re.compile(r"\bCH(?P<ch>[1-4])\s+(?P<v>[-+]?\d*\.?\d+)V\s+(?P<i>[-+]?\d*\.?\d+)A\b")
+    # And status lines like: "CH3(status=0) -0.01   0.0   CH4(status=0) -0.009   0.0007"
+    status_regex = re.compile(
+        r"\bCH(?P<ch>[1-4])\(status=(?P<status>[01])\)\s+(?P<v>[-+]?\d*\.?\d+)\s+(?P<i>[-+]?\d*\.?\d+)\b"
+    )
 
     def _empty_channels() -> dict[str, dict[str, float | None]]:
         return {
@@ -61,6 +65,7 @@ def load_psu_channel_samples(psu_log_path: str | Path) -> list[dict[str, Any]]:
                 continue
 
             channels = _empty_channels()
+            line_statuses: list[bool] = []
 
             parsed_any = False
             for token in token_regex.finditer(match.group("body")):
@@ -85,10 +90,27 @@ def load_psu_channel_samples(psu_log_path: str | Path) -> list[dict[str, Any]]:
                 channels[ch]["I"] = i_val
                 parsed_any = True
 
+            # Parse status format if present on the same line.
+            for token in status_regex.finditer(match.group("body")):
+                try:
+                    ch = f"CH{token.group('ch')}"
+                    status = token.group("status") == "1"
+                    v_val = float(token.group("v"))
+                    i_val = float(token.group("i"))
+                except ValueError:
+                    continue
+                channels[ch]["V"] = v_val
+                channels[ch]["I"] = i_val
+                line_statuses.append(status)
+                parsed_any = True
+
             if not parsed_any:
                 continue
 
-            samples.append({"TIME": ts, "STATUS": True, "CHANNELS": channels})
+            # If status markers exist on a line, STATUS reflects any enabled channel.
+            samples.append(
+                {"TIME": ts, "STATUS": (any(line_statuses) if line_statuses else True), "CHANNELS": channels}
+            )
 
     samples.sort(key=lambda s: s["TIME"])
     return samples
