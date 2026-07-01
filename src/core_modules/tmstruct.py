@@ -409,10 +409,10 @@ dump_data = [
 ]
 sci_data = [
     ("ABS_STEPS", ">u16"),
-    ("SWIR_HIGH", ">u16"),
-    ("SWIR_MED", ">u16"),
     ("SWIR_LOW", ">u16"),
-    ("MWIR_HIGH", ">u16"),
-    ("MWIR_MED", ">u16"),
+    ("SWIR_MED", ">u16"),
+    ("SWIR_HIGH", ">u16"),
     ("MWIR_LOW", ">u16"),
+    ("MWIR_MED", ">u16"),
+    ("MWIR_HIGH", ">u16"),
 ]
