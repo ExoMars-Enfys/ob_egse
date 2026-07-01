@@ -98,7 +98,17 @@ def read_pkt(file_path, latest_only: bool = False):
         byte_string = all_lines[tm_index + 1]
         if not byte_string:
             continue
-        byte_array = bytes(int(x, 16) for x in byte_string.split())
+        # Some logs may contain marker lines (for example "Telecommand.") where
+        # packet bytes are expected; skip these malformed payload rows.
+        if byte_string.startswith(("Telemetry Data", "Telecommand")):
+            continue
+        try:
+            byte_array = bytes(int(x, 16) for x in byte_string.split())
+        except ValueError:
+            info_log.debug("Skipping malformed telemetry payload at line %d: %s", tm_index + 2, byte_string)
+            continue
+        if len(byte_array) < 6:
+            continue
         tm_type_id = (byte_array[5] >> 2) & 0x3F
 
         # Proccess HK packets (Regular and Response packets)
@@ -108,6 +118,7 @@ def read_pkt(file_path, latest_only: bool = False):
             hk = parse_eb_hk(byte_array)
             hk.TIME = datetime.now()
             const.hk_queue.put(hk)
+            const.hk_explorer_queue.put(hk)  # Also feed to HK parameter explorer queue
             set_latest_hk(hk)
             last_hk = hk
             last_index = tm_index
@@ -527,6 +538,8 @@ def merge_sci_data_packet(param):
 # Utility functions for ADU to temp conversion of specific fields
 # OB
 def adu_to_temp(adu):
+    if adu >= 4095:
+        return float("nan")
     res = (adu / (4095 - adu)) * 1000
     temp = (0.2559552953839863 * res) - 255.7247996594076
     return temp
