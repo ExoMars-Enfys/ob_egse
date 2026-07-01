@@ -18,7 +18,7 @@ from nicegui.client import Client as _NiceGuiClient
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
-from utility_modules.eb_packet_utility import get_latest_hk, wait_for_fresh_hk
+from utility_modules.eb_packet_utility import get_latest_hk, get_latest_psu, set_latest_psu, wait_for_fresh_hk
 
 # core
 from core_modules import tmstruct, constants as const
@@ -33,6 +33,19 @@ info_log = logging.getLogger("info_log")
 
 _FORCE_PAUSE_EVENT = threading.Event()
 _SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
+_POST_REQUIRED_FIELDS = (
+    "POST_WARNING_FLAGS",
+    "POST_ERROR_FLAGS",
+    "NUM_BAD_FLASH_BLOCKS",
+    "NUM_BAD_SRAM_BLOCKS",
+    "ASW_IMAGE_1_CRC",
+    "ASW_IMAGE_2_CRC",
+    "ASW_IMAGE_3_CRC",
+    "ASW_IMAGE_4_CRC",
+    "ASW_IMAGE_5_CRC",
+    "BSW_IMAGE_CRC",
+    "MEASUREMENT_TABLE_CRC",
+)
 
 
 def _get_smoothed_psu_sample(
@@ -481,17 +494,61 @@ async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
     await run.io_bound(lambda: perform_homing_check_sync(homing_timeout_s))
 
 
+def _is_valid_post_packet(post: Any) -> bool:
+    return all(hasattr(post, field_name) for field_name in _POST_REQUIRED_FIELDS)
+
+
+def _pull_post_after_ret(timeout_s: float = 6.0, poll_s: float = 0.2) -> Any | None:
+    """Return a valid POST packet after RET, retrying queue reads and RS422 refresh."""
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    while time.monotonic() < deadline:
+        while not const.eb_post_queue.empty():
+            post = const.eb_post_queue.get()
+            if _is_valid_post_packet(post):
+                return post
+
+        rs422_log_path = getattr(getattr(_nicegui_app.state, "eb_interface", None), "rs422_log_path", None)
+        if rs422_log_path:
+            try:
+                eb_packet_utility.read_pkt(rs422_log_path, latest_only=True)
+            except Exception:
+                pass
+
+        time.sleep(max(0.05, poll_s))
+
+    return None
+
+
+def _pull_psu_after_ret(timeout_s: float = 6.0, poll_timeout_s: float = 0.5) -> dict[str, Any] | None:
+    """Return a smoothed PSU sample after RET, with fallback to cached latest sample."""
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    while time.monotonic() < deadline:
+        try:
+            sample = _get_smoothed_psu_sample(const.psu_queue, timeout=poll_timeout_s)
+            if isinstance(sample, dict):
+                set_latest_psu(sample)
+                return sample
+        except Empty:
+            cached = get_latest_psu()
+            if isinstance(cached, dict):
+                return cached
+        time.sleep(0.1)
+
+    cached = get_latest_psu()
+    return cached if isinstance(cached, dict) else None
+
+
 def verify_safe_ret():
     errors = []
     # ?RET and first check
     # This block performs the SAFE RET verification after issuing a RET and HK request.
-    try:
-        latest_post = const.eb_post_queue.get(timeout=2.0)
-        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-    except Empty:
-        errors.append("\nMissing POST or PSU queue data after RET")
-        latest_post = None
-        latest_psu = None
+    latest_post = _pull_post_after_ret(timeout_s=6.0)
+    latest_psu = _pull_psu_after_ret(timeout_s=6.0)
+
+    if latest_post is None:
+        errors.append("\nMissing POST queue data after RET")
+    if latest_psu is None:
+        errors.append("\nMissing PSU queue data after RET")
 
     ch4_current_ma = None
     if latest_psu is not None:
@@ -1324,6 +1381,7 @@ def _apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: d
 
 def _ingest_live_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
     """Feed live PSU samples into MA buffers without plotting each one."""
+    set_latest_psu(psu_sample)
     _update_psu_readings(state, psu_sample)
     _update_psu_cards(psu_cards, psu_sample, plot_sample=False)
 
