@@ -118,7 +118,8 @@ def read_pkt(file_path, latest_only: bool = False):
             hk = parse_eb_hk(byte_array)
             hk.TIME = datetime.now()
             const.hk_queue.put(hk)
-            const.hk_explorer_queue.put(hk)  # Also feed to HK parameter explorer queue
+            if hasattr(const, "hk_explorer_queue"):
+                const.hk_explorer_queue.put(hk)  # Also feed to HK parameter explorer queue
             set_latest_hk(hk)
             last_hk = hk
             last_index = tm_index

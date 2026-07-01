@@ -22,6 +22,7 @@ SCI_LOG_FH = None
 
 # HK queue
 hk_queue = Queue(maxsize=100)
+hk_explorer_queue = Queue(maxsize=100)  # Separate queue for HK parameter explorer
 eb_post_queue = Queue(maxsize=100)
 psu_queue = Queue(maxsize=100)
 sci_queue = Queue(maxsize=30)
