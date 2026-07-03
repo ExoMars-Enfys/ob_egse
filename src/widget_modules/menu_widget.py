@@ -117,7 +117,7 @@ def create_menu(
                 def on_model_change(e):
                     state["model"] = e.value
                     app.state.current_model = e.value
-                
+
                 def _on_mms_toggle(e: Any) -> None:
                     enabled = bool(e.value)
                     mms_cfg = state.setdefault("mms", {})
@@ -128,10 +128,10 @@ def create_menu(
                     lbl_mms = ui.label("MMS")
                     lbl_mms.style(f"font-size: {menu_label_size}")
                     ui.switch(
-                        value=bool(state.get("mms", {}).get("enabled", True)),
+                        value=bool(state.get("mms", {}).get("enabled", False)),
                         on_change=_on_mms_toggle,
                     )
-                    lbl_mms_state = ui.label("Enabled" if state.get("mms", {}).get("enabled", True) else "Disabled")
+                    lbl_mms_state = ui.label("Enabled" if state.get("mms", {}).get("enabled", False) else "Disabled")
                     lbl_mms_state.style(f"font-size: {menu_label_size}")
 
                 with ui.row().classes("items-center gap-2 w-full"):

@@ -194,7 +194,8 @@ def build_ui(
             "psu_anchor": None,
         },
         "mms": {
-            "enabled": True,
+            # Keep MMS opt-in to avoid unexpected automated SAFE/RET actions.
+            "enabled": False,
             "latched": False,
             "in_progress": False,
             "pending": False,
@@ -332,9 +333,7 @@ def build_ui(
             with (
                 ui.header()
                 .classes("w-full px-4 py-1 items-center")
-                .style(
-                    "z-index: 1300; backdrop-filter: none; background: var(--primary-bg);"
-                )
+                .style("z-index: 1300; backdrop-filter: none; background: var(--primary-bg);")
             ):
                 with ui.row().classes("w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-3"):

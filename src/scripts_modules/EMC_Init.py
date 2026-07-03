@@ -15,8 +15,13 @@ info_log = logging.getLogger("info_log")
 
 def run_emc_init(verification: bool = True) -> None:
     interface = eb_interface.get_egse_interface()
+    # FFT.txt sequence
+
+    # ?RET and first check - State 1
+    interface = eb_interface.get_egse_interface()
     # RET command (SAFE mode)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+    time.sleep
     ebtcs.hk_request(interface, 0)
     if verification:
         msg, passed = ui_runtime_controller.verify_safe_ret()
@@ -36,6 +41,7 @@ def run_emc_init(verification: bool = True) -> None:
             raise AssertionError(f"STANDBY RET verification failed:\n{msg}")
         else:
             info_log.info("STANDBY RET verification passed:\n%s", msg)
+
 
     time.sleep(1)
     # Configure Heaters for ON during test (Upper - 2245 +55 ) (Lower - 2211 +45 )

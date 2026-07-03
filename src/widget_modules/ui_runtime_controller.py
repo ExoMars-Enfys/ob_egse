@@ -1958,6 +1958,9 @@ def create_poll_tm(
     """Create TM polling callback bound to current controllers and state."""
 
     def poll_tm() -> None:
+        # Bound TM queue work per tick so UI timers cannot monopolize the event loop.
+        max_hk_per_tick = 50
+        max_sci_per_tick = 24
         # Independent packet counters
         counts = state.setdefault("packet_counts", {"hk": 0, "post": 0, "sci": 0})
         mode = state.get("mode", "EB")
@@ -1975,19 +1978,34 @@ def create_poll_tm(
 
             # EB mode packets are sourced from the RS422 decode path.
             # Only re-read when file mtime changes.
+            # Parse in a worker thread so this UI timer callback stays responsive.
             if eb_interface.rs422_log_changed(Path(rs422_log_path)):
-                try:
-                    eb_packet_utility.read_pkt(rs422_log_path, latest_only=True)
-                except Exception as e:
-                    logger.error(f"Failed to read packet log: {e}")
+                state["rs422_parse_pending"] = True
+
+            if bool(state.get("rs422_parse_pending", False)) and not bool(state.get("rs422_parse_in_progress", False)):
+                state["rs422_parse_in_progress"] = True
+                parse_path = rs422_log_path
+
+                def _parse_rs422() -> None:
+                    try:
+                        eb_packet_utility.read_pkt(parse_path, latest_only=True)
+                    except Exception as e:
+                        logger.error(f"Failed to read packet log: {e}")
+                    finally:
+                        state["rs422_parse_in_progress"] = False
+                        state["rs422_parse_pending"] = False
+
+                threading.Thread(target=_parse_rs422, name="rs422-parse", daemon=True).start()
 
         processed_hk = False
         last_hk_time = state.setdefault("latest_hk_time", None)
 
         # Process HK packets (match legacy `ebgui` behaviour: increment on every HK pop)
-        while not const.hk_queue.empty():
+        hk_processed = 0
+        while not const.hk_queue.empty() and hk_processed < max_hk_per_tick:
             processed_hk = True
             hk = const.hk_queue.get()
+            hk_processed += 1
             now = datetime.now()
             # Calculate time since last HK
             if last_hk_time is not None:
@@ -2010,7 +2028,7 @@ def create_poll_tm(
 
             # MMS runs continuously while in EB mode and latches on first trigger.
             mms_cfg = state.get("mms") or {}
-            if state.get("mode") == "EB" and bool(mms_cfg.get("enabled", True)):
+            if state.get("mode") == "EB" and bool(mms_cfg.get("enabled", False)):
                 reasons, tec_pre_action, ob5v_pre_action = _mms_reasons(hk, mms_cfg.get("limits") or {})
                 if reasons:
                     if mms_cfg.get("latched") or mms_cfg.get("in_progress") or mms_cfg.get("pending"):
@@ -2046,6 +2064,13 @@ def create_poll_tm(
                 hk_explorer_card.push_data({"EB_HK": hk})
             packet_list_controller = state.get("packet_list_controller")
             _update_packet_viewer(mode, packet_viewer_controllers, hk, packet_list_controller)
+
+        if not const.hk_queue.empty():
+            now_mono = time.monotonic()
+            last_log = float(state.get("last_hk_backlog_log_mono", 0.0) or 0.0)
+            if now_mono - last_log > 1.0:
+                logger.warning("HK queue backlog: processed %d this tick; queue still not empty", hk_processed)
+                state["last_hk_backlog_log_mono"] = now_mono
 
         # In static/mock-log runs, HK may stop updating. Keep replay time moving so
         # PSU log playback can continue even without fresh HK packets.
@@ -2109,8 +2134,10 @@ def create_poll_tm(
             )
             sci_packets = state.setdefault("sci_packets", [])
             sci_packet_identities = state.setdefault("sci_packet_identities", set())
-            while not const.sci_queue.empty():
+            sci_processed = 0
+            while not const.sci_queue.empty() and sci_processed < max_sci_per_tick:
                 latest_sci = const.sci_queue.get()
+                sci_processed += 1
                 if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
                     logger.debug("Ignoring non-SCI packet in SCI queue")
                     continue
@@ -2189,6 +2216,16 @@ def create_poll_tm(
                             packet_list_controller.add_packet(viewer_key, sci_data, label)
                     except Exception:
                         logger.debug("Failed to update SCI packet viewer")
+
+            if not const.sci_queue.empty():
+                now_mono = time.monotonic()
+                last_log = float(state.get("last_sci_backlog_log_mono", 0.0) or 0.0)
+                if now_mono - last_log > 1.0:
+                    logger.warning(
+                        "SCI queue backlog: processed %d this tick; queue still not empty",
+                        sci_processed,
+                    )
+                    state["last_sci_backlog_log_mono"] = now_mono
 
         packet_metrics_card.refresh()
 
