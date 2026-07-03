@@ -1,9 +1,9 @@
 import logging
 import time
-import constants as const
-import send_cmd
-import tc
-import scripts.sequences as sq
+from core_modules import constants as const
+from utility_modules import send_cmd
+from utility_modules import tc
+from scripts_modules import sequences as sq
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -104,12 +104,7 @@ def cal_motor_to_base(port):
     # Set motor parameters
     send_cmd.cmd_mtr_param(port, 0x17, 0x20, 0x0F, 0x7, 0x3200)
     resp = tc.hk_request(port)
-    if (
-        resp.MTR_CURRENT != 0x17
-        or resp.MTR_GUARD != 0x20
-        or resp.MTR_RECVAL != 0x0F
-        or resp.MTR_SPEED != 0x7
-    ):
+    if resp.MTR_CURRENT != 0x17 or resp.MTR_GUARD != 0x20 or resp.MTR_RECVAL != 0x0F or resp.MTR_SPEED != 0x7:
         event_log.error(
             f"OB Parameters not initialized correctly:"
             + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"

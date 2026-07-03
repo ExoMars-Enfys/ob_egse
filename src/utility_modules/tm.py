@@ -1,7 +1,8 @@
 # ----Module Imports--------------------------------------------------------------------------------
 # Std library
 import logging
-#Additional libraries
+
+# Additional libraries
 from abc import abstractmethod
 from datetime import datetime
 from collections import namedtuple
@@ -9,13 +10,15 @@ from bitstruct import unpack_from as upf
 import bitstruct
 import crc8
 import serial.rs485
+
 # Local modules
-#core
+# core
 from core_modules import cmd_ids as cmd_ids
 from core_modules import config as config
 from core_modules import constants as const
 from core_modules import tmstruct as tmstruct
-#utilities
+
+# utilities
 from utility_modules import comms as comms
 from utility_modules import tc as tc
 from utility_modules import tm as tm
@@ -27,6 +30,7 @@ info_log = logging.getLogger("info_log")
 # ----Class definitions-----------------------------------------------------------------------------
 class Response:
     """Class Definition for the raw response received from the serial port."""
+
     def __init__(self, raw_bytes):
         self.raw_bytes = raw_bytes
         self.get_cmd_mod_id()
@@ -60,8 +64,10 @@ class Response:
                 f"Incorrect CRC8. Calculated: 0x{self.hash.hexdigest()}. For Packet {bytes.hex(self.raw_bytes, ' ', 2)}"
             )
 
+
 class TM:
     """Parent Class Definition for all TM responses. Reads the raw bytes from the response and parses them based on the dictionary defined in tmstruct.py"""
+
     # TODO Be consistent with how the bytes are named when they unpacked to the flags
     def __init__(self, response: Response):
         self.raw_bytes = response.raw_bytes
@@ -85,7 +91,7 @@ class TM:
         """Read the error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
         ## Decode bit maps
         # Errors
-        self.ERRORS = namedtuple("ERRORS", "".join(i[0] for i in tmstruct.error_struct))()
+        self.ERRORS = namedtuple("ERRORS", "".join(i[0] for i in tmstruct.error_struct))
         error_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.error_struct),
             [i[0] for i in tmstruct.error_struct],
@@ -98,7 +104,7 @@ class TM:
         """Read the motor error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
         ## Decode bit maps
         # Motor Errors
-        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[0] for i in tmstruct.mtr_error_struct))()
+        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[0] for i in tmstruct.mtr_error_struct))
         mtr_error_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_error_struct),
             [i[0] for i in tmstruct.mtr_error_struct],
@@ -111,7 +117,7 @@ class TM:
         """Read the thermal status byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
         ## Decode bit maps
         # Thermal Status
-        self.THRM_STATUS = namedtuple("THRM_STATUS", "".join(i[0] for i in tmstruct.thrm_status_struct))()
+        self.THRM_STATUS = namedtuple("THRM_STATUS", "".join(i[0] for i in tmstruct.thrm_status_struct))
         thrm_status_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.thrm_status_struct),
             [i[0] for i in tmstruct.thrm_status_struct],
@@ -141,8 +147,10 @@ class TM:
             if self.ERRORS.IPA:
                 info_log.error("OB ERROR IPA - Invalid Parity Error")
 
+
 class HK(TM):
     """HK Class Definition. Reads the HK response and parses it based on the dictionary defined in tmstruct.py"""
+
     def __init__(self, response: Response):
         super().__init__(response)
 
@@ -158,7 +166,7 @@ class HK(TM):
         self.decode_thrm_status_byte()
 
         # Motor Flags
-        self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[0] for i in tmstruct.mtr_flag_struct))()
+        self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[0] for i in tmstruct.mtr_flag_struct))
         mtr_flags_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_flag_struct),
             [i[0] for i in tmstruct.mtr_flag_struct],
@@ -168,7 +176,7 @@ class HK(TM):
             setattr(self.MTR_FLAGS, str(k), v)
 
         # Motor ERROR Masks
-        self.MTR_ERR_MSK = namedtuple("MTR_ERR_MSK", "".join(i[0] for i in tmstruct.mtr_err_msk_struct))()
+        self.MTR_ERR_MSK = namedtuple("MTR_ERR_MSK", "".join(i[0] for i in tmstruct.mtr_err_msk_struct))
         mtr_err_msk_param = bitstruct.unpack_dict(
             "".join(i[1] for i in tmstruct.mtr_err_msk_struct),
             [i[0] for i in tmstruct.mtr_err_msk_struct],
@@ -202,8 +210,10 @@ class HK(TM):
         if self.UNUSED1 != 0x00:
             info_log.warning(f"HK Unused1 is not zero actually: {hex(self.UNUSED1)}")
 
+
 class ACK(TM):
     """ACK Class Definition. Reads the ACK response and parses it based on the dictionary defined in tmstruct.py"""
+
     def __init__(self, response: Response):
         super().__init__(response)
 
@@ -225,8 +235,10 @@ class ACK(TM):
         if len(self.raw_bytes) != expect_len:
             info_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 class SCI(TM):
     """SCI Class Definition. Reads the SCI response and parses it based on the dictionary defined in tmstruct.py"""
+
     def __init__(self, response: Response):
         super().__init__(response)
 
@@ -247,8 +259,10 @@ class SCI(TM):
         if len(self.raw_bytes) != 29:
             info_log.error(f"SCI Len not 29 bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 class NACK(TM):
     """NACK Class Definition. Reads the NACK response and parses it based on the dictionary defined in tmstruct.py"""
+
     def __init__(self, response: Response):
         super().__init__(response)
 
@@ -267,11 +281,13 @@ class NACK(TM):
         if len(self.raw_bytes) != 9:
             info_log.error(f"NACK Len not 9 bytes as expected. Got: {len(self.raw_bytes)}")
 
+
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     """Read the raw bytes from the serial port and return them"""
     raw_bytes = port.read(no_of_bytes)
     info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
+
 
 def parse_tm(response):
     """Parse the raw bytes from the TM response and return the appropriate object based on the CMD ID"""

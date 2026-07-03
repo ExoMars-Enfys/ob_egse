@@ -3,7 +3,7 @@ CMD_SPEED_DICT = {
     "Fast": 0.05,
 }
 
-EXP_MODEL_ID = 0x07
+EXP_MODEL_ID = 0x04
 
 DEFAULT_COM_PORT = 3
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"

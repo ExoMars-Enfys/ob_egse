@@ -16,6 +16,7 @@ from core_modules import constants as const
 from core_modules import tmstruct as tmstruct
 
 # utilities
+from scripts_modules import abu_sequences, sequences
 from utility_modules import comms as comms
 from utility_modules import egse_logger as egse_logger
 from utility_modules import psu as psu

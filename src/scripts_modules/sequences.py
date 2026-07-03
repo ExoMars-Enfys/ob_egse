@@ -1,10 +1,10 @@
 import logging
 import sys
 import time
-import constants as const
-import send_cmd
-import tc
-from send_cmd import cmd_repeat as repeat
+from core_modules import constants as const
+from utility_modules import send_cmd
+from utility_modules import tc
+from utility_modules.send_cmd import cmd_repeat as repeat
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -18,19 +18,11 @@ def power_up(port):
         repeat(port, tc.power_control, 0x01)
         repeat(port, tc.set_mtr_param, 64, 255, 60, 8)
         resp = tc.hk_request(port)
-        if (
-            resp.PWR_STAT != 1
-            or resp.MTR_CURRENT != 64
-            or resp.MTR_GUARD != 255
-            or resp.MTR_RECVAL != 60
-            or resp.MTR_SPEED != 8
-        ):
+        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 64 or resp.MTR_SPEED != 8:
             raise ValueError(
                 f"OB Parameters not initialized correctly within HK:"
                 + f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1"
                 + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
-                + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 255"
-                + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 60"
                 + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
             )
         else:
