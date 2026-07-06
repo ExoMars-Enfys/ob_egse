@@ -369,7 +369,6 @@ def switch_psu_channel(port, channel, state):
     if port:
         event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
         port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
-        port.write("OPALL 1\r\n".encode("utf-8"))
 
 
 def switch_all_psu_channels(port, state):
