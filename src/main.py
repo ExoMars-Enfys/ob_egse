@@ -141,6 +141,7 @@ def main() -> None:
         info_log.info("Running Script")
         psu.switch_psu_channel(psu_port, channel=1, state=1)  # Switch on PSU
         psu.switch_psu_channel(psu_port, channel=2, state=1)
+        time.sleep(2.5)
         psu.switch_psu_channel(psu_port, channel=3, state=1)
         time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         psu_thread.start()
@@ -151,6 +152,7 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
+        sequences.parse_hk(ob_port)
         time.sleep(10)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit

@@ -89,6 +89,21 @@ def parse_psu_reading(raw_value: str) -> float:
         return 0.0
 
 
+def parse_psu_status(raw_value: str) -> int:
+    """Parse PSU ON/OFF status text into int with safe fallback to 0."""
+    value = raw_value.strip()
+    if not value:
+        return 0
+
+    try:
+        return int(value)
+    except ValueError:
+        # Some devices occasionally return value strings (for example "0.0580A")
+        # when the serial stream is noisy or misaligned. Treat any non-zero as ON.
+        reading = parse_psu_reading(value)
+        return 1 if abs(reading) > 0.0 else 0
+
+
 def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode_state=None, port_lock=None):
     """Monitor PSU channels, log telemetry, and shut down on limit violations."""
     if not port:
@@ -132,8 +147,8 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
             lock_ctx = port_lock if port_lock is not None else nullcontext()
             with lock_ctx:
                 if active_ebmode:
-                    ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
-                    rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
+                    ebstatus = parse_psu_status(psuRead(port, "4", "OP", False))
+                    rov_htr_status = parse_psu_status(psuRead(port, "3", "OP", False))
 
                     # Assign timer for transient protection if either channel just turned on.
                     if ebstatus != 0 and last_eb_status in (None, 0):
@@ -167,8 +182,8 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\tCH4(status={ebstatus}) {eb_v}\t{eb_i}"
                     )
 
-                    ebstatus = int(psuRead(port, "4", "OP", False).rstrip())
-                    rov_htr_status = int(psuRead(port, "3", "OP", False).rstrip())
+                    ebstatus = parse_psu_status(psuRead(port, "4", "OP", False))
+                    rov_htr_status = parse_psu_status(psuRead(port, "3", "OP", False))
 
                     if on_since is not None and time.monotonic() - on_since < 1:
                         continue
@@ -193,10 +208,10 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                             emergencyShutDown(port)
 
                 else:
-                    ch1_status = int(psuRead(port, "1", "OP", False).rstrip())
-                    ch2_status = int(psuRead(port, "2", "OP", False).rstrip())
-                    ch3_status = int(psuRead(port, "3", "OP", False).rstrip())
-                    ch4_status = int(psuRead(port, "4", "OP", False).rstrip())
+                    ch1_status = parse_psu_status(psuRead(port, "1", "OP", False))
+                    ch2_status = parse_psu_status(psuRead(port, "2", "OP", False))
+                    ch3_status = parse_psu_status(psuRead(port, "3", "OP", False))
+                    ch4_status = parse_psu_status(psuRead(port, "4", "OP", False))
                     ob_status = int(ch1_status or ch2_status or ch3_status or ch4_status)
                     if ob_status == 0:
                         on_since = None
@@ -241,7 +256,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
 
                     psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
 
-                    ob_status = int(psuRead(port, "1", "OP", False).rstrip())
+                    ob_status = parse_psu_status(psuRead(port, "1", "OP", False))
 
                     if on_since is not None and time.monotonic() - on_since < 0.5:
                         continue
@@ -354,6 +369,14 @@ def switch_psu_channel(port, channel, state):
     if port:
         event_log.info(f"Switching PSU CH{channel} {'ON' if state else 'OFF'}")
         port.write(f"OP{channel} {int(state)}\r\n".encode("utf-8"))
+        port.write("OPALL 1\r\n".encode("utf-8"))
+
+
+def switch_all_psu_channels(port, state):
+    """Switch all PSU channels on or off."""
+    if port:
+        event_log.info(f"Switching all PSU channels {'ON' if state else 'OFF'}")
+        port.write(f"OPALL {int(state)}\r\n".encode("utf-8"))
 
 
 def apply_voltage_mode(port, mode: str, current_mode: str):
