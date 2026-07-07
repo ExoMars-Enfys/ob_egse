@@ -1,13 +1,26 @@
 import logging
 import time
-from core_modules import constants as const
-from utility_modules import send_cmd
+from typing import Any
+from core_modules import config
 from utility_modules import tc
+from utility_modules.send_cmd import cmd_repeat as repeat
 from scripts_modules import sequences as sq
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
+
+
+def _hk(port) -> Any:
+    return tc.hk_request(port)
+
+
+def _sci(port, sci_adc_samp, sci_adc_skip) -> Any:
+    return tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+
+
+def _check_sci(port, sci_adc_samp, sci_adc_skip) -> Any:
+    return sq.check_sci(port, sci_adc_samp, sci_adc_skip)
 
 
 # ----
@@ -16,7 +29,7 @@ def read_hk(port, display_contents=True):
     This function requests a HK and generates a decoded log of all the HK parameters.
     """
     event_log.info("Running ABU read HK")
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     if display_contents:
         event_log.info(
             f" MOD_ID :{resp.MOD_ID}"
@@ -26,18 +39,18 @@ def read_hk(port, display_contents=True):
             + f"\n ERROR_BYTE : {resp.ERROR_BYTE}"
             + f"\n UNUSED2 :{resp.UNUSED2}"
             + f"\n ERROR_MTR :{resp.ERROR_MTR}"
-            + f"\n MTR_ERR_MSK : {resp.MTR_ERR_MSK}"
+            + f"\n MTR_ERR_MSK_BYTE : {resp.MTR_ERR_MSK_BYTE}"
             + f"\n MTR_FLAGS_BYTE :{resp.MTR_FLAGS_BYTE}"
             + f"\n MTR_ABS_STEPS : {resp.MTR_ABS_STEPS}"
             + f"\n MTR_REL_STEPS : {resp.MTR_REL_STEPS}"
             + f"\n MTR_CURRENT :{resp.MTR_CURRENT}"
-            + f"\n MTR_GUARD : {resp.MTR_GUARD}"
-            + f"\n MTR_RECVAL : {resp.MTR_RECVAL}"
+            + f"\n MTR_GUARD_SELECT : {resp.MTR_GUARD_SELECT}"
+            + f"\n MTR_CHOP : {resp.MTR_CHOP}"
             + f"\n UNUSED3 : {resp.UNUSED3}"
             + f"\n MTR_SPEED :{resp.MTR_SPEED}"
-            + f"\n UNUSED4 : {resp.PWR_STAT}"
+            + f"\n UNUSED4 : {resp.UNUSED4}"
             + f"\n PWR_STAT : {resp.PWR_STAT}"
-            + f"\n THRM_STATUS :{resp.THRM_STATUS}"
+            + f"\n THRM_STATUS_BYTE :{resp.THRM_STATUS_BYTE}"
             + f"\n THRM_MECH_OFF_SP : {resp.THRM_MECH_OFF_SP}"
             + f"\n THRM_MECH_ON_SP : {resp.THRM_MECH_ON_SP}"
             + f"\n THRM_DET_OFF_SP :{resp.THRM_DET_OFF_SP}"
@@ -53,11 +66,11 @@ def read_hk(port, display_contents=True):
             + f"\n HK_MECH_CUR :{resp.HK_MECH_CUR}"
             + f"\n UNUSED_ADC : {resp.UNUSED_ADC}"
             + f"\n HK_SAMPLES : {resp.HK_SAMPLES}"
-            + f"\n UNUSED5 :{resp.UNUSED5}"
+            + f"\n UNUSED7 :{resp.UNUSED7}"
             + f"\n CRC8 : {resp.CRC8}"
         )
         event_log.info(
-            f"\n\n ERROR BYTE :"
+            "\n\n ERROR BYTE :"
             + f"\nIPI : {resp.ERRORS.IPI}"
             + f"\nIOS : {resp.ERRORS.IOS}"
             + f"\nICR : {resp.ERRORS.ICR}"
@@ -93,36 +106,36 @@ def cal_motor_to_base(port):
     event_log.info("Running abu cal_motor_to_base")
     # TODO: Update all to "send_cmd"
     # Check mechanism powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x01):
         # Perform bitwise OR in case Detector is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x01)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x01)
 
         # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        resp = _hk(port)
 
     # Set motor parameters
-    send_cmd.cmd_mtr_param(port, 0x17, 0x20, 0x0F, 0x7, 0x3200)
-    resp = tc.hk_request(port)
-    if resp.MTR_CURRENT != 0x17 or resp.MTR_GUARD != 0x20 or resp.MTR_RECVAL != 0x0F or resp.MTR_SPEED != 0x7:
+    repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
+    resp = _hk(port)
+    if resp.MTR_CURRENT != 64 or resp.MTR_GUARD_SELECT != 0 or resp.MTR_CHOP != 60 or resp.MTR_SPEED != 8:
         event_log.error(
-            f"OB Parameters not initialized correctly:"
+            "OB Parameters not initialized correctly:"
             + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
-            + f"\n Motor_guard : {resp.MTR_GUARD}            ~ Expected : 32"
-            + f"\n Motor Rec_Val : {resp.MTR_RECVAL}          ~ Expected : 15"
-            + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 9"
+            + f"\n Guard Select : {resp.MTR_GUARD_SELECT}      ~ Expected : 0"
+            + f"\n Chopper : {resp.MTR_CHOP}                  ~ Expected : 60"
+            + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
         )
 
     # Cal to BASE
-    send_cmd.cmd_mtr_homing(port, True, False)
-    hk_tm = tc.hk_request(port)
+    repeat(port, tc.mtr_homing, True, False)
+    hk_tm = _hk(port)
 
     # Check to see if at the Base
     if not hk_tm.MTR_FLAGS.BASE:
         event_log.info("Moving to the BASE, waiting for switch to be pressed.")
         while hk_tm.MTR_FLAGS.MOVING:
             time.sleep(1)
-            hk_tm = tc.hk_request(port)
+            hk_tm = _hk(port)
             event_log.info(
                 f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}"
             )
@@ -131,7 +144,7 @@ def cal_motor_to_base(port):
         event_log.info("Motor Did not Move, Base Flag Asserted")
 
     # Check motor status now its stopped.
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     if resp.MTR_FLAGS.CAL != 1:
         event_log.error(f" Calibration Flag not Asserted : {resp.MTR_FLAGS.CAL}")
     if resp.MTR_FLAGS.DIR != 0:
@@ -163,24 +176,24 @@ def home_to_outer(port):
     event_log.info("Running abu home_to_outer")
     # TODO: Update all to "send_cmd"
     # Check mechanism powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x01):
         # Perform bitwise OR in case Detector is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x01)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x01)
 
         # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        resp = _hk(port)
 
     # Home to Outer with no Cal
-    send_cmd.cmd_mtr_homing(port, False, True)
-    hk_tm = tc.hk_request(port)
+    repeat(port, tc.mtr_homing, False, True)
+    hk_tm = _hk(port)
 
     # Check to see if at the Outer
     if not hk_tm.MTR_FLAGS.OUTER:
         event_log.info("Moving to outer, waiting for switch to be pressed.")
         while hk_tm.MTR_FLAGS.MOVING:
             time.sleep(1)
-            hk_tm = tc.hk_request(port)
+            hk_tm = _hk(port)
             event_log.info(
                 f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}"
             )
@@ -189,7 +202,7 @@ def home_to_outer(port):
         event_log.info("Motor Did not Move, Outer Flag Asserted")
 
     # Check motor status now its stopped.
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     if resp.MTR_FLAGS.CAL != 0:
         event_log.error(f" Calibration Flag Asserted : {resp.MTR_FLAGS.CAL}")
     if resp.MTR_FLAGS.DIR != 1:
@@ -204,7 +217,7 @@ def home_to_outer(port):
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
     if resp.MTR_REL_STEPS == 0:
-        event_log.error(f"Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+        event_log.error("Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
     event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
@@ -219,40 +232,40 @@ def home_to_base(port):
     # TODO: Update all to "send_cmd"
 
     # Check mechanism powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x01):
         # Perform bitwise OR in case Detector is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x01)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x01)
 
         # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        resp = _hk(port)
 
     # Home to base
-    send_cmd.cmd_mtr_homing(port, False, False)
-    hk_tm = tc.hk_request(port)
+    repeat(port, tc.mtr_homing, False, False)
+    hk_tm = _hk(port)
 
     # Check to see if at the Base
     if not hk_tm.MTR_FLAGS.BASE:
         event_log.info("Moving to the base, waiting for switch to be pressed.")
         while hk_tm.MTR_FLAGS.MOVING:
             time.sleep(1)
-            hk_tm = tc.hk_request(port)
+            hk_tm = _hk(port)
             event_log.error(
                 f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}"
                 + f"\n CAL : {hk_tm.MTR_FLAGS.CAL}"
-                + f"\n HOLD : {hk_tm.MTR_FLAGS.HOLD}"
+                + f"\n UNUSED2 : {hk_tm.MTR_FLAGS.UNUSED2}"
                 + f"\n DIR : {hk_tm.MTR_FLAGS.DIR}"
                 + f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}"
                 + f"\n BASE : {hk_tm.MTR_FLAGS.BASE}"
                 + f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}"
-                + f"\n HOMED : {hk_tm.MTR_FLAGS.HOMED}"
+                + f"\n HOMING : {hk_tm.MTR_FLAGS.HOMING}"
             )
         event_log.info("Motor movement finished")
     else:
         event_log.error("Motor Did not Move, Base Flag Asserted")
 
     # Check motor status now its stopped.
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     if resp.MTR_FLAGS.CAL != 0:
         event_log.error(f" Calibration Flag Asserted : {resp.MTR_FLAGS.CAL}")
     if resp.MTR_FLAGS.DIR != 0:
@@ -267,7 +280,7 @@ def home_to_base(port):
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
     if resp.MTR_REL_STEPS == 0:
-        event_log.error(f"Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+        event_log.error("Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
     event_log.info(f"Motor relative steps: {resp.MTR_REL_STEPS}")
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
@@ -281,27 +294,26 @@ def mv_pos_steps(port, pos_steps):
     event_log.info("Running ABU move positive steps")
 
     # First check that there we are are not already at the base.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
 
     if hk.MTR_FLAGS.BASE:
         event_log.error("Request to move positive steps but already at the base, skipping movement")
         return
 
     # Then move the desired number of steps
-    tc.mtr_mov_pos(port, pos_steps)
+    repeat(port, tc.mtr_mov_pos, pos_steps)
 
     # Request a HK and wait until no longer moving
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     while hk.MTR_FLAGS.MOVING:
-        hk = tc.hk_request(port)
+        hk = _hk(port)
 
     if hk.ERROR_MTR != 0:
         event_log.error(
-            f"***MOTOR ERROR*** got the following: "
+            "***MOTOR ERROR*** got the following: "
             + f"\n CD : {hk.MTR_ERRORS.CD}"
             + f"\n AB : {hk.MTR_ERRORS.AB}"
             + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-            + f"\n REL : {hk.MTR_ERRORS.REL}"
             + f"\n DSE : {hk.MTR_ERRORS.DSE}"
         )
 
@@ -325,27 +337,26 @@ def mv_neg_steps(port, pos_steps):
     event_log.info("Running ABU move negative steps")
 
     # First check that we are not already at the outer.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
 
     if hk.MTR_FLAGS.OUTER:
         event_log.error("Request to move negative steps but already at the outer, skipping movement")
         return
 
     # Then move the desired number of steps
-    tc.mtr_mov_neg(port, pos_steps)
+    repeat(port, tc.mtr_mov_neg, pos_steps)
 
     # Request a HK and wait until no longer moving
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     while hk.MTR_FLAGS.MOVING:
-        hk = tc.hk_request(port)
+        hk = _hk(port)
 
     if hk.ERROR_MTR != 0:
         event_log.error(
-            f"***MOTOR ERROR*** got the following: "
+            "***MOTOR ERROR*** got the following: "
             + f"\n CD : {hk.MTR_ERRORS.CD}"
             + f"\n AB : {hk.MTR_ERRORS.AB}"
             + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-            + f"\n REL : {hk.MTR_ERRORS.REL}"
             + f"\n DSE : {hk.MTR_ERRORS.DSE}"
         )
 
@@ -359,25 +370,22 @@ def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci
     event_log.info("Running abu set_offset_and_check_sci")
 
     # Check detector powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x02):
         # Perform bitwise OR in case Mechanism is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x02)
-
-        # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x02)
 
     # Dark measurement to determine offset to be applied
     # Set SWIR and MWIR offset
-    tc.sci_offset(port, swir_offset, mwir_offset)
-    hk = tc.hk_request(port)
+    repeat(port, tc.sci_offset, swir_offset, mwir_offset)
+    hk = _hk(port)
     if hk.SWIR_OFFSET != swir_offset:
         event_log.error(f"SWIR offset not updated in HK. Got {hk.SWIR_OFFSET}")
     if hk.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in HK. Got {hk.MWIR_OFFSET}")
 
     # Take SCI reading and check.
-    sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
+    sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
     if sci.SWIR_OFFSET != swir_offset:
         event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}")
     if sci.MWIR_OFFSET != mwir_offset:
@@ -394,13 +402,10 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.info("Running abu mwir_binary_chop")
 
     # Check detector powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x02):
         # Perform bitwise OR in case Mechanism is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x02)
-
-        # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x02)
 
     mwir_value = 0x0  # Seed value
 
@@ -408,8 +413,8 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         event_log.info(f"Testing bit {i} out of 12")
         mwir_delta = 0x1 << (i - 1)
         event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
-        tc.sci_offset(port, swir_fixed, mwir_value + mwir_delta)
-        sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
+        repeat(port, tc.sci_offset, swir_fixed, mwir_value + mwir_delta)
+        sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
         if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
             event_log.error(
                 f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value + mwir_delta}"
@@ -418,12 +423,12 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         event_log.info(f"Got the following MWIR High Reading: {sci.MWIR_HIGH}")
 
         # If the HIGH reading is greater than threshold (keep value)
-        if sci.MWIR_HIGH >= const.MWIR_DAC_MIN_TH:
+        if sci.MWIR_HIGH >= config.MWIR_DAC_MIN_TH:
             mwir_value = mwir_value + mwir_delta
 
         # Check if we are within the range (we are done) otherwise loop
-        if const.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= const.MWIR_DAC_MAX_TH:
-            event_log.info(f"MWIR offset in threshold finished!")
+        if config.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= config.MWIR_DAC_MAX_TH:
+            event_log.info("MWIR offset in threshold finished!")
             event_log.info(f"Final MWIR value: {mwir_value}")
             return mwir_value
 
@@ -441,13 +446,10 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     event_log.info("Running abu swir_binary_chop")
 
     # Check detector powered, if not enable.
-    hk = tc.hk_request(port)
+    hk = _hk(port)
     if not (hk.PWR_STAT & 0x02):
         # Perform bitwise OR in case Mechanism is on and we want to leave it powered
-        tc.power_control(port, hk.PWR_STAT | 0x02)
-
-        # TODO can probably remove this check and replace above with send_cmd and verify
-        resp = tc.hk_request(port)
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x02)
 
     swir_value = 0x0  # Seed Value
 
@@ -455,8 +457,8 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         event_log.info(f"Testing bit {i} out of 12")
         swir_delta = 0x1 << (i - 1)
         event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
-        tc.sci_offset(port, swir_value + swir_delta, mwir_fixed)
-        sci = sq.check_sci(port, sci_adc_samp, sci_adc_skip)
+        repeat(port, tc.sci_offset, swir_value + swir_delta, mwir_fixed)
+        sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
         if sci.SWIR_OFFSET != (swir_value + swir_delta):
             event_log.error(
                 f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {swir_value + swir_delta}"
@@ -465,12 +467,12 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         event_log.info(f"Got the following SWIR High Reading: {sci.SWIR_HIGH}")
 
         # If the HIGH reading is greater than threshold (keep value)
-        if sci.SWIR_HIGH > const.SWIR_DAC_MIN_TH:
+        if sci.SWIR_HIGH > config.SWIR_DAC_MIN_TH:
             swir_value = swir_value + swir_delta
 
         # Check if we are within the range (we are done) otherwise loop
-        if const.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= const.SWIR_DAC_MAX_TH:
-            event_log.info(f"SWIR offset in threshold finished!")
+        if config.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= config.SWIR_DAC_MAX_TH:
+            event_log.info("SWIR offset in threshold finished!")
             event_log.info(f"Final SWIR value: {swir_value}")
             return swir_value
 
@@ -491,14 +493,13 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
 
     if pos_steps > 0:
         mv_pos_steps(port, pos_steps)
+    elif pos_steps < 0:
+        mv_neg_steps(port, abs(pos_steps))
     else:
-        if steps > 0:
-            abu_neg_steps(port, steps)
-        else:
-            event_log.info(f"No need to move any steps, proceeding to measurement")
+        event_log.info("No need to move any steps, proceeding to measurement")
     # Request a Science Mesaurement and log to the screen.
-    sci = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
-    hk_tm = tc.hk_request(port)
+    sci = _sci(port, sci_adc_samp, sci_adc_skip)
+    hk_tm = _hk(port)
     event_log.info(
         f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
         f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
@@ -571,7 +572,7 @@ def first_power_on(port):
     event_log.info("Running ABU First power on, cal to Base, home to outer")
 
     # Power up motor and Detector
-    tc.power_control(port, 0x3)
+    repeat(port, tc.power_control, 0x3)
 
     cal_motor_to_base(port)
     home_to_outer(port)

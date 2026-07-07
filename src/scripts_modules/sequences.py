@@ -1,8 +1,7 @@
 import logging
 import sys
 import time
-from core_modules import constants as const
-from utility_modules import send_cmd
+from typing import Any
 from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat as repeat
 
@@ -11,18 +10,34 @@ event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 
 
+def _hk(port) -> Any:
+    return tc.hk_request(port)
+
+
+def _sci(port, sci_adc_samp, sci_adc_skip) -> Any:
+    return tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+
+
 # ----
 def power_up(port):
     try:
         repeat(port, tc.clear_errors)
         repeat(port, tc.power_control, 0x01)
-        repeat(port, tc.set_mtr_param, 64, 255, 60, 8)
-        resp = tc.hk_request(port)
-        if resp.PWR_STAT != 1 or resp.MTR_CURRENT != 64 or resp.MTR_SPEED != 8:
+        repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
+        resp = _hk(port)
+        if (
+            resp.PWR_STAT != 1
+            or resp.MTR_CURRENT != 64
+            or resp.MTR_GUARD_SELECT != 0
+            or resp.MTR_CHOP != 60
+            or resp.MTR_SPEED != 8
+        ):
             raise ValueError(
-                f"OB Parameters not initialized correctly within HK:"
+                "OB Parameters not initialized correctly within HK:"
                 + f"\n Power State : {resp.PWR_STAT}                ~ Expected : 1"
                 + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
+                + f"\n Guard Select : {resp.MTR_GUARD_SELECT}      ~ Expected : 0"
+                + f"\n Chopper : {resp.MTR_CHOP}                  ~ Expected : 60"
                 + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
             )
         else:
@@ -34,18 +49,18 @@ def power_up(port):
 
 
 def mech_heater_test(port):
-    resp = send_cmd.cmd_hk(port)
-    send_cmd.cmd_heater_control(port, False, False, False, True, False)
-    resp = tc.hk_request(port)
+    repeat(port, tc.hk_request)
+    repeat(port, tc.heater_control, False, False, False, True, False)
+    resp = _hk(port)
     init_mech_trp = resp.MECH_TRP
     init_motor_trp = resp.MOTOR_TRP
     if resp.THRM_STATUS_BYTE == 66:
         while resp.THRM_STATUS_BYTE == 66:
             time.sleep(1)
-            resp = tc.hk_request(port)
+            resp = _hk(port)
             if (resp.MECH_TRP - init_mech_trp) >= 10 or (resp.MOTOR_TRP - init_motor_trp) >= 10:
                 event_log.info("Mech and Motor Heater reached temp")
-                send_cmd.cmd_heater_control(port, False, False, False, False, False)
+                repeat(port, tc.heater_control, False, False, False, False, False)
                 pass
                 exit()
     else:
@@ -55,7 +70,7 @@ def mech_heater_test(port):
 
 
 def parse_hk(port):
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     event_log.info(
         f" MOD_ID :{resp.MOD_ID}"
         + f"\n Unused1 : {resp.UNUSED1}"
@@ -97,7 +112,7 @@ def parse_hk(port):
         + f"\n CRC8 : {resp.CRC8}"
     )
     event_log.info(
-        f"ERROR BYTE :"
+        "ERROR BYTE :"
         + f"\nIPI : {resp.ERRORS.IPI}"
         + f"\nIOS : {resp.ERRORS.IOS}"
         + f"\nICR : {resp.ERRORS.ICR}"
@@ -106,7 +121,7 @@ def parse_hk(port):
         + f"\nIPA : {resp.ERRORS.IPA}"
     )
     event_log.info(
-        f"MTR Flags :"
+        "MTR Flags :"
         + f"\n CAL : {resp.MTR_FLAGS.CAL}"
         + f"\n DIR : {resp.MTR_FLAGS.DIR}"
         + f"\n OUTER : {resp.MTR_FLAGS.OUTER}"
@@ -115,7 +130,7 @@ def parse_hk(port):
         + f"\n HOMING : {resp.MTR_FLAGS.HOMING}"
     )
     event_log.info(
-        f"MTR ERR Flags :"
+        "MTR ERR Flags :"
         + f"\n CD : {resp.MTR_ERRORS.CD}"
         + f"\n AB : {resp.MTR_ERRORS.AB}"
         + f"\n ABS : {resp.MTR_ERRORS.ABS}"
@@ -125,7 +140,7 @@ def parse_hk(port):
 
 
 def check_sci(port, sci_adc_samp, sci_adc_skip):
-    resp = tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+    resp = _sci(port, sci_adc_samp, sci_adc_skip)
     event_log.info(
         f"\tERROR_BYTE: {resp.ERROR_BYTE}"
         + f"  MTR_ABS_STEPS: {resp.MTR_ABS_STEPS}"
@@ -147,37 +162,36 @@ def check_sci(port, sci_adc_samp, sci_adc_skip):
 
 
 def check_sci_vs_hk(port):
-    send_cmd.cmd_power_control(port, 0x03)
-    resphk = tc.hk_request(port)
-    respsci = tc.sci_request(port, 0x01, 0x01)
-    abs_steps = respsci.MTR_ABS_STEPS
-    send_cmd.cmd_mtr_mov_pos(port, 0x140)
-    resphk = tc.hk_request(port)
+    repeat(port, tc.power_control, 0x03)
+    resphk = _hk(port)
+    respsci = _sci(port, 0x01, 0x01)
+    repeat(port, tc.mtr_mov_pos, 0x140)
+    resphk = _hk(port)
     if resphk.MTR_FLAGS.MOVING == 1:
         while resphk.MTR_FLAGS.MOVING == 1:
             time.sleep(1)
-            resphk = tc.hk_request(port)
+            resphk = _hk(port)
             event_log.info("Motor still moving ***********")
         event_log.info("Motor movement finished")
-    resphk = tc.hk_request(port)
+    resphk = _hk(port)
     if resphk.MTR_ABS_STEPS != respsci.MTR_ABS_STEPS:
         event_log.error(
-            f"Motor Steps in HK and in SCI packets do not match : "
+            "Motor Steps in HK and in SCI packets do not match : "
             + f"\n HK : {resphk.MTR_ABS_STEPS}"
             + f"\n SCI : {respsci.MTR_ABS_STEPS}"
         )
     if abs(resphk.MTR_ABS_STEPS - respsci.MTR_ABS_STEPS) != 0:
         event_log.error(
-            f"Motor Steps Do not match expected : "
+            "Motor Steps Do not match expected : "
             + f"\n ABS : {abs(resphk.MTR_ABS_STEPS - respsci.MTR_ABS_STEPS)} , Expected : 0"
         )
-        exit
+        sys.exit(1)
     return
 
 
 def hk_approx_cal(port):
     """Request a HK packet and provide an approximate calibration of all analogue parameters."""
-    resp = tc.hk_request(port)
+    resp = _hk(port)
     event_log.info(
         f"3V3: {resp.HK_V_3V3 >> 4}"
         + f"    1V5: {resp.HK_V_1V5 >> 4}"
@@ -212,7 +226,7 @@ def increasing_torque_test(port):
         event_log.info(f"Testing motor movement at current: {hex(current)}, Test iteration: {i}")
         event_log.info("Press 'Enter' to send the command to move the motor...")
         # TODO keyboard.wait('return')
-        repeat(port, tc.set_mtr_param, current, 255, 60, 8)
+        repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
         repeat(port, tc.mtr_mov_pos, 0x0A0)
         time.sleep(5)  # Wait for the command to take effect
         repeat(port, tc.mtr_halt)
@@ -233,7 +247,7 @@ def torque_test(port):
         event_log.info(f"Testing motor movement at current: {hex(current)}, Test iteration: {i}")
         event_log.info("Press 'Enter' to send the command to move the motor...")
         # TODO replace with input keyboard.wait('return')
-        repeat(port, tc.set_mtr_param, current, 255, 60, 8)
+        repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
         repeat(port, tc.mtr_mov_pos, 0x0A0)
         time.sleep(5)  # Wait for the command to take effect
         repeat(port, tc.mtr_halt)
