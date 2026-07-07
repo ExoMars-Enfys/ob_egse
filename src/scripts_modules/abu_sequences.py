@@ -5,6 +5,9 @@ from core_modules import config
 from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat as repeat
 from scripts_modules import sequences as sq
+import serial
+import pathlib
+from egse_dump_decoder import EGSEDumpDecoder
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -158,8 +161,8 @@ def cal_motor_to_base(port):
     if resp.MTR_FLAGS.HOMING != 0:
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
-    if resp.MTR_ABS_STEPS != 8960:
-        event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
+    if resp.MTR_ABS_STEPS != 9960:
+        event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 9960")
     if resp.MTR_REL_STEPS == 0:
         event_log.error(f"Motor Steps Do not match expected REL : {resp.MTR_REL_STEPS} , Expected : 0")
 
@@ -537,11 +540,45 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
     event_log.info("Starting Science Measurements")
     move_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
-    for i in range(0, 8600, step_spacing):
+    for i in range(0, 8900, step_spacing):
         move_and_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
 
+def abu_measurement_scan_loop(port):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Goes to the Outer
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    and loops around for the number of times set
+    """
+
+    for i in range(0, 20, 1):
+        abu_measurement_scan(port, 30, 4, 100)
+
+    return
+
+def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement
+    Homes and Calibrates to Base
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    """
+    event_log.info("Running ABU Measurement Scan")
+    read_hk(port, False)
+
+    # Cal to Base
+    cal_motor_to_base(port)
+
+    # Measurement sequence
+    # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
+    event_log.info("Starting Science Measurements")
+    move_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    for i in range(0, 8900, step_spacing):
+        move_and_measure(port, -step_spacing, sci_adc_samp, sci_adc_skip)
+
+    event_log.info("Science Measurements Completed!!")
 
 def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
@@ -576,3 +613,230 @@ def first_power_on(port):
 
     cal_motor_to_base(port)
     home_to_outer(port)
+
+
+def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 1600, sci_adc_samp: int = 4, sci_adc_skip: int = 100):
+    """
+    This function tries to find a DAC offset which results in a high gain output close
+    to the value or target_output. The sensor that's *not* being configured has its gain
+    value set to fixed_offset, while binary chop is used to find a suitable offset for
+    the sensor that *is* being configured.
+
+    The offset is returned, and the instrument is left configured with that offset.
+
+    :param port: The serial port for comms with the instrument
+    :param sensor_name: "MWIR" or "SWIR" - which sensor we're calibrating
+    :param target_output: The output value we're aiming for
+    :param fixed_offset: The fixed value that the other sensor will take during the chop.
+    :param max_miss: If the final value is more than this distance from the target output, report a problem.
+    :param sci_adc_samp: ADC oversampling factor.
+    :param sci_adc_skip: How many samples to skip.
+    :return: The DAC offset that gives an output closest to the target value.
+    """
+    event_log.info(f"Running abu targeted_binary_chop for {sensor_name} with target value {target_output}")
+
+    # If our target high gain output is above medium_gain_switch_threshold
+    # then we'll scale by medium_to_high_gain_scale and use the medium gain
+    # value instead. This gives a measure of protection against saturation.
+    medium_gain_switch_threshold = 3700
+    medium_to_high_gain_scale = 30
+
+    if sensor_name not in ("MWIR", "SWIR"):
+        event_log.error(f"For DAC offsets, sensor name must be either MWIR or SWIR, not {sensor_name}")
+
+    # Check detector powered, if not enable.
+    hk = _hk(port)
+    if not (hk.PWR_STAT & 0x02):
+        # Perform bitwise OR in case Mechanism is on and we want to leave it powered
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x02)
+
+    dac_value = 0x0
+    bit_value = 1<<11
+
+    # Binary chop - work down through the bits, homing in on
+    # the DAC offset value which gets closest to the target output.
+    while bit_value != 0:
+        # Make a test value with the current bit set.
+        test_value = dac_value | bit_value
+
+        # Log it.
+        event_log.info(f"Setting the {sensor_name} DAC offset value to: {test_value}")
+
+        # Do the part that depends on which sensor we're working on.
+        if sensor_name == "MWIR":
+            # Set the test offset value.
+            repeat(port, tc.sci_offset, fixed_offset, test_value)
+
+            # Check it was successfully set
+            sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+            if sci.MWIR_OFFSET != test_value:
+                event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
+
+            # Copy the reading so the rest of the loop doesn't depend on sensor.
+            if target_output <= medium_gain_switch_threshold:
+                reading = sci.MWIR_HIGH
+            else:
+                reading = medium_to_high_gain_scale*sci.MWIR_MED
+        else:
+            # Ditto for SWIR.
+            repeat(port, tc.sci_offset, test_value, fixed_offset)
+            sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+            if sci.SWIR_OFFSET != test_value:
+                event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
+            reading = sci.SWIR_HIGH
+
+            if target_output <= medium_gain_switch_threshold:
+                reading = sci.SWIR_HIGH
+            else:
+                reading = medium_to_high_gain_scale*sci.SWIR_MED
+
+        event_log.info(f"Got the following {sensor_name} high reading: {reading}")
+
+        # If the HIGH reading is >= target_output, keep the bit, otherwise discard.
+        if reading >= target_output:
+            dac_value = test_value
+
+        # On to the next bit.
+        bit_value >>= 1
+
+    # Report whether we've managed to get in range.
+    if abs(reading - target_output) <= max_miss:
+        event_log.info(f"Suitable {sensor_name} offset found for target {target_output}.")
+    else:
+        event_log.error(f"No in-range {sensor_name} offset found for target {target_output}.")
+
+    event_log.info(f"Final {sensor_name} DAC offset value: {dac_value}")
+    event_log.info(f"Final {sensor_name} high reading: {reading}")
+    return dac_value
+
+
+def convert_logs() -> None:
+    """
+    Convert science and HK logs from hex to CSV, which will be placed in the
+    same directory as the original hex log files. The log files are flushed
+    before reading.
+
+    If you add abu.convert_logs() as the last operation in the "script" area
+    of main.py, this should mean you'll automatically get decoded logs as
+    CSV files in the log directory.
+    """
+    event_log.info("Running abu convert_logs")
+
+    if const.HK_LOG_FH is None:
+        event_log.info("No HK log is present - skipping conversion")
+    else:
+        const.HK_LOG_FH.flush()
+        printed_header = False
+
+        # This is a bit fiddly - the TM classes log if *_FH is not None,
+        # and we don't want that, otherwise they'll log infinite data as
+        # we read them back in. So we take a copy and temporarily set
+        # *_FH to None.
+        temp_hk_log_fh = const.HK_LOG_FH
+        const.HK_LOG_FH = None
+
+        # Get a name for the CSV file.
+        csvname = pathlib.Path(temp_hk_log_fh.name).with_suffix(".csv")
+        event_log.info(f"Writing HK data to {csvname}")
+
+        with open(csvname, "w") as csv_file:
+            # Iterate over the log.
+            decoder = EGSEDumpDecoder(temp_hk_log_fh.name)
+            rows = 0
+            for timestamp, entry in decoder:
+                rows += 1
+                # Print CSV header if not already printed.
+                if not printed_header:
+                    print("Date,Time,", file=csv_file, end="")
+                    print(entry.csv_header(), file=csv_file)
+                    printed_header = True
+                date, timeofday = timestamp.split(" ")
+                print(date, end=" ,", file=csv_file)
+                print(timeofday, end=",", file=csv_file)
+                print(entry.csv(), file=csv_file)
+
+            event_log.info(f"Stored {rows} HK row(s) into {csv_file.name}")
+
+            # Restore HK_LOG_FH from the copy.
+            const.HK_LOG_FH = temp_hk_log_fh
+
+    if const.SCI_LOG_FH is None:
+        event_log.info("No Science log is present - skipping conversion")
+    else:
+        const.SCI_LOG_FH.flush()
+        printed_header = False
+
+        # As above, do a little dance with file handles.
+        temp_sci_log_fh = const.SCI_LOG_FH
+        const.SCI_LOG_FH = None
+
+        csvname = pathlib.Path(temp_sci_log_fh.name).with_suffix(".csv")
+        event_log.info(f"Writing science data to {csvname}")
+        with open(csvname, "w") as csv_file:
+            rows = 0
+            decoder = EGSEDumpDecoder(temp_sci_log_fh.name)
+            for timestamp, entry in decoder:
+                rows += 1
+                if not printed_header:
+                    print("Date,Time,", file=csv_file, end="")
+                    print(entry.csv_header(decoder.default_fields_per_type[type(entry)]), file=csv_file)
+                    printed_header = True
+                date, timeofday = timestamp.split(" ")
+                print(date, end=",", file=csv_file)
+                print(timeofday, end=",", file=csv_file)
+                print(entry.csv(decoder.default_fields_per_type[type(entry)]), file=csv_file)
+            event_log.info(f"Stored {rows} science row(s) into {csv_file.name}")
+            const.SCI_LOG_FH = temp_sci_log_fh
+
+
+def mv_abs_pos(port: serial.rs485.RS485, position: int) -> None:
+    """
+    Get the current motor position, then send a relative command to
+    take it to the specified position.
+
+    :param port: The serial port for comms with the instrument.
+    :param position: The absolute motor position to move to.
+    """
+    event_log.info(f"Running ABU mv_abs_pos({position})")
+
+    # Get the current position.
+    hk = _hk(port)
+
+    # Work out delta needed to reach measurement_position
+    delta = position - hk.MTR_ABS_STEPS
+
+    event_log.info(f"Current position is {hk.MTR_ABS_STEPS}, need to move {delta} steps")
+
+    if delta > 0:
+        mv_pos_steps(port, delta)
+    elif delta < 0:
+        mv_neg_steps(port, -delta)
+    else:
+        event_log.info("No movement needed")
+
+
+def move_off_endstops(port: serial.rs485.RS485) -> None:
+    """
+    Make sure that the motor is at neither end stop.
+
+    :param port: The serial port for comms with the instrument.
+    """
+
+    event_log.info("Running ABU move_off_endstops")
+    hk = _hk(port)
+
+    while hk.MTR_FLAGS.OUTER or hk.MTR_FLAGS.BASE:
+        if hk.MTR_FLAGS.OUTER and hk.MTR_FLAGS.BASE:
+            event_log.error("Both OUTER and BASE flags are raised")
+            break
+        if hk.MTR_FLAGS.OUTER:
+            event_log.info("Motor is at outer end stop. Moving +200.")
+            mv_pos_steps(port, 200)
+
+        elif hk.MTR_FLAGS.BASE:
+            event_log.info("Motor is at base end stop. Moving -200.")
+            mv_neg_steps(port, 200)
+        hk = _hk(port)
+
+    if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
+        event_log.info("Motor is away from end stops")
