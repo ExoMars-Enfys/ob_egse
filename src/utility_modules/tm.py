@@ -84,7 +84,9 @@ class TM:
             [i[0] for i in pkt_struct],
             self.raw_bytes,
         )
+        self.params = []
         for k, v in param.items():
+            self.params.append(k)
             setattr(self, k, v)
 
     def decode_error_byte(self):
@@ -147,6 +149,18 @@ class TM:
             if self.ERRORS.IPA:
                 info_log.error("OB ERROR IPA - Invalid Parity Error")
 
+    def csv_header(self, param_list=None, separator=","):
+        """Return a CSV header line with the field names for this object"""
+        if param_list is None or len(param_list) == 0:
+            param_list = self.params
+        return separator.join(param_list)
+
+    def csv(self, param_list=None, separator=","):
+        """Return a CSV line with the data values for this object"""
+        if param_list is None or len(param_list) == 0:
+            param_list = self.params
+        return separator.join(str(getattr(self, p)) for p in param_list)
+
 
 class HK(TM):
     """HK Class Definition. Reads the HK response and parses it based on the dictionary defined in tmstruct.py"""
@@ -154,8 +168,9 @@ class HK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        if const.HK_LOG_FH is not None:
+            const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         self.TIME = datetime.now()
 
@@ -217,8 +232,9 @@ class ACK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        if const.ACK_LOG_FH is not None:
+            const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.ack_struct)
@@ -242,8 +258,9 @@ class SCI(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        if const.SCI_LOG_FH is not None:
+            const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         self.TIME = datetime.now()
 
@@ -266,8 +283,9 @@ class NACK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        if const.ACK_LOG_FH is not None:
+            const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.nack)
