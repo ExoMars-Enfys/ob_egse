@@ -8,6 +8,7 @@ from scripts_modules import sequences as sq
 import serial
 import pathlib
 from egse_dump_decoder import EGSEDumpDecoder
+from scipt_modules.measurement_table import MeasurementTable
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -840,3 +841,81 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
 
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")
+
+import measurement_table
+def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement table operation
+    Homes and Calibrates to Base
+    Goes to the Outer
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    Halts once Base Stop is reached
+    """
+    event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
+
+    dark0 = measurement_table.MeasurementTable(measurement_table.predefined[0])
+    dark1 = measurement_table.MeasurementTable(measurement_table.predefined[1])
+    table = measurement_table.MeasurementTable(
+        measurement_table.predefined[table_number],
+        before_table = dark0,
+        after_table = dark1
+    )
+
+    # Cal to Base
+    cal_motor_to_base(port)
+
+    # SWIR binary chop at base (9960)
+    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
+
+    # Move to 8,000 for MWIR binary chop.
+    mv_neg_steps(port, 1960)
+
+    # Do MWIR binary chop.
+    mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
+
+    # Home to Outer
+    home_to_outer(port)
+
+    # Get HK so we can find the current position.
+    hk_tm = _hk(port)
+
+    # FIXME: We should do something if MTR_ABS_STEPS is not
+    # close enough to 1000 at this point.
+
+    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
+
+    # Run through the measurement table - we tell the iterator the
+    # current motor steps so it can align things where we expect them to be.
+    for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
+
+        # Action the requested move (assuming a move was needed).
+        if rel_move < 0:
+            mv_neg_steps(port, -rel_move)
+        elif rel_move > 0:
+            mv_pos_steps(port, rel_move)
+
+        # Request a Science Measurement and log the result.
+        sci = _sci(port, sci_adc_samp, sci_adc_skip)
+        hk_tm = _hk(port)
+        event_log.info(
+            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
+            f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
+            + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
+            + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
+            + f"   SW_M: {sci.SWIR_MED:04d}"
+            + f"   SW_H: {sci.SWIR_HIGH:04d}"
+            + f"\t MW_L: {sci.MWIR_LOW:04d}"
+            + f"   MW_M: {sci.MWIR_MED:04d}"
+            + f"   MW_HH: {sci.MWIR_HIGH:04d}"
+            + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
+            + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
+        )
+
+    # Home to base so we can check motor steps is OK.
+    home_to_base(port)
+
+    # FIXME: We should do something if MTR_ABS_STEPS is not 
+    # close enough to 9960 at this point.
+
+    event_log.info("Science Measurements Completed!!")
+
