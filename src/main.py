@@ -148,16 +148,144 @@ def main() -> None:
         hk_pause_event.clear()  # Resume HK polling
 
         # First HK
+        abu.read_hk(ob_port)
 
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sequences.parse_hk(ob_port)
-        time.sleep(10)
+
+        # First power on
+        #abu.first_power_on(ob_port)
+
+        ## Clear Errors
+        #tc.clear_errors(ob_port)
+
+        ######## 2025-09-26 automation for darks
+        #   Home to outer
+        abu.home_to_outer(ob_port)
+
+        # 5 times over for dark data...
+        for i in range(5):
+            #   Move to 8000 and run SWIR/MWIR binary chops
+            abu.move_abs_pos(8000)
+            swir_offset = abu.find_dac_offset(ob_port, "SWIR", 4000, 1)
+            mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 4000, swir_offset)
+
+            #   Start new log and do measurement scan in the forward direction.
+            open_new_logs()
+            abu.measurement_scan(ob_port, 30, 4, 100)
+
+            open_new_logs()
+            abu.measurement_scan_neg(ob_port, 30, 4, 100)
+        ######## end of 2025-09-26 automation for darks
+
+        #abu.mv_abs_pos(ob_port, 100)
+        #abu.read_hk(ob_port)
+
+        # Move to position 510 and try to set DAC offsets
+        #abu.dac_auto_offset(ob_port)
+
+        ## Move and Measure in a loop (set values in abu_sequences)
+        #abu.move_and_measure_loop(ob_port, 0)
+
+        # sweep through SWIR DAC offset
+        # abu.sweep_offset_swir(ob_port, 5)
+        # sweep through MWIR DAC offset
+        # abu.sweep_offset_mwir(ob_port, 1)
+
+        # move to 7600 absolute (dark zone)
+        #abu.mv_pos_steps(ob_port, 7600-283)
+        # abu.mv_neg_steps(ob_port, 1358)
+
+        #abu.set_offset_and_check_sci(ob_port, 2112, 1544, 4, 100)
+
+        ## Move to absolute position and take a reading
+        #abu.mv_abs_pos(ob_port, 8000)
+        #abu.move_and_measure(ob_port, 0)
+
+        # swir binary chop
+        #abu.swir_binary_chop(ob_port, 100, 4, 100)
+
+
+        # mwir binary chop
+        #abu.mwir_binary_chop(ob_port, 1600, 4, 100)
+
+
+        # Measurement scan with found (or set) values
+        abu.abu_measurement_scan(ob_port, 30, 4, 100)
+
+        # Measurement scan with found (or set) values looping
+        #abu.abu_measurement_scan_loop(ob_port)
+
+        ############################################
+        ############################################
+        #log_dir = Path(const.HK_LOG_FH.name).parent
+        #choplog = open(log_dir / "swir-mwir.log", "w")
+
+        ## CSV header
+        #print("Seconds,SWIR_OFFSET,MWIR_OFFSET,HT_SINK_TRP,SWIR_TEMP,SW_H,MW_H", file=choplog)
+
+        ## Where we'll measure.
+        #abu.mv_abs_pos(ob_port, 8600)
+        #while True:
+        #    swir_offset = abu.find_dac_offset(ob_port, "SWIR", 200, 1)
+        #    mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 1500, swir_offset)
+        #    hk_tm = tc.hk_request(ob_port)
+        #    sci = tc.sci_request(ob_port, 4, 100)
+        #    print(f"HT_SINK_TEMP={sci.HT_SINK_TEMP}")
+        #    time.sleep(30)
+
+        ## Run for an hour.
+        #start_time = time.time()
+        #end_time = start_time + 5400
+        #while time.time() < end_time:
+            ## Do full binary chop on swir and mwir, with
+            ## swir target=200 and mwir target=1500.
+        #    swir_offset = abu.find_dac_offset(ob_port, "SWIR", 200, 1)
+        #    mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 1500, swir_offset)
+
+            ## Get a science packet so we can note the TRP values in our log.
+        #    sci = tc.sci_request(ob_port, 4, 100)
+
+        #    print(f"{time.time()-start_time:.0f},{swir_offset},{mwir_offset},{sci.HT_SINK_TEMP},{sci.SWIR_TEMP},{sci.SWIR_HIGH},{sci.MWIR_HIGH}", file=choplog)
+        #    choplog.flush()
+        #    event_log.info(f"SWIR_OFFSET: {sci.SWIR_OFFSET:5d}" +
+        #          f" MWIR_OFFSET: {sci.MWIR_OFFSET:5d}" +
+        #          f" SWIR_HIGH: {sci.SWIR_HIGH:5d}" +
+        #          f" MWIR_HIGH: {sci.MWIR_HIGH:5d}" +
+        #          f" HT_SINK_TEMP: {sci.HT_SINK_TEMP:5d}" +
+        #          f" SWIR_TEMP: {sci.SWIR_TEMP:5d}")
+        #    time.sleep(10)
+
+        #choplog.close()
+        ###############################
+
+
+        #abu.mv_abs_pos(ob_port, 7500)
+        #swir_offset = abu.swir_binary_chop(ob_port, 100, 4, 100)
+        #abu.mwir_binary_chop(ob_port, swir_offset, 4, 100)
+
+        #for i in range(7200):
+        #    abu.move_and_measure(ob_port, 0)
+        #    time.sleep(1)
+
+        # Cal to base then Home to outer to count the steps
+        #abu.home_to_base (ob_port)
+        #abu.home_to_outer (ob_port)
+
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
+
+        # Ensure we're off either endstop when finishing up.
+        abu.move_off_endstops(ob_port)
+
         # Get final HK
+        abu.read_hk(ob_port)
+
+        # Auto-generate CSV files from HK and SCI logs
+        abu.convert_logs()
+
         stop_event.set()
 
     else:
