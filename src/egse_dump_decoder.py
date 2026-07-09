@@ -28,7 +28,7 @@ class EGSEDumpDecoder:
             "CMD_CNT",
             "ERROR_BYTE",
             "MTR_ABS_STEPS",
-            "THRM_STATUS",
+            "THRM_STATUS_BYTE",
             "SWIR_OFFSET",
             "MWIR_OFFSET",
             "SCI_ADC_SAMPLES",
