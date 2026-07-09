@@ -842,8 +842,8 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")
 
-import measurement_table
-def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20):
+import measurement_table as mt
+def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement table operation
     Homes and Calibrates to Base
@@ -853,13 +853,9 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
     """
     event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
 
-    dark0 = measurement_table.MeasurementTable(measurement_table.predefined[0])
-    dark1 = measurement_table.MeasurementTable(measurement_table.predefined[1])
-    table = measurement_table.MeasurementTable(
-        measurement_table.predefined[table_number],
-        before_table = dark0,
-        after_table = dark1
-    )
+    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
+    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
+    table = mt.MeasurementTable(mt.predefined[table_number], before_table = dark0, after_table = dark1)
 
     # Cal to Base
     cal_motor_to_base(port)

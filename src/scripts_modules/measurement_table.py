@@ -113,31 +113,46 @@ class MeasurementTable:
                 yield (relative_pos, abs_pos)
                 prev = abs_pos
 
+    @staticmethod
+    def from_abs_position_list(abs_positions):
+        prev = MeasurementTable.LOW
+        rel_positions = []
+        for pos in abs_positions:
+            if pos < prev:
+                raise ValueError("Absolute position list is not in increasing order")
+            if pos > MeasurementTable.HIGH:
+                raise ValueError(f"Position {pos} is out of range")
+            rel_positions.append(pos-prev)
+            prev = pos
+
+        return MeasurementTable(rel_positions)
+
+    def __str__(self):
+        return str(self.table)
+
 # Some example tables. The first two are the reserved dark "low" and
 # "high" end tables.
 predefined = [
     # Dark table 0: 11 points from 1600-1700
     # to capture the low edge in SWIR.
-    [
-        600, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
-    ],
+    MeasurementTable.from_abs_position_list(range(1600, 1701, 10)).table,
 
     # Dark table 1: captures points at the top edge of
     # SWIR and around the two binary chop locations.
-    [
-        6990, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,           # 11 points from 7990-8010
-        1690, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, # 11 points from 9700-9800
-        140, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,            # 11 points from 9940-9960
-    ],
+    MeasurementTable.from_abs_position_list(
+        list(range(7990, 8011, 2)) +    # 7990-8010 in steps of 2 (MWIR BC)
+        list(range(9700, 9801, 10)) +   # 9700-9800 in steps of 10 (SWIR edge)
+        list(range(9940, 9961, 2))      # 9940-9960 in steps of 2 (SWIR BC)
+    ).table,
 
     # The entire range in intervals of 5 motor steps.
-    [0] + [5]*(8960//5),
+    MeasurementTable.from_abs_position_list(range(1000, 9961, 5)).table,
 
     # The entire range in intervals of 20 motor steps.
-    [0] + [20]*(8960//20),
+    MeasurementTable.from_abs_position_list(range(1000, 9961, 20)).table,
 
     # The entire range in intervals of 30 motor steps.
-    [0] + [30]*(8960//30),
+    MeasurementTable.from_abs_position_list(range(1000, 9961, 30)).table,
 ]
 
 if __name__ == '__main__':
@@ -148,3 +163,8 @@ if __name__ == '__main__':
     )
     for rel, abs_pos in m.scan():
         print(f"Relative {rel} steps, position is now {abs_pos}")
+
+    m2 = MeasurementTable.from_abs_position_list(range(7990, 8012, 2))
+    print(str(m2))
+    import pprint
+    pprint.pprint(predefined)
