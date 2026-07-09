@@ -655,12 +655,6 @@ def find_dac_offset(
     """
     event_log.info(f"Running abu targeted_binary_chop for {sensor_name} with target value {target_output}")
 
-    # If our target high gain output is above medium_gain_switch_threshold
-    # then we'll scale by medium_to_high_gain_scale and use the medium gain
-    # value instead. This gives a measure of protection against saturation.
-    medium_gain_switch_threshold = 3700 * 16
-    medium_to_high_gain_scale = 30
-
     if sensor_name not in ("MWIR", "SWIR"):
         event_log.error(f"For DAC offsets, sensor name must be either MWIR or SWIR, not {sensor_name}")
 
@@ -693,10 +687,7 @@ def find_dac_offset(
                 event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
 
             # Copy the reading so the rest of the loop doesn't depend on sensor.
-            if target_output <= medium_gain_switch_threshold:
-                reading = sci.MWIR_HIGH
-            else:
-                reading = medium_to_high_gain_scale * sci.MWIR_MED
+            reading = sci.MWIR_HIGH
         else:
             # Ditto for SWIR.
             repeat(port, tc.sci_offset, test_value, fixed_offset)
@@ -704,11 +695,6 @@ def find_dac_offset(
             if sci.SWIR_OFFSET != test_value:
                 event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
             reading = sci.SWIR_HIGH
-
-            if target_output <= medium_gain_switch_threshold:
-                reading = sci.SWIR_HIGH
-            else:
-                reading = medium_to_high_gain_scale * sci.SWIR_MED
 
         event_log.info(f"Got the following {sensor_name} high reading: {reading}")
 
