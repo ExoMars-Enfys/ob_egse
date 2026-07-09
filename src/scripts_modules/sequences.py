@@ -23,6 +23,7 @@ def power_up(port):
     try:
         repeat(port, tc.clear_errors)
         repeat(port, tc.power_control, 0x01)
+        time.sleep(3)
         repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
         resp = _hk(port)
         if (
