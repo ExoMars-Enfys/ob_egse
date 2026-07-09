@@ -658,7 +658,7 @@ def find_dac_offset(
     # If our target high gain output is above medium_gain_switch_threshold
     # then we'll scale by medium_to_high_gain_scale and use the medium gain
     # value instead. This gives a measure of protection against saturation.
-    medium_gain_switch_threshold = 3700
+    medium_gain_switch_threshold = 3700 * 16
     medium_to_high_gain_scale = 30
 
     if sensor_name not in ("MWIR", "SWIR"):
