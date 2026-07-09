@@ -8,7 +8,7 @@ from scripts_modules import sequences as sq
 import serial
 import pathlib
 from egse_dump_decoder import EGSEDumpDecoder
-from scipt_modules.measurement_table import MeasurementTable
+# from scripts_modules.measurement_table import MeasurementTable
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -624,7 +624,7 @@ def first_power_on(port):
     repeat(port, tc.power_control, 0x3)
     time.sleep(3)
     cal_motor_to_base(port)
-    # home_to_outer(port)
+    home_to_outer(port)
 
 
 def find_dac_offset(
@@ -861,7 +861,10 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")
 
-import measurement_table as mt
+
+# import measurement_table as mt
+
+
 def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement table operation
@@ -874,7 +877,7 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
 
     dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
     dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
-    table = mt.MeasurementTable(mt.predefined[table_number], before_table = dark0, after_table = dark1)
+    table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
 
     # Cal to Base
     cal_motor_to_base(port)
@@ -902,7 +905,6 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
     # Run through the measurement table - we tell the iterator the
     # current motor steps so it can align things where we expect them to be.
     for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
-
         # Action the requested move (assuming a move was needed).
         if rel_move < 0:
             mv_neg_steps(port, -rel_move)
@@ -929,8 +931,7 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
     # Home to base so we can check motor steps is OK.
     home_to_base(port)
 
-    # FIXME: We should do something if MTR_ABS_STEPS is not 
+    # FIXME: We should do something if MTR_ABS_STEPS is not
     # close enough to 9960 at this point.
 
     event_log.info("Science Measurements Completed!!")
-
