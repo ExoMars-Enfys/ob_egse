@@ -23,6 +23,7 @@ from utility_modules import egse_logger as egse_logger
 from utility_modules import psu as psu
 from utility_modules import tc as tc
 from utility_modules import tm as tm
+from utility_modules.send_cmd import cmd_repeat as repeat
 
 # widgets
 from widget_modules import parent_window_widget
@@ -83,6 +84,41 @@ def clean_exit(ob_port, psu_port, event_log):
     # psu.close_psu_comms(psuport)
 
     #! TODO add emergency shutdown to that powers off the OB
+
+# Alun extras - these should go back into a new abu_sequences once
+# we're happy.
+def wait_movement_complete(port):
+    hk = tc.hk_request(port)
+    while hk.MTR_FLAGS.MOVING:
+        hk = tc.hk_request(port)
+        event_log.info(
+            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
+        )
+        time.sleep(1)
+
+    event_log.info("Motor movement finished")
+    if hk.ERROR_MTR != 0:
+        event_log.error(
+            "***MOTOR ERROR*** got the following: "
+            + f"\n CD : {hk.MTR_ERRORS.CD}"
+            + f"\n AB : {hk.MTR_ERRORS.AB}"
+            + f"\n ABS : {hk.MTR_ERRORS.ABS}"
+            + f"\n DSE : {hk.MTR_ERRORS.DSE}"
+        )
+
+def move_to_position(port, abs_pos):
+    hk_tm = tc.hk_request(port)
+    delta = hk_tm.MTR_ABS_STEPS - abs_pos
+    if delta < 0:
+        event_log.info(f"Moving to {abs_pos}, which is {-delta} negative steps from {hk_tm.MTR_ABS_STEPS}")
+        repeat(ob_port, tc.mtr_mov_neg, -delta)
+    elif delta > 0:
+        event_log.info(f"Moving to {abs_pos}, which is {delta} positive steps from {hk_tm.MTR_ABS_STEPS}")
+        repeat(ob_port, tc.mtr_mov_pos, delta)
+    else:
+        event_log.info(f"No movement required - already at {abs_pos}")
+        return
+    wait_movement_complete(port)
 
 
 def main() -> None:
@@ -156,21 +192,94 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         sequences.parse_hk(ob_port)
 
-        # First power on
-        abu.first_power_on(ob_port)
+        # Replicate the procedures that abu.* run so we can remove
+        # abu_sequences from the equation.
 
-        abu.mv_abs_pos(ob_port, 9960)
+        # This one does power_control and set_mtr_param
+        sq.power_up(ob_port)
+
+        # We've found that, without a 3s delay after tc.power_control, we
+        # get a NAK back from the motor movements below.
+        #time.sleep(3) # Commented for now, while we try out sq.power_up.
+
+        # Cal to BASE
+        repeat(ob_port, tc.mtr_homing, True, False)
+        hk_tm = tc.hk_request(ob_port)
+        if not hk_tm.MTR_FLAGS.BASE:
+            event_log.info("Moving to the BASE, waiting for switch to be pressed.")
+            wait_movement_complete(ob_port)
+        else:
+            event_log.info("Motor Did not Move, Base Flag Asserted")
+
+        # Check motor status now its stopped.
+        hk_tm = tc.hk_request(ob_port)
+        if hk_tm.MTR_FLAGS.CAL != 1:
+            event_log.error(f" Calibration Flag not Asserted : {hk_tm.MTR_FLAGS.CAL}")
+        if hk_tm.MTR_FLAGS.DIR != 0:
+            event_log.error(f" Calibration Dir not to BASE : {hk_tm.MTR_FLAGS.DIR}")
+        if hk_tm.MTR_FLAGS.OUTER != 0:
+            event_log.error(f"OUTER Switch Flag raised : {hk_tm.MTR_FLAGS.OUTER}")
+        if hk_tm.MTR_FLAGS.BASE != 1:
+            event_log.error(f"BASE Switch Flag is not asserted : {hk_tm.MTR_FLAGS.BASE}")
+        if hk_tm.MTR_FLAGS.MOVING != 0:
+            event_log.error(f"Motor moving flag still asserted: {hk_tm.MTR_FLAGS.MOVING}")
+        if hk_tm.MTR_FLAGS.HOMING != 0:
+            event_log.error(f"Motor Homing flag is asserted: {hk_tm.MTR_FLAGS.HOMING}")
+        if hk_tm.MTR_ABS_STEPS != 9960:
+            event_log.error(f"Motor ABS Steps Do not match expected ABS : {hk_tm.MTR_ABS_STEPS} , Expected : 9960")
+        if hk_tm.MTR_REL_STEPS == 0:
+            event_log.error(f"Motor Steps Do not match expected REL : {hk_tm.MTR_REL_STEPS} , Expected : 0")
+        event_log.info(f"Motor relative steps moved: {hk_tm.MTR_REL_STEPS}")
+        event_log.info(f"Motor absolute steps: {hk_tm.MTR_ABS_STEPS}")
+
+        # Home to outer
+        repeat(ob_port, tc.mtr_homing, False, True)
+        hk_tm = tc.hk_request(ob_port)
+        if not hk_tm.MTR_FLAGS.OUTER:
+            event_log.info("Moving to outer, waiting for switch to be pressed.")
+            wait_movement_complete(ob_port)
+        else:
+            event_log.info("Motor Did not Move, Outer Flag Asserted")
+
+        # Check motor status now its stopped.
+        hk_tm = tc.hk_request(ob_port)
+        if hk_tm.MTR_FLAGS.CAL != 0:
+            event_log.error(f" Calibration Flag Asserted : {hk_tm.MTR_FLAGS.CAL}")
+        if hk_tm.MTR_FLAGS.DIR != 1:
+            event_log.error(f" Calibration Dir not to Outer : {hk_tm.MTR_FLAGS.DIR}")
+        if hk_tm.MTR_FLAGS.OUTER != 1:
+            event_log.error(f"OUTER Switch Flag not asserted : {hk_tm.MTR_FLAGS.OUTER}")
+        if hk_tm.MTR_FLAGS.BASE != 0:
+            event_log.error(f"Base Switch Flag is asserted : {hk_tm.MTR_FLAGS.BASE}")
+        if hk_tm.MTR_FLAGS.MOVING != 0:
+            event_log.error(f"Motor moving flag still asserted: {hk_tm.MTR_FLAGS.MOVING}")
+        if hk_tm.MTR_FLAGS.HOMING != 0:
+            event_log.error(f"Motor Homing flag is asserted: {hk_tm.MTR_FLAGS.HOMING}")
+        if hk_tm.MTR_REL_STEPS == 0:
+            event_log.error("Motor Steps Do not match expected : " + f"\n REL : {hk_tm.MTR_REL_STEPS} , Expected : 0")
+        event_log.info(f"Motor relative steps moved: {hk_tm.MTR_REL_STEPS}")
+        event_log.info(f"Motor absolute steps: {hk_tm.MTR_ABS_STEPS}")
+
+        # Now move back to 9960.
+        move_to_position(ob_port, 9960)
+
+        # SWIR DAC offset - we'll use the abu.* version for this, since it's biggish.
         swir_offset = abu.find_dac_offset(ob_port, "SWIR", 5000, 1)
         event_log.info(f"SWIR offset = {swir_offset}")
-        abu.mv_abs_pos(ob_port, 8000)
+
+        # Now down to 8000.
+        move_to_position(ob_port, 8000)
+
+        # MWIR DAC offset
         mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 5000, swir_offset)
         event_log.info(f"MWIR offset = {mwir_offset}")
 
         event_log.info("Starting Science Measurements")
-        abu.mv_abs_pos(ob_port, 1200)
-        abu.move_and_measure(ob_port, 0, sci_adc_samp=4, sci_adc_skip=100)
-        for i in range(1200, 9960, 30):
-            abu.move_and_measure(ob_port, 30, sci_adc_samp=4, sci_adc_skip=100)
+
+        # Take samples from 1200 up to 9960 in steps of 30.
+        for position in range(1200, 9960, 30):
+            move_to_position(position)
+            sci = tc.sci_request(ob_port, sci_adc_samp=4, sci_adc_skip=100)
 
         ## Clear Errors
         # tc.clear_errors(ob_port)
