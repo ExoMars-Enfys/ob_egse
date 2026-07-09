@@ -88,19 +88,15 @@ def clean_exit(ob_port, psu_port, event_log):
 
 # Alun extras - these should go back into a new abu_sequences once
 # we're happy.
-def wait_movement_complete(port, event_log):
-    event_log.info("Requesting HK to get movement status")
+def wait_movement_complete(port, event_log, num_steps_expected=8960):
     hk = tc.hk_request(port)
-    event_log.info("Got result")
     while hk.MTR_FLAGS.MOVING:
-        event_log.info("Requesting HK to get position")
         hk = tc.hk_request(port)
         event_log.info(
             "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
         )
-        time.sleep(1)
+        time.sleep(0.01 if num_steps_expected < 100 else 1)
 
-    event_log.info("Motor movement finished")
     if hk.ERROR_MTR != 0:
         event_log.error(
             "***MOTOR ERROR*** got the following: "
@@ -112,9 +108,7 @@ def wait_movement_complete(port, event_log):
 
 
 def move_to_position(port, abs_pos, event_log):
-    event_log.info("Requesting HK to get current position")
     hk_tm = tc.hk_request(port)
-    event_log.info("Got HK")
     delta = abs_pos - hk_tm.MTR_ABS_STEPS
     if delta < 0:
         event_log.info(f"Moving to {abs_pos}, which is {-delta} negative steps from {hk_tm.MTR_ABS_STEPS}")
@@ -125,7 +119,7 @@ def move_to_position(port, abs_pos, event_log):
     else:
         event_log.info(f"No movement required - already at {abs_pos}")
         return
-    wait_movement_complete(port, event_log)
+    wait_movement_complete(port, event_log, abs(delta))
 
 
 def main() -> None:
@@ -197,11 +191,10 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sequences.parse_hk(ob_port)
 
         # Replicate the procedures that abu.* run so we can remove
         # abu_sequences from the equation.
-        input("Press Enter to continue with the script...")
+
         # Turn power on.
         repeat(ob_port, tc.power_control, 0x03)
 
@@ -259,13 +252,13 @@ def main() -> None:
         event_log.info(f"Motor absolute steps: {hk_tm.MTR_ABS_STEPS}")
 
         # Home to outer
-        repeat(ob_port, tc.mtr_homing, False, True)
-        hk_tm = tc.hk_request(ob_port)
-        if not hk_tm.MTR_FLAGS.OUTER:
-            event_log.info("Moving to outer, waiting for switch to be pressed.")
-            wait_movement_complete(ob_port, event_log)
-        else:
-            event_log.info("Motor Did not Move, Outer Flag Asserted")
+        # repeat(ob_port, tc.mtr_homing, False, True)
+        # hk_tm = tc.hk_request(ob_port)
+        # if not hk_tm.MTR_FLAGS.OUTER:
+        #     event_log.info("Moving to outer, waiting for switch to be pressed.")
+        #     wait_movement_complete(ob_port, event_log)
+        # else:
+        #     event_log.info("Motor Did not Move, Outer Flag Asserted")
 
         # Check motor status now its stopped.
         hk_tm = tc.hk_request(ob_port)
@@ -290,15 +283,15 @@ def main() -> None:
         move_to_position(ob_port, 9960, event_log)
 
         # SWIR DAC offset
-        # swir_offset = abu.find_dac_offset(ob_port, "SWIR", 5000, 1)
-        # event_log.info(f"SWIR offset = {swir_offset}")
+        swir_offset = abu.find_dac_offset(ob_port, "SWIR", 5000, 1)
+        event_log.info(f"SWIR offset = {swir_offset}")
 
         # Now down to 8000.
         move_to_position(ob_port, 8000, event_log)
 
         # MWIR DAC offset
-        # mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 5000, swir_offset)
-        # event_log.info(f"MWIR offset = {mwir_offset}")
+        mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 5000, swir_offset)
+        event_log.info(f"MWIR offset = {mwir_offset}")
 
         event_log.info("Starting Science Measurements")
 
@@ -434,7 +427,7 @@ def main() -> None:
         # abu.convert_logs()
         # Commented out for now
 
-        stop_event.set()
+        # stop_event.set()
 
     else:
         info_log.info("Running GUI")
