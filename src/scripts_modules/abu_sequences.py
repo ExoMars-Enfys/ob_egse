@@ -310,6 +310,10 @@ def mv_pos_steps(port, pos_steps):
     hk = _hk(port)
     while hk.MTR_FLAGS.MOVING:
         hk = _hk(port)
+        event_log.info(
+            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
+        )
+        time.sleep(1)
 
     if hk.ERROR_MTR != 0:
         event_log.error(
@@ -353,6 +357,10 @@ def mv_neg_steps(port, pos_steps):
     hk = _hk(port)
     while hk.MTR_FLAGS.MOVING:
         hk = _hk(port)
+        event_log.info(
+            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
+        )
+        time.sleep(1)
 
     if hk.ERROR_MTR != 0:
         event_log.error(
@@ -545,6 +553,7 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
 
     event_log.info("Science Measurements Completed!!")
 
+
 def abu_measurement_scan_loop(port):
     """
     Performs the basic Enfys science measurement
@@ -558,6 +567,7 @@ def abu_measurement_scan_loop(port):
         abu_measurement_scan(port, 30, 4, 100)
 
     return
+
 
 def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -579,6 +589,7 @@ def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip
         move_and_measure(port, -step_spacing, sci_adc_samp, sci_adc_skip)
 
     event_log.info("Science Measurements Completed!!")
+
 
 def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
@@ -610,12 +621,20 @@ def first_power_on(port):
 
     # Power up motor and Detector
     repeat(port, tc.power_control, 0x3)
-
+    time.sleep(3)
     cal_motor_to_base(port)
-    home_to_outer(port)
+    # home_to_outer(port)
 
 
-def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: int, fixed_offset: int, max_miss: int = 1600, sci_adc_samp: int = 4, sci_adc_skip: int = 100):
+def find_dac_offset(
+    port: serial.rs485.RS485,
+    sensor_name: str,
+    target_output: int,
+    fixed_offset: int,
+    max_miss: int = 1600,
+    sci_adc_samp: int = 4,
+    sci_adc_skip: int = 100,
+):
     """
     This function tries to find a DAC offset which results in a high gain output close
     to the value or target_output. The sensor that's *not* being configured has its gain
@@ -651,7 +670,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
         repeat(port, tc.power_control, hk.PWR_STAT | 0x02)
 
     dac_value = 0x0
-    bit_value = 1<<11
+    bit_value = 1 << 11
 
     # Binary chop - work down through the bits, homing in on
     # the DAC offset value which gets closest to the target output.
@@ -676,7 +695,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
             if target_output <= medium_gain_switch_threshold:
                 reading = sci.MWIR_HIGH
             else:
-                reading = medium_to_high_gain_scale*sci.MWIR_MED
+                reading = medium_to_high_gain_scale * sci.MWIR_MED
         else:
             # Ditto for SWIR.
             repeat(port, tc.sci_offset, test_value, fixed_offset)
@@ -688,7 +707,7 @@ def find_dac_offset(port: serial.rs485.RS485, sensor_name: str, target_output: i
             if target_output <= medium_gain_switch_threshold:
                 reading = sci.SWIR_HIGH
             else:
-                reading = medium_to_high_gain_scale*sci.SWIR_MED
+                reading = medium_to_high_gain_scale * sci.SWIR_MED
 
         event_log.info(f"Got the following {sensor_name} high reading: {reading}")
 
