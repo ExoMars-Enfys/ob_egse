@@ -5,7 +5,7 @@ CMD_SPEED_DICT = {
 
 EXP_MODEL_ID = 0x04
 
-DEFAULT_COM_PORT = 5
+DEFAULT_COM_PORT = 4
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
