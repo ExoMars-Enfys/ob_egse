@@ -399,10 +399,10 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
 
         # Ensure we're off either endstop when finishing up.
-        abu.move_off_endstops(ob_port)
+        #abu.move_off_endstops(ob_port)
 
         # Get final HK
-        abu.read_hk(ob_port)
+        #abu.read_hk(ob_port)
 
         # Auto-generate CSV files from HK and SCI logs
         # abu.convert_logs()
