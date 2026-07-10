@@ -134,27 +134,39 @@ class MeasurementTable:
 # "high" end tables.
 predefined = [
     # Dark table 0: Fine resolution to capture the low edge in SWIR.
-    MeasurementTable.from_abs_position_list(range(1250, 1451, 5)).table,
-    #
+    MeasurementTable.from_abs_position_list(range(1250, 1450, 40)).table,
+
     # Dark table 1: Fine resolution to capture the high edge in SWIR,
     # along with a chunk at the end to capture SWIR BC.
     MeasurementTable.from_abs_position_list(
-        list(range(9100, 9301, 5))  # Edge of SWIR
-        + list(range(9940, 9961, 2))  # SWIR BC
+        list(range(9100, 9301, 40)) +    # Edge of SWIR
+        list(range(9940, 9961, 2))      # SWIR BC
     ).table,
-    #
+
     # Measurement table 2: End of DT0 thru start of DT1 in steps of
     # 30, with an extra bit around MWIR BC location.
-    MeasurementTable.from_abs_position_list(list(range(1450, 9100, 30)) + list(range(7990, 8011, 2))).table,
-    #
+    MeasurementTable.from_abs_position_list(
+        list(range(1450, 9100, 30)) +
+        list(range(7990, 8011, 2))
+    ).table,
+
     # Measurement table 3: End of DT0 thru start of DT1 in steps of
     # 5, with an extra bit around MWIR BC location.
-    MeasurementTable.from_abs_position_list(list(range(1450, 9100, 5)) + list(range(7990, 8011, 2))).table,
+    MeasurementTable.from_abs_position_list(
+        list(range(1450, 9100, 5)) +
+        list(range(7990, 8011, 2))
+    ).table,
+
+    # Measurement table 4: End of DT0 thru start of DT1 in steps of
+    # 5, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(1450, 9100, 50)) +
+        list(range(7990, 8011, 2))
+    ).table,
 ]
 
-if __name__ == "__main__":
-    m = MeasurementTable(
-        predefined[2], before_table=MeasurementTable(predefined[0]), after_table=MeasurementTable(predefined[1])
+if __name__ == '__main__':
+    m = MeasurementTable(predefined[2],
+            before_table=MeasurementTable(predefined[0]), 
+            after_table=MeasurementTable(predefined[1])
     )
-    for rel, abs_pos in m.scan():
-        print(f"Relative {rel} steps, position is now {abs_pos}")
