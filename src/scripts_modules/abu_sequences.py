@@ -9,7 +9,7 @@ from scripts_modules import sequences as sq
 import serial
 import pathlib
 from egse_dump_decoder import EGSEDumpDecoder
-from scripts_modules.measurement_table import MeasurementTable
+import scripts_modules.measurement_table as mt
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -882,6 +882,90 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
 
     # Home to base so we can check motor steps is OK.
     home_to_base(port)
+
+    # FIXME: We should do something if MTR_ABS_STEPS is not
+    # close enough to 9960 at this point.
+
+    event_log.info("Science Measurements Completed")
+
+
+def abu_measurement_mode2_scan(port, measurement_location, interval_seconds, count, sci_adc_samp=4, sci_adc_skip=20):
+    """
+    Performs the basic Enfys science measurement at a single position
+    Homes and Calibrates to Base
+    Does binary chops
+    Takes a specified number of measurements at a single location, with specified interval between
+    Gets measurements at binary chop locations
+    Goes back to base
+    """
+    event_log.info(
+        f"Running ABU Mode2 Scan at {measurement_location} for {count} samples at {interval_seconds}s intervals"
+    )
+
+    # Cal to Base
+    cal_motor_to_base(port)
+
+    # SWIR binary chop at base (9960)
+    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
+    event_log.info(f"SWIR offset = {swir_offset}")
+
+    # Move to 8,000 for MWIR binary chop.
+    mv_neg_steps(port, 1960)
+
+    # Do MWIR binary chop.
+    mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
+    event_log.info(f"MWIR offset = {mwir_offset}")
+
+    mv_abs_pos(port, measurement_location)
+
+    # Get HK so we know the current position.
+    hk_tm = _hk(port)
+    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
+
+    for _ in range(count):
+        # Request a Science Measurement and log the result.
+        sci = _sci(port, sci_adc_samp, sci_adc_skip)
+        event_log.info(
+            f"\t\t SW_L: {sci.SWIR_LOW:04d}"
+            + f"   SW_M: {sci.SWIR_MED:04d}"
+            + f"   SW_H: {sci.SWIR_HIGH:04d}"
+            + f"\t MW_L: {sci.MWIR_LOW:04d}"
+            + f"   MW_M: {sci.MWIR_MED:04d}"
+            + f"   MW_HH: {sci.MWIR_HIGH:04d}"
+            + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
+            + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
+        )
+        time.sleep(interval_seconds)
+
+    mv_abs_pos(port, 8000)
+    sci = _sci(port, sci_adc_samp, sci_adc_skip)
+    event_log.info(
+        "At MWIR BC location "
+        + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
+        + f"   SW_M: {sci.SWIR_MED:04d}"
+        + f"   SW_H: {sci.SWIR_HIGH:04d}"
+        + f"\t MW_L: {sci.MWIR_LOW:04d}"
+        + f"   MW_M: {sci.MWIR_MED:04d}"
+        + f"   MW_HH: {sci.MWIR_HIGH:04d}"
+        + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
+        + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
+    )
+
+    # Home to base so we can check motor steps is OK.
+    home_to_base(port)
+
+    sci = _sci(port, sci_adc_samp, sci_adc_skip)
+    event_log.info(
+        "At SWIR BC location"
+        + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
+        + f"   SW_M: {sci.SWIR_MED:04d}"
+        + f"   SW_H: {sci.SWIR_HIGH:04d}"
+        + f"\t MW_L: {sci.MWIR_LOW:04d}"
+        + f"   MW_M: {sci.MWIR_MED:04d}"
+        + f"   MW_HH: {sci.MWIR_HIGH:04d}"
+        + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
+        + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
+    )
 
     # FIXME: We should do something if MTR_ABS_STEPS is not
     # close enough to 9960 at this point.
