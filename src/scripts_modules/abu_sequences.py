@@ -101,6 +101,38 @@ def read_hk(port, display_contents=True):
         )
 
 
+def set_motor_parameters(port):
+    # Set motor parameters
+    repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
+    resp = _hk(port)
+    if resp.MTR_CURRENT != 64 or resp.MTR_GUARD_SELECT != 0 or resp.MTR_CHOP != 60 or resp.MTR_SPEED != 8:
+        event_log.error(
+            "OB Parameters not initialized correctly:"
+            + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
+            + f"\n Guard Select : {resp.MTR_GUARD_SELECT}      ~ Expected : 0"
+            + f"\n Chopper : {resp.MTR_CHOP}                  ~ Expected : 60"
+            + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
+        )
+
+
+def wait_movement_complete(port, num_steps_expected=8960):
+    hk = _hk(port)
+    while hk.MTR_FLAGS.MOVING:
+        event_log.info(
+            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
+        )
+        time.sleep(0.1 if num_steps < 100 else 1)
+        hk = _hk(port)
+    if hk.ERROR_MTR != 0:
+        event_log.error(
+        "***MOTOR ERROR*** got the following: "
+        + f"\n CD : {hk.MTR_ERRORS.CD}"
+        + f"\n AB : {hk.MTR_ERRORS.AB}"
+        + f"\n ABS : {hk.MTR_ERRORS.ABS}"
+        + f"\n DSE : {hk.MTR_ERRORS.DSE}"
+    )
+
+
 def cal_motor_to_base(port):
     """
     This function powers the Mechanism board (if it isn't already).
@@ -120,30 +152,16 @@ def cal_motor_to_base(port):
         resp = _hk(port)
 
     # Set motor parameters
-    repeat(port, tc.set_mtr_param, 64, 0, 60, 8)
-    resp = _hk(port)
-    if resp.MTR_CURRENT != 64 or resp.MTR_GUARD_SELECT != 0 or resp.MTR_CHOP != 60 or resp.MTR_SPEED != 8:
-        event_log.error(
-            "OB Parameters not initialized correctly:"
-            + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
-            + f"\n Guard Select : {resp.MTR_GUARD_SELECT}      ~ Expected : 0"
-            + f"\n Chopper : {resp.MTR_CHOP}                  ~ Expected : 60"
-            + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
-        )
+    set_motor_parameters(port)
 
     # Cal to BASE
     repeat(port, tc.mtr_homing, True, False)
-    hk_tm = _hk(port)
 
     # Check to see if at the Base
-    if not hk_tm.MTR_FLAGS.BASE:
+    resp = _hk(port)
+    if not resp.MTR_FLAGS.BASE:
         event_log.info("Moving to the BASE, waiting for switch to be pressed.")
-        while hk_tm.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk_tm = _hk(port)
-            event_log.info(
-                f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}"
-            )
+        wait_movement_complete(port)
         event_log.info("Motor movement finished")
     else:
         event_log.info("Motor Did not Move, Base Flag Asserted")
@@ -163,7 +181,6 @@ def cal_motor_to_base(port):
     if resp.MTR_FLAGS.HOMING != 0:
         event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
 
-    if resp.MTR_ABS_STEPS != 9960:
         event_log.error(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 9960")
     if resp.MTR_REL_STEPS == 0:
         event_log.error(f"Motor Steps Do not match expected REL : {resp.MTR_REL_STEPS} , Expected : 0")
@@ -191,17 +208,12 @@ def home_to_outer(port):
 
     # Home to Outer with no Cal
     repeat(port, tc.mtr_homing, False, True)
-    hk_tm = _hk(port)
+    resp = _hk(port)
 
     # Check to see if at the Outer
-    if not hk_tm.MTR_FLAGS.OUTER:
+    if not resp.MTR_FLAGS.OUTER:
         event_log.info("Moving to outer, waiting for switch to be pressed.")
-        while hk_tm.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk_tm = _hk(port)
-            event_log.info(
-                f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}"
-            )
+        wait_movement_complete(port)
         event_log.info("Motor movement finished")
     else:
         event_log.info("Motor Did not Move, Outer Flag Asserted")
@@ -252,19 +264,7 @@ def home_to_base(port):
     # Check to see if at the Base
     if not hk_tm.MTR_FLAGS.BASE:
         event_log.info("Moving to the base, waiting for switch to be pressed.")
-        while hk_tm.MTR_FLAGS.MOVING:
-            time.sleep(1)
-            hk_tm = _hk(port)
-            event_log.error(
-                f"MTR Flags : \nUnused : {hk_tm.MTR_FLAGS.UNUSED1}"
-                + f"\n CAL : {hk_tm.MTR_FLAGS.CAL}"
-                + f"\n UNUSED2 : {hk_tm.MTR_FLAGS.UNUSED2}"
-                + f"\n DIR : {hk_tm.MTR_FLAGS.DIR}"
-                + f"\n OUTER : {hk_tm.MTR_FLAGS.OUTER}"
-                + f"\n BASE : {hk_tm.MTR_FLAGS.BASE}"
-                + f"\n MOVING : {hk_tm.MTR_FLAGS.MOVING}"
-                + f"\n HOMING : {hk_tm.MTR_FLAGS.HOMING}"
-            )
+        wait_movement_complete(port)
         event_log.info("Motor movement finished")
     else:
         event_log.error("Motor Did not Move, Base Flag Asserted")
@@ -291,7 +291,7 @@ def home_to_base(port):
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
 
-def mv_pos_steps(port, pos_steps):
+def mv_pos_steps(port, steps):
     """
     Script that moves the mechanism a certain number of steps positive (towards the base).
     Automatically checks that we are not already at the base.
@@ -306,39 +306,13 @@ def mv_pos_steps(port, pos_steps):
         return
 
     # Then move the desired number of steps
-    repeat(port, tc.mtr_mov_pos, pos_steps)
+    repeat(port, tc.mtr_mov_pos, steps)
 
-    # Request a HK and wait until no longer moving
-    hk = _hk(port)
-    while hk.MTR_FLAGS.MOVING:
-        hk = _hk(port)
-        event_log.info(
-            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
-        )
-        time.sleep(1)
-
-    if hk.ERROR_MTR != 0:
-        event_log.error(
-            "***MOTOR ERROR*** got the following: "
-            + f"\n CD : {hk.MTR_ERRORS.CD}"
-            + f"\n AB : {hk.MTR_ERRORS.AB}"
-            + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-            + f"\n DSE : {hk.MTR_ERRORS.DSE}"
-        )
-
-    # Then print a summary of the motor movement
-    # event_log.info(f"HK After Motor Movement Complete:" +
-    #                f"\t Error Byte: {hk.ERROR_BYTE}" +
-    #                f"\t Error MTR: {hk.ERROR_MTR}" +
-    #                f"\t MTR_ABS_STEPS: {hk.MTR_ABS_STEPS}" +
-    #                f"\t MTR_REL_STEPS: {hk.MTR_REL_STEPS}" +
-    #                f"\t MTR_FLAGS: {hk.MTR_FLAGS_BYTE}"
-    #                )
-
-    return
+    # Wait until no longer moving
+    wait_movement_complete(port, steps)
 
 
-def mv_neg_steps(port, pos_steps):
+def mv_neg_steps(port, steps):
     """
     Script that moves the mechanism a certain number of steps negative (towards the outer).
     Automatically checks that we are not already at the outer.
@@ -353,26 +327,10 @@ def mv_neg_steps(port, pos_steps):
         return
 
     # Then move the desired number of steps
-    repeat(port, tc.mtr_mov_neg, pos_steps)
+    repeat(port, tc.mtr_mov_neg, steps)
 
-    # Request a HK and wait until no longer moving
-    hk = _hk(port)
-    while hk.MTR_FLAGS.MOVING:
-        hk = _hk(port)
-        event_log.info(
-            "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
-        )
-        time.sleep(1)
-
-    if hk.ERROR_MTR != 0:
-        event_log.error(
-            "***MOTOR ERROR*** got the following: "
-            + f"\n CD : {hk.MTR_ERRORS.CD}"
-            + f"\n AB : {hk.MTR_ERRORS.AB}"
-            + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-            + f"\n DSE : {hk.MTR_ERRORS.DSE}"
-        )
-
+    # Wait until no longer moving
+    wait_movement_complete(port, steps)
 
 def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -623,9 +581,16 @@ def first_power_on(port):
 
     # Power up motor and Detector
     repeat(port, tc.power_control, 0x3)
+
+    # We've found that, without a 3s delay after tc.power_control, we
+    # get a NAK back from the motor movements below.
     time.sleep(3)
+
     cal_motor_to_base(port)
-    home_to_outer(port)
+
+    # Commented out - we don't need to move to outer,
+    # and it adds 2 whole transitions across the range.
+    #home_to_outer(port)
 
 
 def find_dac_offset(
@@ -812,11 +777,11 @@ def mv_abs_pos(port: serial.rs485.RS485, position: int) -> None:
     # Work out delta needed to reach measurement_position
     delta = position - hk.MTR_ABS_STEPS
 
-    event_log.info(f"Current position is {hk.MTR_ABS_STEPS}, need to move {delta} steps")
-
     if delta > 0:
+        event_log.info(f"Moving to {abs_pos}, which is {delta} positive steps from {hk_tm.MTR_ABS_STEPS}")
         mv_pos_steps(port, delta)
     elif delta < 0:
+        event_log.info(f"Moving to {abs_pos}, which is {-delta} negative steps from {hk_tm.MTR_ABS_STEPS}")
         mv_neg_steps(port, -delta)
     else:
         event_log.info("No movement needed")
@@ -868,12 +833,14 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
 
     # SWIR binary chop at base (9960)
     swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
+    event_log.info(f"SWIR offset = {swir_offset}")
 
     # Move to 8,000 for MWIR binary chop.
     mv_neg_steps(port, 1960)
 
     # Do MWIR binary chop.
     mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
+    event_log.info(f"MWIR offset = {mwir_offset}")
 
     # Home to Outer
     home_to_outer(port)
@@ -918,4 +885,4 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
     # FIXME: We should do something if MTR_ABS_STEPS is not
     # close enough to 9960 at this point.
 
-    event_log.info("Science Measurements Completed!!")
+    event_log.info("Science Measurements Completed")
