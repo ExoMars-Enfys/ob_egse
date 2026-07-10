@@ -156,28 +156,37 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
 
-        abu.first_power_on(ob_port)
+        abu.first_power_on(ob_port)  # Power on inc Cal to base
+
+        abu.abu_measurement_table_scan(ob_port, 4)  # Table 2 & DT0 DT1 (from Measurement_table.py)
+
+        # abu.abu_measurement_mode2_scan(ob_port, 8000, 1, 600)
 
         # Now move back to 9960.
-        abu.mv_abs_pos(ob_port, 9960)
+        # abu.mv_abs_pos(ob_port, 9960)
 
         # SWIR DAC offset
-        swir_offset = abu.find_dac_offset(ob_port, "SWIR", 5000, 1)
-        event_log.info(f"SWIR offset = {swir_offset}")
+        # swir_offset = abu.find_dac_offset(ob_port, "SWIR", 5000, 1)
+        # event_log.info(f"SWIR offset = {swir_offset}")
 
         # Now down to 8000.
-        abu.mv_abs_pos(ob_port, 8000)
+        # abu.mv_abs_pos(ob_port, 8000)
 
         # MWIR DAC offset
-        mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 5000, swir_offset)
-        event_log.info(f"MWIR offset = {mwir_offset}")
+        # mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 5000, swir_offset)
+        # event_log.info(f"MWIR offset = {mwir_offset}")
 
-        event_log.info("Starting Science Measurements")
+        # event_log.info("Starting Science Measurements")
+
+        # abu.home_to_outer(ob_port)  # Because this is where science measurements start
+        # hk = tc.hk_request(ob_port)
+        # outer_position = hk.MTR_ABS_STEPS
+        # outer_position = 0  # Placeholder value since hk request is commented out
 
         # Take samples from 1200 up to 9960 in steps of 30.
-        for position in range(1200, 9960, 30):
-            abu.mv_abs_pos(ob_port, position)
-            sci = tc.sci_request(ob_port, sci_adc_samp=4, sci_adc_skip=100)
+        # for position in range(outer_position, 9960, 30):
+        #    abu.mv_abs_pos(ob_port, position)
+        #    sci = tc.sci_request(ob_port, sci_adc_samp=4, sci_adc_skip=100)
 
         ## Clear Errors
         # tc.clear_errors(ob_port)
