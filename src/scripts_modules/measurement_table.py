@@ -117,9 +117,7 @@ class MeasurementTable:
     def from_abs_position_list(abs_positions):
         prev = MeasurementTable.LOW
         rel_positions = []
-        for pos in abs_positions:
-            if pos < prev:
-                raise ValueError("Absolute position list is not in increasing order")
+        for pos in sorted(abs_positions):
             if pos > MeasurementTable.HIGH:
                 raise ValueError(f"Position {pos} is out of range")
             rel_positions.append(pos-prev)
@@ -133,38 +131,35 @@ class MeasurementTable:
 # Some example tables. The first two are the reserved dark "low" and
 # "high" end tables.
 predefined = [
-    # Dark table 0: 11 points from 1600-1700
-    # to capture the low edge in SWIR.
-    MeasurementTable.from_abs_position_list(range(1600, 1701, 10)).table,
+    # Dark table 0: Fine resolution to capture the low edge in SWIR.
+    MeasurementTable.from_abs_position_list(range(1250, 1450, 5)).table,
 
-    # Dark table 1: captures points at the top edge of
-    # SWIR and around the two binary chop locations.
+    # Dark table 1: Fine resolution to capture the high edge in SWIR,
+    # along with a chunk at the end to capture SWIR BC.
     MeasurementTable.from_abs_position_list(
-        list(range(7990, 8011, 2)) +    # 7990-8010 in steps of 2 (MWIR BC)
-        list(range(9700, 9801, 10)) +   # 9700-9800 in steps of 10 (SWIR edge)
-        list(range(9940, 9961, 2))      # 9940-9960 in steps of 2 (SWIR BC)
+        list(range(9100, 9301, 5)) +    # Edge of SWIR
+        list(range(9940, 9961, 2))      # SWIR BC
     ).table,
 
-    # The entire range in intervals of 5 motor steps.
-    MeasurementTable.from_abs_position_list(range(1000, 9961, 5)).table,
+    # Measurement table 2: End of DT0 thru start of DT1 in steps of
+    # 30, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(1450, 9100, 30)) +
+        list(range(7990, 8011, 2))
+    ).table,
 
-    # The entire range in intervals of 20 motor steps.
-    MeasurementTable.from_abs_position_list(range(1000, 9961, 20)).table,
-
-    # The entire range in intervals of 30 motor steps.
-    MeasurementTable.from_abs_position_list(range(1000, 9961, 30)).table,
+    # Measurement table 3: End of DT0 thru start of DT1 in steps of
+    # 5, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(1450, 9100, 5)) +
+        list(range(7990, 8011, 2))
+    ).table,
 ]
 
 if __name__ == '__main__':
-
-    m = MeasurementTable(predefined[4],
+    m = MeasurementTable(predefined[2],
             before_table=MeasurementTable(predefined[0]), 
             after_table=MeasurementTable(predefined[1])
     )
     for rel, abs_pos in m.scan():
         print(f"Relative {rel} steps, position is now {abs_pos}")
-
-    m2 = MeasurementTable.from_abs_position_list(range(7990, 8012, 2))
-    print(str(m2))
-    import pprint
-    pprint.pprint(predefined)
