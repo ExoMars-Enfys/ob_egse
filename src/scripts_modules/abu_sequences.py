@@ -2,13 +2,14 @@ import logging
 import time
 from typing import Any
 from core_modules import config
+from core_modules import constants as const
 from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat as repeat
 from scripts_modules import sequences as sq
 import serial
 import pathlib
 from egse_dump_decoder import EGSEDumpDecoder
-# from scripts_modules.measurement_table import MeasurementTable
+from scripts_modules.measurement_table import MeasurementTable
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
@@ -846,9 +847,6 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
 
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")
-
-
-# import measurement_table as mt
 
 
 def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
