@@ -121,16 +121,16 @@ def wait_movement_complete(port, num_steps_expected=8960):
         event_log.info(
             "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
         )
-        time.sleep(0.1 if num_steps < 100 else 1)
+        time.sleep(0.1 if num_steps_expected < 100 else 1)
         hk = _hk(port)
     if hk.ERROR_MTR != 0:
         event_log.error(
-        "***MOTOR ERROR*** got the following: "
-        + f"\n CD : {hk.MTR_ERRORS.CD}"
-        + f"\n AB : {hk.MTR_ERRORS.AB}"
-        + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-        + f"\n DSE : {hk.MTR_ERRORS.DSE}"
-    )
+            "***MOTOR ERROR*** got the following: "
+            + f"\n CD : {hk.MTR_ERRORS.CD}"
+            + f"\n AB : {hk.MTR_ERRORS.AB}"
+            + f"\n ABS : {hk.MTR_ERRORS.ABS}"
+            + f"\n DSE : {hk.MTR_ERRORS.DSE}"
+        )
 
 
 def cal_motor_to_base(port):
@@ -331,6 +331,7 @@ def mv_neg_steps(port, steps):
 
     # Wait until no longer moving
     wait_movement_complete(port, steps)
+
 
 def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
     """
@@ -590,7 +591,7 @@ def first_power_on(port):
 
     # Commented out - we don't need to move to outer,
     # and it adds 2 whole transitions across the range.
-    #home_to_outer(port)
+    # home_to_outer(port)
 
 
 def find_dac_offset(
@@ -778,10 +779,10 @@ def mv_abs_pos(port: serial.rs485.RS485, position: int) -> None:
     delta = position - hk.MTR_ABS_STEPS
 
     if delta > 0:
-        event_log.info(f"Moving to {abs_pos}, which is {delta} positive steps from {hk_tm.MTR_ABS_STEPS}")
+        event_log.info(f"Moving to {position}, which is {delta} positive steps from {hk.MTR_ABS_STEPS}")
         mv_pos_steps(port, delta)
     elif delta < 0:
-        event_log.info(f"Moving to {abs_pos}, which is {-delta} negative steps from {hk_tm.MTR_ABS_STEPS}")
+        event_log.info(f"Moving to {position}, which is {-delta} negative steps from {hk.MTR_ABS_STEPS}")
         mv_neg_steps(port, -delta)
     else:
         event_log.info("No movement needed")

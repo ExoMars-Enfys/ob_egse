@@ -176,7 +176,7 @@ def main() -> None:
 
         # Take samples from 1200 up to 9960 in steps of 30.
         for position in range(1200, 9960, 30):
-            abu.mv_abs_pos(ob_port, position, event_log)
+            abu.mv_abs_pos(ob_port, position)
             sci = tc.sci_request(ob_port, sci_adc_samp=4, sci_adc_skip=100)
 
         ## Clear Errors
