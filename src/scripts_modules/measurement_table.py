@@ -114,11 +114,17 @@ class MeasurementTable:
                 yield (relative_pos, abs_pos)
                 prev = abs_pos
 
+    def range(self, backward=False):
+        if backward:
+            return (self.backward[0], self.backward[-1])
+        else:
+            return (self.forward[0], self.forward[-1])
+
     @staticmethod
     def from_abs_position_list(abs_positions):
         prev = MeasurementTable.LOW
         rel_positions = []
-        for pos in sorted(abs_positions):
+        for pos in sorted(list(set(abs_positions))):
             if pos > MeasurementTable.HIGH:
                 raise ValueError(f"Position {pos} is out of range")
             rel_positions.append(pos - prev)
@@ -130,43 +136,206 @@ class MeasurementTable:
         return str(self.table)
 
 
+def nyquist_range(
+    nyquist_factor, 
+    start_wavelength,
+    wavelength_to_motor_steps,
+    end_motor_steps=9960,
+    filter_bandwidth=0.01,
+):
+    steps = []
+    while True:
+        ms = round(wavelength_to_motor_steps(start_wavelength))
+        if ms > end_motor_steps:
+            break
+        steps.append(ms)
+        start_wavelength += start_wavelength*(filter_bandwidth/nyquist_factor)
+    return steps
+
+def swir_nyquist_range(
+    nyquist_factor, 
+    start_wavelength = 900,
+    end_wavelength = 1650,
+):
+    return nyquist_range(
+        nyquist_factor, 
+        start_wavelength,
+        wavelength_to_motor_steps = lambda w: (w - 614.2)/0.1211
+    )
+
+def mwir_nyquist_range(
+    nyquist_factor, 
+    start_wavelength = 1650,
+    end_wavelength = 2500,
+):
+    return nyquist_range(
+        nyquist_factor, 
+        start_wavelength,
+        end_wavelength,
+        wavelength_to_motor_steps = lambda w: (w - 1084.1)/0.2224
+    )
+
+mwir_binary_chop_check = list(range(7990, 8011, 2))
+
+dark0 = MeasurementTable.from_abs_position_list(
+    range(1250, 1450, 20)
+)
+
+dark1 = MeasurementTable.from_abs_position_list(
+        list(range(9100, 9301, 20)) + # Edge of SWIR
+        list(range(9940, 9961, 2))    # SWIR BC
+)
+
 # Some example tables. The first two are the reserved dark "low" and
 # "high" end tables.
 predefined = [
     # Dark table 0: Fine resolution to capture the low edge in SWIR.
-    MeasurementTable.from_abs_position_list(range(1250, 1450, 40)).table,
+    dark0.table,
 
     # Dark table 1: Fine resolution to capture the high edge in SWIR,
     # along with a chunk at the end to capture SWIR BC.
-    MeasurementTable.from_abs_position_list(
-        list(range(9100, 9301, 40)) +    # Edge of SWIR
-        list(range(9940, 9961, 2))      # SWIR BC
-    ).table,
+    dark1.table,
 
-    # Measurement table 2: End of DT0 thru start of DT1 in steps of
-    # 30, with an extra bit around MWIR BC location.
+    # Measurement table 2: End of DT0 thru start of DT1 in steps of 2
     MeasurementTable.from_abs_position_list(
-        list(range(1450, 9100, 30)) +
-        list(range(7990, 8011, 2))
+        list(range(dark0.range()[1], dark1.range()[0], 2))
     ).table,
 
     # Measurement table 3: End of DT0 thru start of DT1 in steps of
-    # 5, with an extra bit around MWIR BC location.
+    # 3, with extra resolution around MWIR BC location.
     MeasurementTable.from_abs_position_list(
-        list(range(1450, 9100, 5)) +
-        list(range(7990, 8011, 2))
+        list(range(dark0.range()[1], dark1.range()[0], 3)) + 
+        mwir_binary_chop_check 
     ).table,
 
     # Measurement table 4: End of DT0 thru start of DT1 in steps of
+    # 4, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 4)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 5: End of DT0 thru start of DT1 in steps of
     # 5, with an extra bit around MWIR BC location.
     MeasurementTable.from_abs_position_list(
-        list(range(1450, 9100, 50)) +
-        list(range(7990, 8011, 2))
+        list(range(dark0.range()[1], dark1.range()[0], 5)) + 
+        mwir_binary_chop_check 
     ).table,
+
+    # Measurement table 6: End of DT0 thru start of DT1 in steps of
+    # 6, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 6)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 7: End of DT0 thru start of DT1 in steps of
+    # 7, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 7)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 8: End of DT0 thru start of DT1 in steps of
+    # 8, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 8)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 9: End of DT0 thru start of DT1 in steps of
+    # 9, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 9)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 10: End of DT0 thru start of DT1 in steps of
+    # 10, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 10)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 11: End of DT0 thru start of DT1 in steps of
+    # 20, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 20)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 12: End of DT0 thru start of DT1 in steps of
+    # 30, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 30)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 13: End of DT0 thru start of DT1 in steps of
+    # 40, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 40)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 14: End of DT0 thru start of DT1 in steps of
+    # 50, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 50)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 15: End of DT0 thru start of DT1 in steps of
+    # 60, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 60)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 16: End of DT0 thru start of DT1 in steps of
+    # 70, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 70)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 17: End of DT0 thru start of DT1 in steps of
+    # 80, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 80)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 18: End of DT0 thru start of DT1 in steps of
+    # 90, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 90)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 19: End of DT0 thru start of DT1 in steps of
+    # 100, with an extra bit around MWIR BC location.
+    MeasurementTable.from_abs_position_list(
+        list(range(dark0.range()[1], dark1.range()[0], 100)) + 
+        mwir_binary_chop_check 
+    ).table,
+
+    # Measurement table 20: Nyquist spacing with bandwidth 1% and 
+    # factor 2.3 using SW wavelengths.
+    MeasurementTable.from_abs_position_list(
+        swir_nyquist_range(2.3) + 
+        mwir_binary_chop_check
+    ).table
 ]
 
 if __name__ == '__main__':
-    m = MeasurementTable(predefined[2],
+    table = 20
+    m = MeasurementTable(predefined[table],
             before_table=MeasurementTable(predefined[0]), 
             after_table=MeasurementTable(predefined[1])
     )
+    print(f"Measurement table {table}")
+    print(f"Length: {len(m.table)}")
+    print(f"Table: {m.table}")
+    print(f"Forward range: {m.range()}")
+    print(f"Backward range: {m.range(backward=True)}")
