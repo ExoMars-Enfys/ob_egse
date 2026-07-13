@@ -121,7 +121,7 @@ def wait_movement_complete(port, num_steps_expected=8960):
         event_log.info(
             "Motor MOVING: Absolute Steps : " + f"{hk.MTR_ABS_STEPS:04d}, Relative Steps: {hk.MTR_REL_STEPS:04d}"
         )
-        time.sleep(0.1 if num_steps_expected < 100 else 1)
+        time.sleep(0.1 if num_steps_expected < 640 else 1)
         hk = _hk(port)
     if hk.ERROR_MTR != 0:
         event_log.error(
