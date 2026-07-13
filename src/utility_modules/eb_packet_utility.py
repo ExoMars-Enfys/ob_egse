@@ -1,24 +1,26 @@
-_sci_data_short_warning_shown = False
-# Std library
-import bitstruct
 import logging
 import math
+import threading
 
 # Added packages
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
+import bitstruct
 
 # Local modules
 # core
 from core_modules import config as config
 from core_modules import constants as const
 from core_modules import tmstruct as tmstruct
+from utility_modules import comms as comms
+from utility_modules import tc as tc
+from utility_modules import tm as tm
+
+_sci_data_short_warning_shown = False
 
 # --- Global latest HK/PSU cache (thread-safe) ---
-import threading
-
 _latest_hk = None
 _latest_psu = None
 _hk_lock = threading.Lock()
@@ -57,11 +59,6 @@ def get_latest_psu():
     with _psu_lock:
         return _latest_psu
 
-
-# utilities
-from utility_modules import comms as comms
-from utility_modules import tc as tc
-from utility_modules import tm as tm
 
 info_log = logging.getLogger("info_log")
 

@@ -4,12 +4,13 @@ import logging
 
 # Additional libraries
 from abc import abstractmethod
-from datetime import datetime
 from collections import namedtuple
-from bitstruct import unpack_from as upf
+from datetime import datetime
+
 import bitstruct
 import crc8
 import serial.rs485
+from bitstruct import unpack_from as upf
 
 # Local modules
 # core
@@ -22,7 +23,6 @@ from core_modules import tmstruct as tmstruct
 from utility_modules import comms as comms
 from utility_modules import tc as tc
 from utility_modules import tm as tm
-
 
 info_log = logging.getLogger("info_log")
 

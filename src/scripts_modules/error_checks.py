@@ -1,7 +1,5 @@
 import logging
-import time
-import constants as const
-import send_cmd
+
 import tc
 
 # ----Logging Setup---------------------------------------------------------------------------------
@@ -14,7 +12,7 @@ class ClearError(Exception):
 
 def check_set_ob_errors(port):
     errors_found = []
-    event_log.info(f"--Setting OB Errors... --")       
+    event_log.info("--Setting OB Errors... --")       
     tc.set_errors(port,True,True,False,False,False,False,False,False,False,False,False,False,False,False)
     try:
         resp = tc.hk_request(port)
@@ -33,7 +31,7 @@ def check_set_ob_errors(port):
         event_log.error(f"SetError occurred: {e}")
     
     errors_found = []
-    event_log.info(f"--Clearing OB Errors... --") 
+    event_log.info("--Clearing OB Errors... --") 
     tc.clear_errors(port)
     try:
         resp = tc.hk_request(port)
@@ -50,7 +48,7 @@ def check_set_ob_errors(port):
 
 def check_set_mtr_errors(port):
     errors_found = []
-    event_log.info(f"--Setting MTR Errors... --") 
+    event_log.info("--Setting MTR Errors... --") 
     tc.power_control(port,0x03)
     tc.set_errors(port,False,False,False,False,True,True,True,False,False,False,False,False,False,False)
     tc.mtr_mov_pos(port,0x010)
@@ -71,7 +69,7 @@ def check_set_mtr_errors(port):
         event_log.error(f"SetMTRError occurred: {e}")
     
     errors_found = []
-    event_log.info(f"--Clearing MTR Errors... --") 
+    event_log.info("--Clearing MTR Errors... --") 
     tc.clear_errors(port)
     try:
         resp = tc.hk_request(port)
@@ -88,7 +86,7 @@ def check_set_mtr_errors(port):
 
 def check_mask_mtr_errors(port):
     errors_found = []
-    event_log.info(f"--Setting MTR Masks... --") 
+    event_log.info("--Setting MTR Masks... --") 
     tc.power_control(port,0x03)
     tc.set_errors(port,False,False,False,False,False,False,False,True,True,True,True,True,True,True)
     tc.mtr_mov_pos(port,0x010)
@@ -109,7 +107,7 @@ def check_mask_mtr_errors(port):
         event_log.error(f"SetMaskMTRError occurred: {e}")
 
     errors_found = []
-    event_log.info(f"--Setting MTR Errors for Masked Errors... --") 
+    event_log.info("--Setting MTR Errors for Masked Errors... --") 
     tc.set_errors(port,False,False,True,True,True,True,True,True,True,True,True,True,True,True)
     try:
         resp = tc.hk_request(port)

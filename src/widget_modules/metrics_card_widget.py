@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import time
+
 # Std library
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-import time
 
 # Added packages
-from nicegui import ui, app
+from nicegui import app, ui
 
 # Local modules
 # core
@@ -16,12 +17,11 @@ from core_modules import constants as const
 from core_modules import tmstruct
 
 # utilities
-from utility_modules import hk_conversions, app_theme
+from utility_modules import app_theme, hk_conversions
 from utility_modules.eb_packet_utility import adu_to_temp
 
 # widgets
 from widget_modules import popup_widget
-
 
 ValueGetter = Callable[[Any], Any]
 
@@ -280,7 +280,7 @@ def _has_any_asserted(packet: Any, attr_name: str, fields: list[str]) -> bool | 
     return any(bool(getattr(namespace, field, 0)) for field in fields)
 
 
-def _decoded(packet: Any, field_name: str) -> float | None:
+def decoded(packet: Any, field_name: str) -> float | None:
     display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
     if display_mode == "ADU":
         raw = getattr(packet, field_name, None)
@@ -451,7 +451,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_12v",
             label="+12V",
-            getter=lambda hk: _decoded(hk, "EB_MEAS_MAIN_12V"),
+            getter=lambda hk: decoded(hk, "EB_MEAS_MAIN_12V"),
             unit="V",
             bounds=const.WLIM_EB_12V,
             alarm_bounds=const.ALIM_EB_12V,
@@ -461,7 +461,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_neg12v",
             label="-12V",
-            getter=lambda hk: _decoded(hk, "EB_MEAS_MAIN_NEG12V"),
+            getter=lambda hk: decoded(hk, "EB_MEAS_MAIN_NEG12V"),
             unit="V",
             bounds=const.WLIM_EB_NEG12V,
             alarm_bounds=const.ALIM_EB_NEG12V,
@@ -471,7 +471,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_5v",
             label="+5V",
-            getter=lambda hk: _decoded(hk, "EB_MEAS_5V"),
+            getter=lambda hk: decoded(hk, "EB_MEAS_5V"),
             unit="V",
             bounds=const.WLIM_EB_5V,
             alarm_bounds=const.ALIM_EB_5V,
@@ -481,7 +481,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_3v3",
             label="+3V3",
-            getter=lambda hk: _decoded(hk, "EB_MEAS_3V3"),
+            getter=lambda hk: decoded(hk, "EB_MEAS_3V3"),
             unit="V",
             bounds=const.WLIM_EB_3V3,
             alarm_bounds=const.ALIM_EB_3V3,
@@ -491,7 +491,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_mcu_temp",
             label="MCU TEMP",
-            getter=lambda hk: _decoded(hk, "EB_MCU_INTERNAL_TEMP"),
+            getter=lambda hk: decoded(hk, "EB_MCU_INTERNAL_TEMP"),
             unit="°C",
             bounds=const.WLIM_EB_MCU_INTERNAL_TEMP,
             alarm_bounds=const.ALIM_EB_MCU_INTERNAL_TEMP,
@@ -501,7 +501,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_internal_temp",
             label="INTRNL TEMP",
-            getter=lambda hk: _decoded(hk, "EB_INTERNAL_TRP_TEMP"),
+            getter=lambda hk: decoded(hk, "EB_INTERNAL_TRP_TEMP"),
             unit="°C",
             bounds=const.WLIM_EB_INTERNAL_TRP_TEMP,
             alarm_bounds=const.ALIM_EB_INTERNAL_TRP_TEMP,
@@ -511,7 +511,7 @@ def _eb_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="eb_psu_temp",
             label="PSU TEMP",
-            getter=lambda hk: _decoded(hk, "EB_PSU_BOARD_TEMP"),
+            getter=lambda hk: decoded(hk, "EB_PSU_BOARD_TEMP"),
             unit="°C",
             bounds=const.WLIM_EB_PSU_BOARD_TEMP,
             alarm_bounds=const.ALIM_EB_PSU_BOARD_TEMP,
@@ -546,7 +546,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="3v3",
             label="+3.3V",
-            getter=lambda hk: _decoded(hk, "OB_3V3_VOLTAGE"),
+            getter=lambda hk: decoded(hk, "OB_3V3_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_3V3,
             alarm_bounds=const.ALIM_3V3,
@@ -556,7 +556,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="1v5",
             label="+1.5V",
-            getter=lambda hk: _decoded(hk, "OB_1V5_VOLTAGE"),
+            getter=lambda hk: decoded(hk, "OB_1V5_VOLTAGE"),
             unit="V",
             bounds=const.WLIM_1V5,
             alarm_bounds=const.ALIM_1V5,
@@ -566,7 +566,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="dig",
             label="DIG:",
-            getter=lambda hk: _decoded(hk, "OB_DIGITAL_TRP"),
+            getter=lambda hk: decoded(hk, "OB_DIGITAL_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
             alarm_bounds=const.ALIM_TPR,
@@ -576,7 +576,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="det",
             label="DET:",
-            getter=lambda hk: _decoded(hk, "OB_DETECTOR_TRP"),
+            getter=lambda hk: decoded(hk, "OB_DETECTOR_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
             alarm_bounds=const.ALIM_TPR,
@@ -586,7 +586,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="mech",
             label="MECH:",
-            getter=lambda hk: _decoded(hk, "OB_MECHANISM_TRP"),
+            getter=lambda hk: decoded(hk, "OB_MECHANISM_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
             alarm_bounds=const.ALIM_TPR,
@@ -596,7 +596,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="mtr",
             label="MTR",
-            getter=lambda hk: _decoded(hk, "OB_MOTOR_TRP"),
+            getter=lambda hk: decoded(hk, "OB_MOTOR_TRP"),
             unit="°C",
             bounds=const.WLIM_TPR,
             alarm_bounds=const.ALIM_TPR,

@@ -3,12 +3,11 @@ from __future__ import annotations
 # Std library
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 from typing import Any
 
 # Added packages
-from nicegui import run, ui, app
+from nicegui import app, run, ui
 
 # Local modules
 # analysis
@@ -18,13 +17,11 @@ from analysis_modules import sci_plot
 # core
 from core_modules import tmstruct
 
+# utilities
+from utility_modules import app_theme, hk_conversions
+
 # widgets
 from widget_modules import ui_runtime_controller
-
-# utilities
-from utility_modules import app_theme
-from utility_modules import hk_conversions
-
 
 PACKET_PROFILE_FIELDS: dict[str, list[str]] = {
     "EB_HK": [name for name, _ in tmstruct.eb_hk if name != "PADDING"],

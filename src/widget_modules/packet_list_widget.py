@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 # Added packages
-from nicegui import ui, app
+from nicegui import app, ui
 
 # Local utilities
 from utility_modules import app_theme

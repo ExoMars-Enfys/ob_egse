@@ -1,10 +1,11 @@
 import logging
 import time
 from typing import Any
+
 from core_modules import config
+from scripts_modules import sequences as sq
 from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat as repeat
-from scripts_modules import sequences as sq
 
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")

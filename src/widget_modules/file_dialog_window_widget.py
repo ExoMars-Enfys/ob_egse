@@ -2,9 +2,7 @@ from __future__ import annotations
 
 # Std library
 import logging
-from tkinter import Tk
-from tkinter import filedialog
-
+from tkinter import Tk, filedialog
 
 logger = logging.getLogger("info_log")
 

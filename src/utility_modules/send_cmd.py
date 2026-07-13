@@ -1,14 +1,18 @@
 # Std library
 import logging
+
 # Added packages
 import sys
 from contextlib import nullcontext
+
 # Local modules
 #core
 from core_modules import config as config
+
 #utilities
 from utility_modules import comms as comms
 from utility_modules import tc as tc
+
 info_log = logging.getLogger("info_log")
 
 def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs):

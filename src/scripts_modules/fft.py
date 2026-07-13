@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import logging
+import time
 from queue import Empty
 
-import time
-
 from core_modules import constants as const
-from utility_modules import eb_interface, ebtcs, eb_packet_utility as ebpu
+from utility_modules import eb_interface, ebtcs
+from utility_modules import eb_packet_utility as ebpu
 from widget_modules import ui_runtime_controller
-import logging
 
 info_log = logging.getLogger("info_log")
 
@@ -51,7 +51,7 @@ def run_fft(verification: bool = True) -> None:
         try:
             latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
-        except Empty as exc:
+        except Empty:
             errors.append("Missing HK or PSU queue data (mech ON, det OFF)")
             latest_hk = None
             latest_psu = None
@@ -81,7 +81,7 @@ def run_fft(verification: bool = True) -> None:
         try:
             latest_hk = ebpu.get_latest_hk()
             latest_psu = const.psu_queue.get(timeout=2.0)
-        except Empty as exc:
+        except Empty:
             errors.append("Missing HK or PSU queue data (mech OFF, det ON)")
             latest_hk = None
             latest_psu = None
@@ -296,7 +296,7 @@ def run_fft(verification: bool = True) -> None:
             raise AssertionError(msg)
 
     ui_runtime_controller.perform_homing_check_sync()
-    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
     
     time.sleep(3.5)
     ebtcs.en_mech_heater(interface, 0x0)
@@ -346,7 +346,7 @@ def run_fft(verification: bool = True) -> None:
     if verification:
         ui_runtime_controller.perform_acq_check_sync(acq_mode=2, acq_duration_s=0x0078, acq_sample_time_ms=0x0064)
 
-    ui_runtime_controller.request_force_pause(f"Remove Baffle Hat and continue with acquisition. Click to continue once ready.")
+    ui_runtime_controller.request_force_pause("Remove Baffle Hat and continue with acquisition. Click to continue once ready.")
     ebtcs.set_hk_rate(interface, 0, 1)
 
     #?State 6 SCI ACQ with heaters OFF and baffle hat off
@@ -369,10 +369,10 @@ def run_fft(verification: bool = True) -> None:
 
     ebtcs.ob_homing(interface, 0x02)
     ui_runtime_controller.perform_homing_check_sync()
-    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
 
     ebtcs.generic_tc(interface, 0x1, 0x0A, 0x01, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-    ui_runtime_controller.request_force_pause(f"Click to continue once ready.")
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
     ebtcs.safe(interface, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     # End of FFT

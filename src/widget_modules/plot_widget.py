@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import datetime as dt
+
 # Std library
 from dataclasses import dataclass
 from typing import Any, Callable
-import datetime as dt
-from matplotlib import ticker, dates as mdates
-import numpy as np
+
+from matplotlib import dates as mdates
+from matplotlib import ticker
 
 # Added packages
 from nicegui import app, ui
@@ -109,7 +111,6 @@ def create_plot_card(
     def _fmt_x_tick(x, pos):
         try:
             dt = mdates.num2date(x)
-            ms = dt.microsecond // 1000
             return f"{dt.strftime('%M:%S')}"
         except Exception:
             return ""

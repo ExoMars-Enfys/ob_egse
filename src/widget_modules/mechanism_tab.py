@@ -4,8 +4,8 @@ from typing import Any
 
 from nicegui import ui
 
-from utility_modules import tc
 import widget_modules.ui_runtime_controller as ui_runtime_controller
+from utility_modules import tc
 
 
 def create_mechanism_tab(state: dict[str, Any]) -> None:

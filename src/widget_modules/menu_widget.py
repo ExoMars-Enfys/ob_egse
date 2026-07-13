@@ -6,16 +6,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-
 # Added packages
-from nicegui import app, ui, run
+from nicegui import app, run, ui
 
 # Local modules
 from core_modules import constants as const
-from widget_modules import file_dialog_window_widget, ui_runtime_controller
+from scripts_modules import EMC_HE, EMC_HS, EMC_Init, EMC_ReInit, fft
+from utility_modules import app_theme, eb_interface, ebtcs
 from utility_modules.desktop_launcher import destroy_desktop_window
-from utility_modules import eb_interface, ebtcs, app_theme
-from scripts_modules import fft, EMC_Init, EMC_HE, EMC_HS, EMC_ReInit
+from widget_modules import file_dialog_window_widget, ui_runtime_controller
 
 
 @dataclass
@@ -112,12 +111,11 @@ def create_menu(
                     lbl_adu.style(f"font-size: {menu_label_size}")
                 model_options = const.MODELS
                 model_labels = list(model_options)
-                model_keys = {label: label for label in model_options}
 
                 def on_model_change(e):
                     state["model"] = e.value
                     app.state.current_model = e.value
-                
+
                 def _on_mms_toggle(e: Any) -> None:
                     enabled = bool(e.value)
                     mms_cfg = state.setdefault("mms", {})
@@ -135,7 +133,7 @@ def create_menu(
                     lbl_mms_state.style(f"font-size: {menu_label_size}")
 
                 with ui.row().classes("items-center gap-2 w-full"):
-                    selected_model = ui.select(
+                    ui.select(
                         model_labels,
                         value=state.get("model", model_labels[0]),
                         label="Select Model",
@@ -269,6 +267,7 @@ def _call_set_mode(set_mode_fn: Any | None, mode: str) -> None:
 def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
     """Handle voltage mode change and apply to PSU."""
     from contextlib import nullcontext
+
     from utility_modules import psu
 
     new_mode = e.value
@@ -570,6 +569,7 @@ def _handle_script_hotkeys(state: dict[str, Any], script_key: str, event: Any) -
 def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
     from contextlib import nullcontext
+
     from utility_modules import psu
 
     # Reuse the same method as the Stop EB EGSE Tools button

@@ -1,16 +1,15 @@
 # Std library
+import logging
+import time
 from contextlib import nullcontext
 from datetime import datetime
-import logging
 
 # Added packages
 import serial
-import time
 
 # Local modules
 from core_modules import config as config
 from core_modules import constants as const
-
 
 info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
@@ -109,7 +108,6 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
     if not port:
         return
 
-    last_status = None
     last_ch1_status = None
     last_ch2_status = None
     last_ch3_status = None
@@ -135,7 +133,6 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
 
             if last_mode_is_eb is None or last_mode_is_eb != active_ebmode:
                 # Reset edge detectors on mode transition so first ON in new mode gets transient delay.
-                last_status = 0
                 last_ch1_status = 0
                 last_ch2_status = 0
                 last_ch3_status = 0
@@ -226,7 +223,6 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         ):
                             on_since = time.monotonic()
 
-                    last_status = ob_status
                     last_ch1_status = ch1_status
                     last_ch2_status = ch2_status
                     last_ch3_status = ch3_status

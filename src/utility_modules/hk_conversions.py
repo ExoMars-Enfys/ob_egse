@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from utility_modules.eb_packet_utility import decode_eb_trps, adu_to_temp as decode_ob_trps
-
+from utility_modules.eb_packet_utility import adu_to_temp as decode_ob_trps
+from utility_modules.eb_packet_utility import decode_eb_trps
 
 ConvertFn = Callable[[int], float]
 

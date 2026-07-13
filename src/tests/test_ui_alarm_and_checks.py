@@ -24,7 +24,7 @@ def test_ob_alarm_details_filter_only_ob_related_flags() -> None:
         MTR_ERRORS=SimpleNamespace(DSE=1),
     )
 
-    details = urc._ob_alarm_details(hk)
+    details = urc.ob_alarm_details(hk)
 
     assert "OB Warning: OB_UNRESPONSIVE" in details
     assert "OB Warning: GENERAL_ERROR" not in details
@@ -44,7 +44,7 @@ def test_eb_alarm_details_filter_only_eb_related_flags_and_tcs_rejected() -> Non
         FDIR_WARNING_FLAGS_BITS=SimpleNamespace(PSU_BOARD_TEMPERATURE=1, MOTOR_TRP=1),
     )
 
-    details = urc._eb_alarm_details(hk)
+    details = urc.eb_alarm_details(hk)
 
     assert "TCS Rejected: 2" in details
     assert "EB Warning: GENERAL_ERROR" in details
@@ -59,7 +59,7 @@ def test_log_new_hk_alarm_details_logs_raise_once() -> None:
     state = {}
     logger = _DummyLogger()
 
-    urc._log_new_hk_alarm_details(
+    urc.log_new_hk_alarm_details(
         state,
         logger,
         channel="ob",
@@ -72,7 +72,7 @@ def test_log_new_hk_alarm_details_logs_raise_once() -> None:
     # Re-logging same details should not produce duplicate raise messages.
     warn_count = len(logger.warns)
     error_count = len(logger.errors)
-    urc._log_new_hk_alarm_details(
+    urc.log_new_hk_alarm_details(
         state,
         logger,
         channel="ob",

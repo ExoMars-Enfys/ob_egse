@@ -8,6 +8,8 @@ from typing import Any
 # Added packages
 from nicegui import app, ui
 
+import widget_modules.ui_runtime_controller as ui_runtime_controller
+
 # Local modules
 # core
 from core_modules import constants as const
@@ -27,12 +29,11 @@ from widget_modules import (
     metrics_card_widget,
     packet_list_widget,
     packet_viewer_widget,
-    psu_widget,
+    parameter_explorer,
     plot_widget,
+    psu_widget,
     traffic_light_widget,
 )
-import widget_modules.ui_runtime_controller as ui_runtime_controller
-
 
 logger = logging.getLogger("info_log")
 
@@ -332,9 +333,7 @@ def build_ui(
             with (
                 ui.header()
                 .classes("w-full px-4 py-1 items-center")
-                .style(
-                    "z-index: 1300; backdrop-filter: none; background: var(--primary-bg);"
-                )
+                .style("z-index: 1300; backdrop-filter: none; background: var(--primary-bg);")
             ):
                 with ui.row().classes("w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-3"):
@@ -451,7 +450,12 @@ def build_ui(
                 state["plot_refreshers"].append(voltage_card.set_mode)
                 voltage_card.set_mode(state["mode"])
 
-            return [ch1_card, ch2_card, ch3_card, ch4_card], trp_card, voltage_card
+            # HK Parameter Explorer
+            hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)
+            state["plot_refreshers"].append(hk_explorer_card.set_mode)
+            hk_explorer_card.set_mode(state["mode"])
+
+            return [ch1_card, ch2_card, ch3_card, ch4_card], trp_card, voltage_card, hk_explorer_card
 
         def build_ob_controls() -> Any:
             """Build OB-only mechanism/detector control tabs and return visibility sync callback."""
@@ -505,9 +509,10 @@ def build_ui(
         build_top_bar()
         build_right_drawer()
         build_footer()
-        psu_cards, trp_card, voltage_card = build_centre_console()
+        psu_cards, trp_card, voltage_card, hk_explorer_card = build_centre_console()
         state["trp_card"] = trp_card
         state["voltage_card"] = voltage_card
+        state["hk_explorer_card"] = hk_explorer_card
         set_ob_controls_visible = build_ob_controls()
         state["plot_refreshers"].append(set_ob_controls_visible)
         set_ob_controls_visible(state["mode"])
@@ -552,6 +557,7 @@ def build_ui(
             packet_viewer_controllers=packet_viewer_controllers,
             trp_card=trp_card,
             voltage_card=voltage_card,
+            hk_explorer_card=hk_explorer_card,
         )
 
         ui.timer(0.2, poll_psu)
