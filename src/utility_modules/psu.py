@@ -176,7 +176,8 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         "PSU_ROV_HTR_V": rov_htr_v,
                         "PSU_ROV_HTR_I": rov_htr_i,
                     }
-                    const.psu_queue.put(psu_readings)
+                    if const.psu_queue is not None:
+                        const.psu_queue.put(psu_readings)
 
                     psu_log.info(
                         f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\tCH4(status={ebstatus}) {eb_v}\t{eb_i}"
@@ -252,7 +253,8 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         "CH3_V": ch3_v,
                         "CH3_I": ch3_i,
                     }
-                    const.psu_queue.put(psu_readings)
+                    if const.psu_queue is not None:
+                        const.psu_queue.put(psu_readings)
 
                     psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
 
