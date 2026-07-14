@@ -99,7 +99,7 @@ class MeasurementTable:
     ):
         """Alternative constructor.
 
-        This one generates steps between before_table and after_table in 
+        This one generates steps between before_table and after_table in
         steps that are determined by the specified LVF bandwidth, the
         over-sampling factor (nyquist_factor) and a calibrated function
         for getting from motor steps to wavelength.
@@ -117,10 +117,10 @@ class MeasurementTable:
                 next_wavelength = wavelength*(1+filter_bandwidth/nyquist_factor)
             position += 1
         return cls.from_abs_position_list(
-            positions + extra_positions, 
-            before_table=before_table, 
+            positions + extra_positions,
+            before_table=before_table,
             after_table=after_table
-        ) 
+        )
 
 
     def scan(self, start=None, end=None, start_motor_steps=LOW):
@@ -208,7 +208,7 @@ class MeasurementTable:
         return str(self.table)
 
 # The section below generates a list of predefined measurement tables that
-# we expect to be present on the instrument. If you run the module as a 
+# we expect to be present on the instrument. If you run the module as a
 # script, it will report the total number of tables and points within them,
 # and it you supply a table number, it will give information about that
 # predefined table.
@@ -354,7 +354,7 @@ predefined = [
 
     # Measurement table 20: Nyquist spacing with bandwidth 1% and
     # factor 2.3 using SWIR wavelengths.
-    MeasurementTable.nyquist_steps_between(_dark0, _dark1, 
+    MeasurementTable.nyquist_steps_between(_dark0, _dark1,
         2.3,
         motor_steps_to_wavelength = lambda ms: 0.1225*ms + 664.6,
         extra_positions = _mwir_binary_chop_check
@@ -362,11 +362,33 @@ predefined = [
 
     # Measurement table 21: Nyquist spacing with bandwidth 1% and
     # factor 2.3 using MWIR wavelengths.
-    MeasurementTable.nyquist_steps_between(_dark0, _dark1, 
+    MeasurementTable.nyquist_steps_between(_dark0, _dark1,
         2.3,
         motor_steps_to_wavelength = lambda ms: 0.2228*ms + 1174.8,
         extra_positions = _mwir_binary_chop_check
     ).table,
+
+    # Measurement table 22: Nyquist spacing as determined by Matt
+    # (email 2026-07-13)
+    #
+    # Starting point of 1922 equates to 900nm in SWIR.
+    MeasurementTable.from_abs_position_list([x + 1922 for x in [
+            0, 37, 74, 111, 149, 186, 223, 261, 298, 336, 373, 411, 448, 486,
+            523, 561, 598, 636, 674, 711, 749, 787, 825, 863, 900, 938, 976,
+            1014, 1052, 1090, 1128, 1167, 1205, 1243, 1281, 1320, 1358, 1396,
+            1435, 1473, 1512, 1550, 1589, 1628, 1666, 1705, 1744, 1783, 1822,
+            1861, 1900, 1939, 1978, 2017, 2056, 2096, 2135, 2174, 2214, 2253,
+            2293, 2333, 2373, 2412, 2452, 2492, 2532, 2573, 2613, 2653, 2693,
+            2734, 2774, 2815, 2856, 2896, 2937, 2978, 3019, 3060, 3102, 3143,
+            3184, 3226, 3267, 3309, 3351, 3393, 3435, 3477, 3519, 3562, 3604,
+            3647, 3689, 3732, 3775, 3818, 3861, 3905, 3948, 3992, 4035, 4079,
+            4123, 4167, 4212, 4256, 4301, 4345, 4390, 4435, 4480, 4526, 4571,
+            4617, 4663, 4709, 4755, 4801, 4848, 4894, 4941, 4988, 5036, 5083,
+            5131, 5178, 5227, 5275, 5323, 5372, 5421, 5470, 5519, 5569, 5618,
+            5667, 5717, 5766, 5816, 5865, 5915, 5965, 6015, 6066, 6116, 6167,
+            6217, 6268, 6319, 6370, 6422, 6473,
+        ]
+    ]).table,
 ]
 
 if __name__ == "__main__":
