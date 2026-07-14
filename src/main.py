@@ -156,9 +156,13 @@ def main() -> None:
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
 
-        abu.first_power_on(ob_port)  # Power on inc Cal to base
+        abu.first_power_on_cal_outer(ob_port)  # Power on inc Cal to outer
 
-        abu.abu_measurement_table_scan(ob_port, 4)  # Table 2 & DT0 DT1 (from Measurement_table.py)
+        abu.abu_measurement_table_scan2(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        time.sleep(1)  # Adding a 1 second delay
+
+        abu.abu_measurement_table_scan2(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        # abu.abu_measurement_mode2_scan(ob_port, 2739, 1, 300)
 
         # abu.abu_measurement_mode2_scan(ob_port, 8000, 1, 600)
 

@@ -189,6 +189,57 @@ def cal_motor_to_base(port):
     event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
 
 
+def cal_motor_to_outer(port):
+    """
+    This function powers the Mechanism board (if it isn't already).
+    Then commands the motor to CAL to OUTER.
+    As it moves it will report the relative and absolute steps.
+    """
+    event_log.info("Running abu cal_to_outer2")
+    # TODO: Update all to "send_cmd"
+    # Check mechanism powered, if not enable.
+    hk = _hk(port)
+    if not (hk.PWR_STAT & 0x01):
+        # Perform bitwise OR in case Detector is on and we want to leave it powered
+        repeat(port, tc.power_control, hk.PWR_STAT | 0x01)
+
+        # TODO can probably remove this check and replace above with send_cmd and verify
+        resp = _hk(port)
+
+    # Home to Outer with Cal
+    repeat(port, tc.mtr_homing, True, True)
+    resp = _hk(port)
+
+    # Check to see if at the Outer
+    if not resp.MTR_FLAGS.OUTER:
+        event_log.info("Moving to outer, waiting for switch to be pressed.")
+        wait_movement_complete(port)
+        event_log.info("Motor movement finished")
+    else:
+        event_log.info("Motor Did not Move, Outer Flag Asserted")
+
+    # Check motor status now its stopped.
+    resp = _hk(port)
+    if resp.MTR_FLAGS.CAL != 0:
+        event_log.error(f" Calibration Flag Asserted : {resp.MTR_FLAGS.CAL}")
+    if resp.MTR_FLAGS.DIR != 1:
+        event_log.error(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
+    if resp.MTR_FLAGS.OUTER != 1:
+        event_log.error(f"OUTER Switch Flag not asserted : {resp.MTR_FLAGS.OUTER}")
+    if resp.MTR_FLAGS.BASE != 0:
+        event_log.error(f"Base Switch Flag is asserted : {resp.MTR_FLAGS.BASE}")
+    if resp.MTR_FLAGS.MOVING != 0:
+        event_log.error(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
+    if resp.MTR_FLAGS.HOMING != 0:
+        event_log.error(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
+
+    if resp.MTR_REL_STEPS == 0:
+        event_log.error("Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
+
+    event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
+    event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
+
+
 def home_to_outer(port):
     """
     This function powers the Mechanism board (if it isn't already).
@@ -594,6 +645,27 @@ def first_power_on(port):
     # home_to_outer(port)
 
 
+def first_power_on_cal_outer(port):
+    """
+    Very simple sequence that powers on both sub-systems.
+    Then Calibrates the mech to OUTER
+    Then Moves the mech to Base
+    """
+    event_log.info("Running ABU First power on, cal to Outer, home to Base")
+
+    # Power up motor and Detector
+    repeat(port, tc.power_control, 0x3)
+
+    # We've found that, without a 3s delay after tc.power_control, we
+    # get a NAK back from the motor movements below.
+    time.sleep(3)
+
+    cal_motor_to_outer(port)
+
+    # Commented out - we don't need to move to base,
+    # and it adds 2 whole transitions across the range.
+
+
 def find_dac_offset(
     port: serial.rs485.RS485,
     sensor_name: str,
@@ -841,6 +913,83 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
 
     # Do MWIR binary chop.
     mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
+    event_log.info(f"MWIR offset = {mwir_offset}")
+
+    # Home to Outer
+    home_to_outer(port)
+
+    # Get HK so we can find the current position.
+    hk_tm = _hk(port)
+
+    # FIXME: We should do something if MTR_ABS_STEPS is not
+    # close enough to 1000 at this point.
+
+    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
+
+    # Run through the measurement table - we tell the iterator the
+    # current motor steps so it can align things where we expect them to be.
+    for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
+        # Action the requested move (assuming a move was needed).
+        if rel_move < 0:
+            mv_neg_steps(port, -rel_move)
+        elif rel_move > 0:
+            mv_pos_steps(port, rel_move)
+
+        # Request a Science Measurement and log the result.
+        sci = _sci(port, sci_adc_samp, sci_adc_skip)
+        hk_tm = _hk(port)
+        event_log.info(
+            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
+            f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
+            + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
+            + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
+            + f"   SW_M: {sci.SWIR_MED:04d}"
+            + f"   SW_H: {sci.SWIR_HIGH:04d}"
+            + f"\t MW_L: {sci.MWIR_LOW:04d}"
+            + f"   MW_M: {sci.MWIR_MED:04d}"
+            + f"   MW_HH: {sci.MWIR_HIGH:04d}"
+            + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
+            + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
+        )
+
+    # Home to base so we can check motor steps is OK.
+    home_to_base(port)
+
+    # FIXME: We should do something if MTR_ABS_STEPS is not
+    # close enough to 9960 at this point.
+
+    event_log.info("Science Measurements Completed")
+
+
+def abu_measurement_table_scan2(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
+    """
+    Performs the basic Enfys science measurement table operation
+    After an earlier Calibration to Outer and home to base!!!
+    Goes to the Base Does ABC
+    Drives across the whole range of the mechanism using the step_spacing specified in the function
+    Halts once Base Stop is reached
+    """
+    event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
+
+    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
+    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
+    table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
+
+    # Cal to Outer
+    # cal_motor_to_outer(port)
+
+    # Move to Base
+    home_to_base(port)
+
+    # SWIR binary chop at base (9600)
+    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
+    event_log.info(f"SWIR offset = {swir_offset}")
+
+    # Move to 8,000 for MWIR binary chop.
+    mv_neg_steps(port, 1600)
+
+    # Do MWIR binary chop.
+    mwir_offset = find_dac_offset(port, "MWIR", 15000, swir_offset)
     event_log.info(f"MWIR offset = {mwir_offset}")
 
     # Home to Outer
