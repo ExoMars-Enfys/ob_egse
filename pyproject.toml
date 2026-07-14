@@ -2,7 +2,7 @@
 name = "enfys-ob-egse"
 version = "0.1.0"
 description = "Python egse for the Enfys Optical Box"
-authors = ["Barry Whiteside <34492784+Chaldene@users.noreply.github.com>"]
+authors = [ { name="Barry Whiteside", email="34492784+Chaldene@users.noreply.github.com" } ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
