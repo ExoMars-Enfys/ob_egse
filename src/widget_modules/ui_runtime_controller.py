@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+import statistics
 import threading
 from types import SimpleNamespace
 import time
@@ -28,11 +29,13 @@ info_log = logging.getLogger("info_log")
 
 """This module contains backend controller functions for the UI, which are responsible for handling user interactions, updating the application state, and coordinating between different UI components and the underlying data. These controllers are designed to be bound to specific UI elements and provide a clear separation of concerns between the UI layout and the logic that drives it."""
 
-
-# Script force-pause control
-
 _FORCE_PAUSE_EVENT = threading.Event()
 _SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
+_SCI_ACQ_TRIGGER_S = 150.0
+_SCI_CONSUMPTION_CHECK_DURATION_S = 5.0
+_SCI_CONSUMPTION_PER_SAMPLE_TIMEOUT_S = 0.25
+_SCI_CONSUMPTION_MIN_SAMPLES = 25
+_SCI_CONSUMPTION_MOVING_MIN_FRACTION = 0.50
 _POST_REQUIRED_FIELDS = (
     "POST_WARNING_FLAGS",
     "POST_ERROR_FLAGS",
@@ -48,7 +51,249 @@ _POST_REQUIRED_FIELDS = (
 )
 
 
-def _get_smoothed_psu_sample(
+# ---------------------------------------------------------------------------
+# MMS helpers — limit checking
+# ---------------------------------------------------------------------------
+# region MMS helpers — limit checking
+
+
+def append_violation(
+    reasons: list[str], label: str, value: float | None, limits: tuple[float | None, float | None]
+) -> bool:
+    if not violates_limits(value, limits):
+        return False
+    low, high = limits
+    reasons.append(f"{label} out of limits: value={value}, limits=({low}, {high})")
+    return True
+
+
+def limit_tuple(value: Any) -> tuple[float | None, float | None]:
+    if isinstance(value, tuple) and len(value) == 2:
+        return value
+    return (None, None)
+
+
+def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]:
+    reasons: list[str] = []
+    tec_pre_action = False
+    ob5v_pre_action = False
+
+    # Check OB_5V_ENABLED and SAFE mode
+    instr_status_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
+    ob_5v_enabled = (instr_status_flags >> 5) & 0x1  # OB_5V_ENABLED is bit 5
+    current_state = int(
+        getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
+    )
+    skip_ob_checks = (not ob_5v_enabled) or (current_state == 0x02)
+
+    for label, field_name, limit_key, tec_field in _MMS_FIELDS:
+        if label.startswith("OB ") and skip_ob_checks:
+            continue  # Skip OB parameter checks if OB is off or in SAFE
+        violated = append_violation(reasons, label, decoded(hk, field_name), limit_tuple(limits.get(limit_key)))
+        tec_pre_action = tec_pre_action or (tec_field and violated)
+        ob5v_pre_action = ob5v_pre_action or (label.startswith("OB ") and violated)
+
+    if bool(getattr(hk, "POST_ERROR_FLAGS", 0)):
+        reasons.append("POST Error Flags asserted")
+
+    if bool(getattr(hk, "ERROR_FLAGS", 0)):
+        ns = getattr(hk, "ERROR_FLAGS_BITS", None)
+        eb_flags = sorted(k for k, v in vars(ns).items() if v == 1 and k != "RESERVED") if ns is not None else []
+        if const.MMS_MASK_OB_GENERAL_ERROR:
+            eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
+        if eb_flags:
+            reasons.append(f"HK Error Flags asserted: {', '.join(eb_flags)}")
+        elif ns is None:
+            reasons.append("HK Error Flags asserted")
+
+    # OB error details — decoded from OB_LAST_ERROR byte.
+    # OB_GENERAL_ERROR on EB is sticky: the OB register may already be 0 by the time
+    # MMS fires.  Always include the raw byte value so operators have full context.
+    ob_last_error_raw = getattr(hk, "OB_LAST_ERROR", None)
+    ob_err_active = (
+        sorted(k for k, v in vars(ns).items() if v == 1 and k not in {"UNUSED1", "UNUSED2"})
+        if (ns := getattr(hk, "ERRORS", None)) is not None
+        else []
+    )
+    if ob_err_active:
+        reasons.append(f"OB Errors: {', '.join(ob_err_active)} (OB_LAST_ERROR=0x{ob_last_error_raw:02X})")
+    elif ob_last_error_raw is not None and ob_last_error_raw != 0:
+        reasons.append(f"OB_LAST_ERROR=0x{ob_last_error_raw:02X} (no active bits decoded)")
+
+    # Motor error details — decoded from OB_MOTOR_ERROR byte.
+    ob_motor_error_raw = getattr(hk, "OB_MOTOR_ERROR", None)
+    mtr_err_active = (
+        sorted(k for k, v in vars(ns).items() if v == 1 and k != "UNUSED")
+        if (ns := getattr(hk, "MTR_ERRORS", None)) is not None
+        else []
+    )
+    if mtr_err_active:
+        reasons.append(f"OB Motor Errors: {', '.join(mtr_err_active)} (OB_MOTOR_ERROR=0x{ob_motor_error_raw:02X})")
+    elif ob_motor_error_raw is not None and ob_motor_error_raw != 0:
+        reasons.append(f"OB_MOTOR_ERROR=0x{ob_motor_error_raw:02X} (no active bits decoded)")
+
+    return reasons, tec_pre_action, ob5v_pre_action
+
+
+def violates_limits(value: float | None, limits: tuple[float | None, float | None]) -> bool:
+    if value is None:
+        return False
+    low, high = limits
+    return (low is not None and value < low) or (high is not None and value > high)
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+# region Notifications
+
+
+def clear_force_pause() -> None:
+    """Release a previously requested forced pause."""
+    _FORCE_PAUSE_EVENT.clear()
+
+
+def is_force_paused() -> bool:
+    """Return True when script execution is held by a forced pause."""
+    return _FORCE_PAUSE_EVENT.is_set()
+
+
+def notify(msg: str, color: str = "primary") -> None:
+    """Send a UI notification that is safe to call from any thread.
+
+    Uses ``loop.call_soon_threadsafe`` to enqueue the notification message
+    directly into each connected client's outbox on the NiceGUI event loop
+    thread.  This mirrors what ``ui.notify`` does internally but is safe to
+    call from background threads (e.g. scripts running via ``run.io_bound``).
+    """
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        info_log.info("[notify] %s", msg)
+        return
+
+    def _enqueue() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    ui.notify(str(msg), color=color, multi_line=True)
+            except Exception as exc:
+                info_log.debug("notify: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_enqueue)
+
+
+def notify_negative(msg) -> None:
+    notify(msg, color="negative")
+
+
+def notify_positive(msg) -> None:
+    notify(msg, color="positive")
+
+
+def notify_script_done() -> None:
+    """Notify the user that the script has completed."""
+    notify("Script execution complete.", color="positive")
+
+
+def notify_script_pause(current: int, total: int) -> None:
+    """Notify the user that the script is paused, showing progress."""
+    notify(f"Script paused, command {current} of {total}", color="warning")
+
+
+def request_force_pause(msg: str = "") -> None:
+    """Request a forced pause — blocks script execution until the user resumes or aborts.
+
+    Sets ``_FORCE_PAUSE_EVENT``, shows a notification, then polls until the event is
+    cleared by ``clear_force_pause()`` (triggered by the UI resume button) or the
+    script abort event fires.
+    """
+    if msg:
+        notify(msg, color="warning")
+    _FORCE_PAUSE_EVENT.set()
+    while _FORCE_PAUSE_EVENT.is_set():
+        if is_aborted():
+            _FORCE_PAUSE_EVENT.clear()
+            raise RuntimeError("Script aborted during forced pause.")
+        time.sleep(0.25)
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# PSU helpers — consumption check (public)
+# ---------------------------------------------------------------------------
+# region PSU helpers — consumption check (public)
+
+
+def consumption_check(state_names, psu_sample: dict, errors: list[str], latest_hk: Any = None) -> float | None:
+    """
+    Checks PSU current for the given state(s) and current OB model.
+    Accepts a single state name (str) or a list of state names.
+    Sums expected values for all provided states.
+    Appends error to errors if out of range.
+    Model is read from app.state.current_model.
+
+    If latest_hk is provided, verify_heater_states() is called automatically and the
+    active heater states (["MechHTR", "DetHTR"] subset) are appended to state_names.
+    """
+    from nicegui import app as _app
+
+    model = getattr(_app.state, "current_model", None)
+    if model is None:
+        errors.append("No model specified for PSU consumption check.")
+        return None
+    if model not in MODEL_CONSUMPTION:
+        errors.append(f"Unknown OB model: {model}")
+        return None
+    model_dict = MODEL_CONSUMPTION[model]
+    if isinstance(state_names, str):
+        state_names = [state_names]
+    else:
+        state_names = list(state_names)
+    if latest_hk is not None:
+        heater_states = verify_heater_states(latest_hk, errors)
+        if not any(s in HEATER_INCLUSIVE_STATES for s in state_names):
+            state_names += heater_states
+    missing = [s for s in state_names if s not in model_dict]
+    if missing:
+        errors.append(f"Unknown state(s) {missing} for model '{model}'")
+        return None
+    if psu_sample is None:
+        errors.append("No PSU sample provided for consumption check.")
+        return None
+    measured_current_ma = float(psu_sample.get("PSU_EB_I") or 0.0) * 1000.0
+    base = sum(model_dict[s] for s in state_names)
+    min_i = base - 10
+    max_i = base + 10
+    if not (min_i <= measured_current_ma <= max_i):
+        errors.append(
+            f"PSU_EB_I out of range for {state_names} ({model}): got {measured_current_ma:.2f} mA, expected {min_i}-{max_i}"
+        )
+    return measured_current_ma
+
+
+# Per-heater history for verify_heater_states() — persists across HK poll cycles.
+# Tracks the last definitive expected state (established when TRP was outside the
+# hysteresis band) and the previous mode flags so that enable-transitions can be
+# detected (the firmware initialises to OFF when transitioning from disabled → auto).
+_heater_state_history: dict[str, dict] = {
+    "Mech": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
+    "Det": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
+}
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# PSU helpers — moving-average smoothing
+# ---------------------------------------------------------------------------
+# region PSU helpers — moving-average smoothing
+
+
+def get_smoothed_psu_sample(
     psu_queue: Any,
     *,
     timeout: float = 2.0,
@@ -98,7 +343,562 @@ def _get_smoothed_psu_sample(
     return averaged_sample
 
 
-# --- HK and POST check for scripts (ported from ebgui) ---
+def resolve_consumption_bounds(
+    state_names: str | list[str],
+    errors: list[str],
+    latest_hk: Any = None,
+) -> tuple[list[str], float, float] | None:
+    """Resolve expected PSU_EB_I bounds for the requested state(s)."""
+    from nicegui import app as _app
+
+    model = getattr(_app.state, "current_model", None)
+    if model is None:
+        errors.append("No model specified for PSU consumption check.")
+        return None
+    if model not in MODEL_CONSUMPTION:
+        errors.append(f"Unknown OB model: {model}")
+        return None
+
+    model_dict = MODEL_CONSUMPTION[model]
+    if isinstance(state_names, str):
+        resolved_states = [state_names]
+    else:
+        resolved_states = list(state_names)
+
+    if latest_hk is not None:
+        heater_states = verify_heater_states(latest_hk, errors)
+        if not any(s in HEATER_INCLUSIVE_STATES for s in resolved_states):
+            resolved_states += heater_states
+
+    missing = [s for s in resolved_states if s not in model_dict]
+    if missing:
+        errors.append(f"Unknown state(s) {missing} for model '{model}'")
+        return None
+
+    base_current_ma = sum(model_dict[s] for s in resolved_states)
+    min_i = base_current_ma - 10
+    max_i = base_current_ma + 10
+    return resolved_states, min_i, max_i
+
+
+def windowed_consumption_check(
+    state_names: str | list[str],
+    errors: list[str],
+    latest_hk: Any = None,
+    *,
+    duration_s: float = _SCI_CONSUMPTION_CHECK_DURATION_S,
+    per_sample_timeout_s: float = _SCI_CONSUMPTION_PER_SAMPLE_TIMEOUT_S,
+    min_samples: int = _SCI_CONSUMPTION_MIN_SAMPLES,
+    require_motor_moving: bool = False,
+    moving_fraction_required: float = _SCI_CONSUMPTION_MOVING_MIN_FRACTION,
+) -> float | None:
+    """Run a repeatable PSU consumption check over a short time window.
+
+    Samples are MA-smoothed per sample via `get_smoothed_psu_sample`.
+    Pass/fail is decided by whether the window median lies within expected
+    bounds. Returns the median measured current in mA.
+    """
+    bounds = resolve_consumption_bounds(state_names, errors, latest_hk)
+    if bounds is None:
+        return None
+    resolved_states, min_i, max_i = bounds
+
+    deadline = time.monotonic() + max(float(duration_s), float(per_sample_timeout_s))
+    measured_ma: list[float] = []
+    moving_obs_count = 0
+    moving_true_count = 0
+
+    while time.monotonic() < deadline:
+        try:
+            sample = get_smoothed_psu_sample(const.psu_queue, timeout=per_sample_timeout_s)
+        except Empty:
+            continue
+        if not isinstance(sample, dict):
+            continue
+        measured_current_ma = float(sample.get("PSU_EB_I") or 0.0) * 1000.0
+        measured_ma.append(measured_current_ma)
+
+        if require_motor_moving:
+            hk_now = get_latest_hk() or latest_hk
+            if hk_now is not None:
+                mtr = getattr(hk_now, "MTR_FLAGS", None)
+                moving = bool(getattr(mtr, "MOVING", 0))
+                moving_obs_count += 1
+                if moving:
+                    moving_true_count += 1
+
+    if not measured_ma:
+        errors.append("No PSU samples captured during SCI ACQ windowed current check.")
+        return None
+
+    sample_count = len(measured_ma)
+    median_ma = statistics.median(measured_ma)
+
+    if sample_count < int(min_samples):
+        errors.append(
+            "SCI ACQ consumption check collected too few PSU samples "
+            f"({sample_count} < {int(min_samples)}) over {duration_s:.1f}s."
+        )
+
+    if not (min_i <= median_ma <= max_i):
+        errors.append(
+            "PSU_EB_I median out of range for "
+            f"{resolved_states}: median={median_ma:.2f} mA, "
+            f"expected {min_i:.1f}-{max_i:.1f} mA"
+        )
+
+    if require_motor_moving:
+        if moving_obs_count <= 0:
+            errors.append("SCI ACQ check could not verify motor motion (no HK MTR_FLAGS observations in window).")
+        else:
+            moving_fraction = moving_true_count / moving_obs_count
+            if moving_fraction < float(moving_fraction_required):
+                errors.append(
+                    "SCI ACQ check did not run during sufficient motor motion: "
+                    f"MOVING true {moving_true_count}/{moving_obs_count} "
+                    f"({moving_fraction * 100:.1f}%), required >= {float(moving_fraction_required) * 100:.1f}%"
+                )
+
+    info_log.info(
+        "SCI ACQ windowed consumption stats - states=%s expected=[%.1f, %.1f] mA samples=%d "
+        "median=%.2f mA moving_obs=%d moving_true=%d",
+        resolved_states,
+        min_i,
+        max_i,
+        sample_count,
+        median_ma,
+        moving_obs_count,
+        moving_true_count,
+    )
+    return float(median_ma)
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# PSU helpers — runtime polling / replay / cards
+# ---------------------------------------------------------------------------
+# region PSU helpers — runtime polling / replay / cards
+
+
+def apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
+    update_psu_readings(state, psu_sample)
+    update_psu_cards(psu_cards, psu_sample)
+
+
+def build_replay_psu_sample(state: dict[str, Any], psu_cards: list[Any], record: dict[str, Any]) -> dict[str, Any]:
+    channels = record.get("CHANNELS", {})
+    sample: dict[str, Any] = {key: None for key in _PSU_SAMPLE_KEYS if key != "status"}
+    sample.update({"TIME": datetime.now(), "STATUS": bool(record.get("STATUS", True))})
+
+    for card in psu_cards:
+        channel_data: dict[str, Any] = {}
+        preferred_channels, allow_fallback = card_channel_preferences(card, state["mode"])
+        for channel_name in preferred_channels:
+            candidate = channels.get(channel_name, {})
+            if candidate.get("V") is not None or candidate.get("I") is not None:
+                channel_data = candidate
+                break
+        if not channel_data and allow_fallback:
+            for fallback_name in ("CH4", "CH3", "CH2", "CH1"):
+                candidate = channels.get(fallback_name, {})
+                if candidate.get("V") is not None or candidate.get("I") is not None:
+                    channel_data = candidate
+                    break
+
+        voltage_key = card.channel.get("live_voltage_key")
+        current_key = card.channel.get("live_current_key")
+        if isinstance(voltage_key, str):
+            sample[voltage_key] = channel_data.get("V")
+        if isinstance(current_key, str):
+            sample[current_key] = channel_data.get("I")
+
+    return sample
+
+
+def card_channel_preferences(card: Any, mode: str) -> tuple[list[str], bool]:
+    by_mode = card.channel.get("replay_channel_by_mode", {})
+    configured = by_mode.get(mode, by_mode.get("EB") or "CH3")
+    if isinstance(configured, str):
+        return [configured.upper()], True
+    if isinstance(configured, list):
+        channels = [str(ch).upper() for ch in configured if str(ch)]
+        return channels, bool(channels)
+    return ["CH3"], True
+
+
+def create_poll_psu(*, state: dict[str, Any], const: Any, psu_cards: list[Any]) -> Any:
+    """Create PSU polling callback bound to the current UI state and cards."""
+
+    def poll_psu() -> None:
+        replay = state["psu_replay"]
+        saw_live_psu = False
+        latest_live_sample = None
+        # Bound per-tick queue work to keep the UI event loop responsive.
+        max_live_samples_per_tick = 25
+        processed = 0
+        while not const.psu_queue.empty() and processed < max_live_samples_per_tick:
+            saw_live_psu = True
+            latest_live_sample = const.psu_queue.get()
+            ingest_live_psu_sample(state, psu_cards, latest_live_sample)
+            processed += 1
+
+        if latest_live_sample is not None:
+            # Draw one point per UI tick while MA includes all drained live samples.
+            for card in psu_cards:
+                card.push_smoothed(latest_live_sample.get("TIME"))
+
+        if saw_live_psu:
+            return
+
+        # Replay is only used when there are no live PSU samples available.
+        if not state["log_search"]["enabled"] and not replay.get("enabled"):
+            return
+
+        if not replay.get("enabled"):
+            return
+        records = replay.get("records") or []
+        if not records:
+            return
+
+        idx = int(replay.get("index", 0))
+        sample = build_replay_psu_sample(state, psu_cards, records[idx % len(records)])
+        apply_psu_sample(state, psu_cards, sample)
+        replay["index"] = idx + 1
+
+    return poll_psu
+
+
+# TM helpers
+
+
+_OB_TRP_FIELDS = tuple(name for name in ("OB_DIGITAL_TRP", "OB_DETECTOR_TRP", "OB_MECHANISM_TRP", "OB_MOTOR_TRP"))
+_VOLTAGE_3V3_FIELDS = tuple(name for name in ("OB_3V3_VOLTAGE", "EB_MEAS_3V3"))
+_WARNING_NAMES = [name for name, _ in tmstruct.eb_warning_flags]
+_FDIR_NAMES = [name for name, _ in tmstruct.eb_fdir_flags]
+_OB_WARNING_FLAGS = {
+    "OB_FDIR_ALARM",
+    "OB_GENERAL_ERROR",
+    "OB_MOTOR_ERROR",
+    "OB_UNRESPONSIVE",
+    "OB_STEP_COUNT_MISMATCH",
+}
+_OB_FDIR_FLAGS = {
+    "FPGA_IO_POWER_SUPPLY",
+    "FPGA_CORE_POWER_SUPPLY",
+    "DIGITAL_BOARD_TRP",
+    "DETECTOR_BOARD_TRP",
+    "MECH_BOARD_TRP",
+    "MOTOR_TRP",
+}
+_EB_WARNING_FLAGS = {
+    "GENERAL_ERROR",
+    "EB_FDIR_ALARM",
+    "WATCHDOG_TIMEOUT_DETECTED",
+    "NO_RET_RECEIVED",
+    "NO_HEALTHY_ASW_IMAGE",
+    "PATCH_WRITING_ERROR",
+    "RS422_RECEIVE_ERROR",
+    "RS422_TRANSMIT_ERROR",
+    "RS485_RECEIVE_ERROR",
+    "RS485_TRANSMIT_ERROR",
+}
+_EB_FDIR_FLAGS = {
+    "EB_PLUS_12V_SUPPLY",
+    "EB_MINUS_12V_SUPPLY",
+    "EB_PLUS_5V_SUPPLY",
+    "EB_PLUS_3V3_SUPPLY",
+    "PROCESSOR_INTERNAL_TEMPERATURE",
+    "INTERNAL_TRP_TEMPERATURE",
+    "PSU_BOARD_TEMPERATURE",
+}
+
+
+def create_set_psu_card_profiles(*, ch1_card: Any, ch2_card: Any, ch3_card: Any, ch4_card: Any) -> Any:
+    """Create mode-dependent PSU card profile callback bound to PSU card controllers."""
+
+    def set_psu_card_profiles(mode: str) -> None:
+        ob_mode = mode == "OB"
+        ch1_card.apply_profile(
+            title="CH1 +12V Current",
+            visible=ob_mode,
+            live_voltage_key="CH1_V",
+            live_current_key="CH1_I",
+            replay_channels=["CH1"],
+        )
+        ch2_card.apply_profile(
+            title="CH2 -12V Current",
+            visible=ob_mode,
+            live_voltage_key="CH2_V",
+            live_current_key="CH2_I",
+            replay_channels=["CH2"],
+        )
+        ch3_card.apply_profile(
+            title="CH3 +5V Current" if ob_mode else "CH3 ROVHTR Current",
+            visible=True,
+            live_voltage_key="CH3_V" if ob_mode else "PSU_ROV_HTR_V",
+            live_current_key="CH3_I" if ob_mode else "PSU_ROV_HTR_I",
+            replay_channels=["CH3"],
+        )
+        ch4_card.apply_profile(
+            title="CH4 ROVHTR Current" if ob_mode else "CH4 +28V Current",
+            visible=True,
+            live_voltage_key="CH4_V" if ob_mode else "PSU_EB_V",
+            live_current_key="CH4_I" if ob_mode else "PSU_EB_I",
+            replay_channels=["CH4"],
+        )
+
+    return set_psu_card_profiles
+
+
+def create_set_psu_log_path(*, state: dict[str, Any], logger: Any) -> Any:
+    """Create PSU replay-log setter callback bound to current state."""
+
+    def set_psu_log_path(psu_log_path: str | None) -> bool:
+        replay = state["psu_replay"]
+        if not psu_log_path:
+            reset_psu_replay(replay)
+            return False
+
+        records = psu_log_utility.load_psu_channel_samples(psu_log_path)
+        now = datetime.now()
+        replay["enabled"] = bool(records)
+        replay["source_path"] = psu_log_path
+        replay["records"] = records
+        replay["index"] = 0
+        replay["hk_anchor"] = now if records else None
+        replay["latest_hk_time"] = now if records else None
+        replay["psu_anchor"] = records[0]["TIME"] if records else None
+
+        if records:
+            logger.info("Loaded %d PSU replay samples from %s", len(records), psu_log_path)
+            return True
+
+        logger.warning("No valid PSU replay samples found in %s", psu_log_path)
+        return False
+
+    return set_psu_log_path
+
+
+def ingest_live_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
+    """Feed live PSU samples into MA buffers without plotting each one."""
+    set_latest_psu(psu_sample)
+    update_psu_readings(state, psu_sample)
+    update_psu_cards(psu_cards, psu_sample, plot_sample=False)
+
+
+def reset_psu_replay(replay: dict[str, Any]) -> None:
+    replay["enabled"] = False
+    replay["source_path"] = None
+    replay["records"] = []
+    replay["index"] = 0
+    replay["hk_anchor"] = None
+    replay["latest_hk_time"] = None
+    replay["psu_anchor"] = None
+
+
+def update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any], *, plot_sample: bool = True) -> None:
+    for card in psu_cards:
+        status_key = card.channel.get("status_key")
+        if isinstance(status_key, str) and status_key in psu_sample and psu_sample.get(status_key) is not None:
+            card.set_enabled_from_psu(bool(psu_sample.get(status_key)))
+        current_key = card.channel.get("live_current_key")
+        if isinstance(current_key, str):
+            if plot_sample:
+                card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
+            else:
+                card.ingest_sample(psu_sample.get(current_key))
+
+
+def update_psu_readings(state: dict[str, Any], psu_sample: dict[str, Any]) -> None:
+    readings = state["last_psu_readings"]
+    for key in _PSU_SAMPLE_KEYS:
+        source_key = "STATUS" if key == "status" else key
+        readings[key] = psu_sample.get(source_key)
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# Script checks — HK / POST verification
+# ---------------------------------------------------------------------------
+# region Script checks — HK / POST verification
+
+
+async def perform_acq_check(
+    acq_mode: int = 0,
+    acq_duration_s: int = 0,
+    acq_timeout_s: float | None = None,
+    acq_sample_time_ms: int = 0,
+) -> None:
+    """Async wrapper that runs the synchronous acquisition check in an executor."""
+    await run.io_bound(lambda: perform_acq_check_sync(acq_mode, acq_duration_s, acq_timeout_s, acq_sample_time_ms))
+
+
+def perform_acq_check_sync(
+    acq_mode: int = 0,
+    acq_duration_s: int = 0,
+    acq_timeout_s: float | None = None,
+    acq_sample_time_ms: int = 0,
+) -> None:
+    """Synchronous acquisition wait helper. Blocks until acquisition completes or timeout/abort.
+
+    Completion is determined by firmware state: waits for CURRENT_OPERATING_STATE to
+    enter 0x08 (Acquisition), then waits for it to leave 0x08 (back to Standby/Safe).
+    This is correct regardless of acquisition mode, sample spacing, or packet count.
+
+    For mode 2 (Fixed-point) acquisitions the firmware runs a setup phase (ADC
+    initialisation / pre-scan) *inside* the 0x08 state before data collection begins.
+    The firmware enforces a minimum spacing of 250 ms even when a smaller value is
+    configured.  The timeout is therefore:
+
+        timeout = acq_duration_s + setup_overhead + 120 s safety margin
+
+    where setup_overhead = (effective_spacing_ms / 250) * 360 s  (6 min at the 250 ms
+    minimum, scaling linearly for larger spacings).
+    effective_spacing_ms = max(acq_sample_time_ms, 250) when acq_sample_time_ms > 0,
+    otherwise 250 ms is assumed.
+
+    All other modes default to 300 s.
+
+    Args:
+        acq_mode: acquisition mode (2 = Fixed-point; others use the default 300 s timeout).
+        acq_duration_s: ACQ_DURATION field from SET_ACQ_CONFIGS, in seconds.
+        acq_timeout_s: override the computed timeout (seconds).
+        acq_sample_time_ms: ACQ_SAMPLE_TIME field from SET_ACQ_CONFIGS, in ms.
+            Used to compute effective spacing; values below 250 are clamped to 250.
+
+    This can be called from synchronous script code (e.g. inside `run_fft`).
+    For async callers, use `await perform_acq_check()` which delegates to `run.io_bound`.
+    """
+    if acq_timeout_s is None:
+        if acq_mode == 2 and acq_duration_s > 0:
+            effective_spacing_ms = max(acq_sample_time_ms, 250) if acq_sample_time_ms > 0 else 250
+            # Setup overhead: firmware ADC setup inside 0x08 takes ~4 min at 250 ms
+            # minimum spacing; scale linearly for larger spacings.
+            setup_overhead_s = int(effective_spacing_ms / 250 * 360)
+            safety_s = 120
+            acq_timeout_s = acq_duration_s + setup_overhead_s + safety_s
+            info_log.debug(
+                "Mode 2 acquisition: effective_spacing=%d ms, setup_overhead=%d s,"
+                " timeout=%d s (duration %d s + setup %d s + safety %d s)",
+                effective_spacing_ms,
+                setup_overhead_s,
+                acq_timeout_s,
+                acq_duration_s,
+                setup_overhead_s,
+                safety_s,
+            )
+        else:
+            acq_timeout_s = 300
+    _ACQ_STATE = 0x08
+    start_time = time.monotonic()
+    _acq_150s_checked = False
+
+    info_log.debug("Starting acquisition wait: waiting for CURRENT_OPERATING_STATE=0x08...")
+
+    # --- Phase 1: wait for the EB to enter Acquisition state ---
+    while True:
+        if is_aborted():
+            notify_negative("Acquisition aborted by user.")
+            raise RuntimeError("Acquisition aborted by user.")
+        if time.monotonic() - start_time > acq_timeout_s:
+            notify_negative("Timeout waiting for acquisition to start.")
+            raise TimeoutError("Timeout waiting for acquisition to start.")
+        latest_hk = get_latest_hk()
+        if latest_hk is not None and getattr(latest_hk, "CURRENT_OPERATING_STATE", None) == _ACQ_STATE:
+            sci_count = getattr(latest_hk, "SCIENCE_PACKETS_SENT", 0)
+            info_log.info(
+                "Acquisition started (CURRENT_OPERATING_STATE=0x08), initial SCIENCE_PACKETS_SENT=%s",
+                sci_count,
+            )
+            break
+        time.sleep(1)
+
+    # --- Phase 2: wait for the EB to leave Acquisition state ---
+    while True:
+        if is_aborted():
+            notify_negative("Acquisition aborted by user.")
+            raise RuntimeError("Acquisition aborted by user.")
+        if time.monotonic() - start_time > acq_timeout_s:
+            notify_negative("Timeout waiting for acquisition to complete.")
+            raise TimeoutError("Timeout waiting for acquisition to complete.")
+
+        latest_hk = get_latest_hk()
+        if latest_hk is None:
+            time.sleep(1)
+            continue
+
+        # One-shot PSU current check at t+150s from ACQ sequence start.
+        # This aligns with the SCI flow timing where cooldown/homing/dark/start-move
+        # typically occupy most of the first ~150 s before science data collection.
+        if not _acq_150s_checked and time.monotonic() - start_time >= _SCI_ACQ_TRIGGER_S:
+            _acq_150s_checked = True
+            try:
+                errors: list[str] = []
+                ch4_current_ma = windowed_consumption_check(
+                    ["State6"],
+                    errors,
+                    latest_hk,
+                )
+                thrm = getattr(latest_hk, "THRM_STATUS", None)
+                if errors:
+                    count = len(errors)
+                    numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+                    info_log.warning(
+                        "SCI ACQ t+150s check \u2014 %d error%s: %s",
+                        count,
+                        "s" if count != 1 else "",
+                        "; ".join(numbered),
+                    )
+                    notify_negative(
+                        f"SCI ACQ t+150s check failed ({count} error{'s' if count != 1 else ''}):\n"
+                        + "\n".join(numbered)
+                    )
+                else:
+                    msg = (
+                        f"Power State 6 : SCI ACQ (windowed) \u2014 PSU_EB_I median: {ch4_current_ma:.2f} mA, "
+                        f"CURRENT_OPERATING_STATE: {getattr(latest_hk, 'CURRENT_OPERATING_STATE', None)}, "
+                        f"THRM_STATUS.HMS: {getattr(thrm, 'HMS', 0)}, THRM_STATUS.HDS: {getattr(thrm, 'HDS', 0)}, "
+                        f"TEC_SETPOINT: {getattr(latest_hk, 'TEC_SETPOINT', None)}"
+                    )
+                    info_log.info(msg)
+                    notify_positive(msg)
+            except Exception as exc:
+                info_log.warning("Acquisition t+150s PSU current check failed: %s", exc)
+
+        cos = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
+        if cos != _ACQ_STATE:
+            sci_count_end = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
+            acq_complete_msg = (
+                (f"Acquisition complete — CURRENT_OPERATING_STATE=0x{cos:02X}, SCIENCE_PACKETS_SENT={sci_count_end}")
+                if cos is not None
+                else (f"Acquisition complete — SCIENCE_PACKETS_SENT={sci_count_end}")
+            )
+            info_log.info(
+                "Acquisition complete: CURRENT_OPERATING_STATE=0x%02X, SCIENCE_PACKETS_SENT=%s at %s",
+                cos if cos is not None else 0,
+                sci_count_end,
+                getattr(latest_hk, "TIME", None),
+            )
+            notify_positive(acq_complete_msg)
+            # Drain one SCI packet from the queue for logging if available
+            try:
+                sci_packet = const.sci_queue.get(timeout=2.0)
+                info_log.info("SCI packet received: %s", sci_packet)
+            except Exception:
+                pass
+            return
+
+        info_log.info(
+            "Acquisition in progress (CURRENT_OPERATING_STATE=0x08, SCIENCE_PACKETS_SENT=%s)",
+            getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A"),
+        )
+        time.sleep(10)
+
+
 def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> dict:
     """
     Perform HK or POST check as in ebgui, returning a result dict.
@@ -273,6 +1073,11 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         return result
 
 
+async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
+    """Async wrapper that runs the synchronous homing check in an executor."""
+    await run.io_bound(lambda: perform_homing_check_sync(homing_timeout_s))
+
+
 def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
     """Synchronous homing wait helper. Blocks until HOMING_COMPLETE or timeout/abort.
 
@@ -320,524 +1125,13 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
         time.sleep(1)  # Sleep briefly to avoid busy-waiting
 
 
-def perform_acq_check_sync(
-    acq_mode: int = 0,
-    acq_duration_s: int = 0,
-    acq_timeout_s: float | None = None,
-    acq_sample_time_ms: int = 0,
-) -> None:
-    """Synchronous acquisition wait helper. Blocks until acquisition completes or timeout/abort.
+# endregion
 
-    Completion is determined by firmware state: waits for CURRENT_OPERATING_STATE to
-    enter 0x08 (Acquisition), then waits for it to leave 0x08 (back to Standby/Safe).
-    This is correct regardless of acquisition mode, sample spacing, or packet count.
 
-    For mode 2 (Fixed-point) acquisitions the firmware runs a setup phase (ADC
-    initialisation / pre-scan) *inside* the 0x08 state before data collection begins.
-    The firmware enforces a minimum spacing of 250 ms even when a smaller value is
-    configured.  The timeout is therefore:
-
-        timeout = acq_duration_s + setup_overhead + 120 s safety margin
-
-    where setup_overhead = (effective_spacing_ms / 250) * 360 s  (6 min at the 250 ms
-    minimum, scaling linearly for larger spacings).
-    effective_spacing_ms = max(acq_sample_time_ms, 250) when acq_sample_time_ms > 0,
-    otherwise 250 ms is assumed.
-
-    All other modes default to 300 s.
-
-    Args:
-        acq_mode: acquisition mode (2 = Fixed-point; others use the default 300 s timeout).
-        acq_duration_s: ACQ_DURATION field from SET_ACQ_CONFIGS, in seconds.
-        acq_timeout_s: override the computed timeout (seconds).
-        acq_sample_time_ms: ACQ_SAMPLE_TIME field from SET_ACQ_CONFIGS, in ms.
-            Used to compute effective spacing; values below 250 are clamped to 250.
-
-    This can be called from synchronous script code (e.g. inside `run_fft`).
-    For async callers, use `await perform_acq_check()` which delegates to `run.io_bound`.
-    """
-    if acq_timeout_s is None:
-        if acq_mode == 2 and acq_duration_s > 0:
-            effective_spacing_ms = max(acq_sample_time_ms, 250) if acq_sample_time_ms > 0 else 250
-            # Setup overhead: firmware ADC setup inside 0x08 takes ~4 min at 250 ms
-            # minimum spacing; scale linearly for larger spacings.
-            setup_overhead_s = int(effective_spacing_ms / 250 * 360)
-            safety_s = 120
-            acq_timeout_s = acq_duration_s + setup_overhead_s + safety_s
-            info_log.debug(
-                "Mode 2 acquisition: effective_spacing=%d ms, setup_overhead=%d s,"
-                " timeout=%d s (duration %d s + setup %d s + safety %d s)",
-                effective_spacing_ms,
-                setup_overhead_s,
-                acq_timeout_s,
-                acq_duration_s,
-                setup_overhead_s,
-                safety_s,
-            )
-        else:
-            acq_timeout_s = 300
-    _ACQ_STATE = 0x08
-    start_time = time.monotonic()
-    _acq_150s_checked = False
-
-    info_log.debug("Starting acquisition wait: waiting for CURRENT_OPERATING_STATE=0x08...")
-
-    # --- Phase 1: wait for the EB to enter Acquisition state ---
-    while True:
-        if is_aborted():
-            notify_negative("Acquisition aborted by user.")
-            raise RuntimeError("Acquisition aborted by user.")
-        if time.monotonic() - start_time > acq_timeout_s:
-            notify_negative("Timeout waiting for acquisition to start.")
-            raise TimeoutError("Timeout waiting for acquisition to start.")
-        latest_hk = get_latest_hk()
-        if latest_hk is not None and getattr(latest_hk, "CURRENT_OPERATING_STATE", None) == _ACQ_STATE:
-            sci_count = getattr(latest_hk, "SCIENCE_PACKETS_SENT", 0)
-            info_log.info(
-                "Acquisition started (CURRENT_OPERATING_STATE=0x08), initial SCIENCE_PACKETS_SENT=%s",
-                sci_count,
-            )
-            break
-        time.sleep(1)
-
-    # --- Phase 2: wait for the EB to leave Acquisition state ---
-    while True:
-        if is_aborted():
-            notify_negative("Acquisition aborted by user.")
-            raise RuntimeError("Acquisition aborted by user.")
-        if time.monotonic() - start_time > acq_timeout_s:
-            notify_negative("Timeout waiting for acquisition to complete.")
-            raise TimeoutError("Timeout waiting for acquisition to complete.")
-
-        latest_hk = get_latest_hk()
-        if latest_hk is None:
-            time.sleep(1)
-            continue
-
-        # One-shot PSU current check at t+150s from acquisition start
-        if not _acq_150s_checked and time.monotonic() - start_time >= 150.0:
-            _acq_150s_checked = True
-            try:
-                latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-                errors: list[str] = []
-                ch4_current_ma = (
-                    consumption_check(["State6"], latest_psu, errors, latest_hk) if latest_psu is not None else None
-                )
-                thrm = getattr(latest_hk, "THRM_STATUS", None)
-                if errors:
-                    count = len(errors)
-                    numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-                    info_log.warning(
-                        "SCI ACQ t+150s check \u2014 %d error%s: %s",
-                        count,
-                        "s" if count != 1 else "",
-                        "; ".join(numbered),
-                    )
-                    notify_negative(
-                        f"SCI ACQ t+150s check failed ({count} error{'s' if count != 1 else ''}):\n"
-                        + "\n".join(numbered)
-                    )
-                else:
-                    msg = (
-                        f"Power State 6 : SCI ACQ \u2014 PSU_EB_I: {ch4_current_ma:.2f} mA, "
-                        f"CURRENT_OPERATING_STATE: {getattr(latest_hk, 'CURRENT_OPERATING_STATE', None)}, "
-                        f"THRM_STATUS.HMS: {getattr(thrm, 'HMS', 0)}, THRM_STATUS.HDS: {getattr(thrm, 'HDS', 0)}, "
-                        f"TEC_SETPOINT: {getattr(latest_hk, 'TEC_SETPOINT', None)}"
-                    )
-                    info_log.info(msg)
-                    notify_positive(msg)
-            except Exception as exc:
-                info_log.warning("Acquisition t+150s PSU current check failed: %s", exc)
-
-        cos = getattr(latest_hk, "CURRENT_OPERATING_STATE", None)
-        if cos != _ACQ_STATE:
-            sci_count_end = getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A")
-            acq_complete_msg = (
-                (f"Acquisition complete — CURRENT_OPERATING_STATE=0x{cos:02X}, SCIENCE_PACKETS_SENT={sci_count_end}")
-                if cos is not None
-                else (f"Acquisition complete — SCIENCE_PACKETS_SENT={sci_count_end}")
-            )
-            info_log.info(
-                "Acquisition complete: CURRENT_OPERATING_STATE=0x%02X, SCIENCE_PACKETS_SENT=%s at %s",
-                cos if cos is not None else 0,
-                sci_count_end,
-                getattr(latest_hk, "TIME", None),
-            )
-            notify_positive(acq_complete_msg)
-            # Drain one SCI packet from the queue for logging if available
-            try:
-                sci_packet = const.sci_queue.get(timeout=2.0)
-                info_log.info("SCI packet received: %s", sci_packet)
-            except Exception:
-                pass
-            return
-
-        info_log.info(
-            "Acquisition in progress (CURRENT_OPERATING_STATE=0x08, SCIENCE_PACKETS_SENT=%s)",
-            getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A"),
-        )
-        time.sleep(10)
-
-
-async def perform_acq_check(
-    acq_mode: int = 0,
-    acq_duration_s: int = 0,
-    acq_timeout_s: float | None = None,
-    acq_sample_time_ms: int = 0,
-) -> None:
-    """Async wrapper that runs the synchronous acquisition check in an executor."""
-    await run.io_bound(lambda: perform_acq_check_sync(acq_mode, acq_duration_s, acq_timeout_s, acq_sample_time_ms))
-
-
-async def perform_homing_check(homing_timeout_s: float = 60.0) -> None:
-    """Async wrapper that runs the synchronous homing check in an executor."""
-    await run.io_bound(lambda: perform_homing_check_sync(homing_timeout_s))
-
-
-def _is_valid_post_packet(post: Any) -> bool:
-    return all(hasattr(post, field_name) for field_name in _POST_REQUIRED_FIELDS)
-
-
-def _pull_post_after_ret(timeout_s: float = 6.0, poll_s: float = 0.2) -> Any | None:
-    """Return a valid POST packet after RET, retrying queue reads and RS422 refresh."""
-    deadline = time.monotonic() + max(0.1, timeout_s)
-    while time.monotonic() < deadline:
-        while not const.eb_post_queue.empty():
-            post = const.eb_post_queue.get()
-            if _is_valid_post_packet(post):
-                return post
-
-        rs422_log_path = getattr(getattr(_nicegui_app.state, "eb_interface", None), "rs422_log_path", None)
-        if rs422_log_path:
-            try:
-                eb_packet_utility.read_pkt(rs422_log_path, latest_only=True)
-            except Exception:
-                pass
-
-        time.sleep(max(0.05, poll_s))
-
-    return None
-
-
-def _pull_psu_after_ret(timeout_s: float = 6.0, poll_timeout_s: float = 0.5) -> dict[str, Any] | None:
-    """Return a smoothed PSU sample after RET, with fallback to cached latest sample."""
-    deadline = time.monotonic() + max(0.1, timeout_s)
-    while time.monotonic() < deadline:
-        try:
-            sample = _get_smoothed_psu_sample(const.psu_queue, timeout=poll_timeout_s)
-            if isinstance(sample, dict):
-                set_latest_psu(sample)
-                return sample
-        except Empty:
-            cached = get_latest_psu()
-            if isinstance(cached, dict):
-                return cached
-        time.sleep(0.1)
-
-    cached = get_latest_psu()
-    return cached if isinstance(cached, dict) else None
-
-
-def verify_safe_ret():
-    errors = []
-    # ?RET and first check
-    # This block performs the SAFE RET verification after issuing a RET and HK request.
-    latest_post = _pull_post_after_ret(timeout_s=6.0)
-    latest_psu = _pull_psu_after_ret(timeout_s=6.0)
-
-    if latest_post is None:
-        errors.append("\nMissing POST queue data after RET")
-    if latest_psu is None:
-        errors.append("\nMissing PSU queue data after RET")
-
-    ch4_current_ma = None
-    if latest_psu is not None:
-        consumption_check("State1", latest_psu, errors)
-        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-
-    result = None
-    if latest_post is not None:
-        result = perform_hk_check(hk=None, post=latest_post, hk_type="post")
-
-        # Check the POST packet for all required fields and limits
-        if not (result and result.get("passed", False)):
-            if result and "details" in result and result["details"]:
-                errors.extend(result["details"])
-            else:
-                errors.append(f"POST Packet Check failed with unknown error: {result}")
-    if errors:
-        count = len(errors)
-        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-        info_log.error(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
-        msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
-        notify_negative(msg)
-        return msg, False
-    else:
-        msg = f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nPOST Packet Check Result: {result}"
-        info_log.info(msg)
-        notify_positive(msg)
-        return msg, True
-
-
-def verify_standby_ret():
-    errors = []
-    # Wait for a fresh HK packet that arrives after the standby TC, not a cached one
-    try:
-        latest_hk = wait_for_fresh_hk(timeout=5.0)
-        if latest_hk is None:
-            errors.append("Timed out waiting for fresh HK after STANDBY")
-        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-    except Empty:
-        errors.append("\nMissing PSU queue data after STANDBY")
-        latest_psu = None
-
-    ch4_current_ma = None
-    if latest_psu is not None:
-        consumption_check("Standby", latest_psu, errors)
-        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
-
-    result = None
-    if latest_hk is not None:
-        result = perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
-
-        # Check the HK packet for all required fields and limits
-        if not (result and result.get("passed", False)):
-            if result and "details" in result and result["details"]:
-                errors.extend(result["details"])
-            else:
-                errors.append(f"HK Check failed with unknown error: {result}")
-    if errors:
-        count = len(errors)
-        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-        info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
-        msg = f"STANDBY RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
-        notify_negative(msg)
-        return msg, False
-    else:
-        msg = f"Standby mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nHK Check Result: {result}"
-        info_log.info(msg)
-        notify_positive(msg)
-        return msg, True
-
-
-def verify_power_state(state: str) -> tuple[str, bool]:
-    """Verify the OB is in the expected power state.
-
-    Fetches the latest HK and PSU samples from their queues, runs a PSU
-    consumption check for *state*, then performs additional HK field checks
-    appropriate for that state:
-
-    State2  — OB Heating:           heater verification (via consumption_check)
-    State3  — OB Heating + Boards:  State2 checks + mech/det boards enabled
-    State4  — OB Heating + TEC 1A:  State3 checks + TEC current > 1 A
-    State5  — Boards + TEC 1A:      boards enabled + TEC current > 1 A
-    State7  — All Active:           State4 checks + motor moving
-
-    Returns (msg, passed) — the same contract as verify_safe_ret / verify_standby_ret.
-    """
-    _BOARD_STATES = {"State3", "State4", "State5", "State7"}
-    _TEC_STATES = {"State4", "State5", "State7"}
-
-    errors: list[str] = []
-    ch4_current_ma: float | None = None
-
-    try:
-        latest_hk = get_latest_hk()
-        latest_psu = _get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-    except Empty:
-        errors.append(f"Missing HK or PSU queue data for {state} verification")
-        latest_hk = None
-        latest_psu = None
-
-    # --- PSU consumption + heater check ---
-    if latest_psu is not None:
-        ch4_current_ma = consumption_check(state, latest_psu, errors, latest_hk)
-
-    if latest_hk is not None:
-        instr = getattr(latest_hk, "INSTR_STATUS_FLAGS", None)
-
-        # --- Boards enabled (State3 / State4 / State5 / State7) ---
-        if state in _BOARD_STATES:
-            mech_board = bool(getattr(instr, "OB_MECHANISM_BOARD_ENABLED", 0))
-            det_board = bool(getattr(instr, "OB_DETECTOR_BOARD_ENABLED", 0))
-            if not mech_board:
-                errors.append("Mech board not enabled (INSTR_STATUS_FLAGS.OB_MECHANISM_BOARD_ENABLED=0)")
-            if not det_board:
-                errors.append("Det board not enabled (INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED=0)")
-
-        # --- TEC at 1 A (State4 / State5 / State7) ---
-        if state in _TEC_STATES:
-            tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
-            if tec_current <= 1.0:
-                # TEC may still be ramping — poll for up to 30 s before failing
-                info_log.debug(
-                    "%s TEC current %.3f A <= 1.0 A, waiting for ramp-up (up to 30 s)...", state, tec_current
-                )
-                _tec_ramped = False
-                for _ in range(30):
-                    time.sleep(1)
-                    _poll_hk = get_latest_hk()
-                    if _poll_hk is not None:
-                        tec_current = getattr(_poll_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
-                        if tec_current > 1.0:
-                            latest_hk = _poll_hk  # use the fresher HK for remaining checks
-                            _tec_ramped = True
-                            break
-                if not _tec_ramped:
-                    errors.append(f"TEC current not at 1 A: {tec_current:.3f} A (expected > 1.0 A)")
-
-        # --- Motor moving (State7) ---
-        if state == "State7":
-            mtr = getattr(latest_hk, "MTR_FLAGS", None)
-            if not bool(getattr(mtr, "MOVING", 0)):
-                errors.append("Motor not moving (MTR_FLAGS.MOVING=0)")
-
-    cos = getattr(latest_hk, "CURRENT_OPERATING_STATE", None) if latest_hk is not None else None
-
-    if errors:
-        count = len(errors)
-        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-        info_log.error(
-            "%s verification failed: %d error%s — PSU_EB_I: %s mA",
-            state,
-            count,
-            "s" if count != 1 else "",
-            f"{ch4_current_ma:.2f}" if ch4_current_ma is not None else "N/A",
-        )
-        msg = f"{state} verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
-        _notify(msg, color="negative")
-        return msg, False
-    else:
-        msg = f"Power {state} OK — PSU_EB_I: {ch4_current_ma:.2f} mA, CURRENT_OPERATING_STATE: {cos}"
-        info_log.info(msg)
-        _notify(msg, color="positive")
-        return msg, True
-
-
-def _notify(msg: str, color: str = "primary") -> None:
-    """Send a UI notification that is safe to call from any thread.
-
-    Uses ``loop.call_soon_threadsafe`` to enqueue the notification message
-    directly into each connected client's outbox on the NiceGUI event loop
-    thread.  This mirrors what ``ui.notify`` does internally but is safe to
-    call from background threads (e.g. scripts running via ``run.io_bound``).
-    """
-    loop = _nicegui_core.loop
-    if loop is None or not loop.is_running():
-        info_log.info("[notify] %s", msg)
-        return
-
-    def _enqueue() -> None:
-        for client in list(_NiceGuiClient.instances.values()):
-            try:
-                with client:
-                    ui.notify(str(msg), color=color, multi_line=True)
-            except Exception as exc:
-                info_log.debug("_notify: failed for client %s: %s", client.id, exc)
-
-    loop.call_soon_threadsafe(_enqueue)
-
-
-def notify_script_pause(current: int, total: int) -> None:
-    """Notify the user that the script is paused, showing progress."""
-    _notify(f"Script paused, command {current} of {total}", color="warning")
-
-
-def request_force_pause(msg: str = "") -> None:
-    """Request a forced pause — blocks script execution until the user resumes or aborts.
-
-    Sets ``_FORCE_PAUSE_EVENT``, shows a notification, then polls until the event is
-    cleared by ``clear_force_pause()`` (triggered by the UI resume button) or the
-    script abort event fires.
-    """
-    if msg:
-        _notify(msg, color="warning")
-    _FORCE_PAUSE_EVENT.set()
-    while _FORCE_PAUSE_EVENT.is_set():
-        if is_aborted():
-            _FORCE_PAUSE_EVENT.clear()
-            raise RuntimeError("Script aborted during forced pause.")
-        time.sleep(0.25)
-
-
-def clear_force_pause() -> None:
-    """Release a previously requested forced pause."""
-    _FORCE_PAUSE_EVENT.clear()
-
-
-def is_force_paused() -> bool:
-    """Return True when script execution is held by a forced pause."""
-    return _FORCE_PAUSE_EVENT.is_set()
-
-
-def notify_script_done() -> None:
-    """Notify the user that the script has completed."""
-    _notify("Script execution complete.", color="positive")
-
-
-def notify_positive(msg) -> None:
-    _notify(msg, color="positive")
-
-
-def notify_negative(msg) -> None:
-    _notify(msg, color="negative")
-
-
-def consumption_check(state_names, psu_sample: dict, errors: list[str], latest_hk: Any = None) -> float | None:
-    """
-    Checks PSU current for the given state(s) and current OB model.
-    Accepts a single state name (str) or a list of state names.
-    Sums expected values for all provided states.
-    Appends error to errors if out of range.
-    Model is read from app.state.current_model.
-
-    If latest_hk is provided, verify_heater_states() is called automatically and the
-    active heater states (["MechHTR", "DetHTR"] subset) are appended to state_names.
-    """
-    from nicegui import app as _app
-
-    model = getattr(_app.state, "current_model", None)
-    if model is None:
-        errors.append("No model specified for PSU consumption check.")
-        return None
-    if model not in MODEL_CONSUMPTION:
-        errors.append(f"Unknown OB model: {model}")
-        return None
-    model_dict = MODEL_CONSUMPTION[model]
-    if isinstance(state_names, str):
-        state_names = [state_names]
-    else:
-        state_names = list(state_names)
-    if latest_hk is not None:
-        heater_states = verify_heater_states(latest_hk, errors)
-        if not any(s in HEATER_INCLUSIVE_STATES for s in state_names):
-            state_names += heater_states
-    missing = [s for s in state_names if s not in model_dict]
-    if missing:
-        errors.append(f"Unknown state(s) {missing} for model '{model}'")
-        return None
-    if psu_sample is None:
-        errors.append("No PSU sample provided for consumption check.")
-        return None
-    measured_current_ma = float(psu_sample.get("PSU_EB_I") or 0.0) * 1000.0
-    base = sum(model_dict[s] for s in state_names)
-    min_i = base - 10
-    max_i = base + 10
-    if not (min_i <= measured_current_ma <= max_i):
-        errors.append(
-            f"PSU_EB_I out of range for {state_names} ({model}): got {measured_current_ma:.2f} mA, expected {min_i}-{max_i}"
-        )
-    return measured_current_ma
-
-
-# Per-heater history for verify_heater_states() — persists across HK poll cycles.
-# Tracks the last definitive expected state (established when TRP was outside the
-# hysteresis band) and the previous mode flags so that enable-transitions can be
-# detected (the firmware initialises to OFF when transitioning from disabled → auto).
-_heater_state_history: dict[str, dict] = {
-    "Mech": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
-    "Det": {"last_expected": None, "last_trp": None, "prev_auto": False, "prev_manual": False},
-}
+# ---------------------------------------------------------------------------
+# Script checks — heater state verification
+# ---------------------------------------------------------------------------
+# region Script checks — heater state verification
 
 
 def verify_heater_states(
@@ -1022,6 +1316,258 @@ _SCRIPT_CONTROL = {
     "abort_event": threading.Event(),
     "current_script": None,
 }
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# Script checks — RET / state verification
+# ---------------------------------------------------------------------------
+# region Script checks — RET / state verification
+
+
+def is_valid_post_packet(post: Any) -> bool:
+    return all(hasattr(post, field_name) for field_name in _POST_REQUIRED_FIELDS)
+
+
+def pull_post_after_ret(timeout_s: float = 6.0, poll_s: float = 0.2) -> Any | None:
+    """Return a valid POST packet after RET, retrying queue reads and RS422 refresh."""
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    while time.monotonic() < deadline:
+        while not const.eb_post_queue.empty():
+            post = const.eb_post_queue.get()
+            if is_valid_post_packet(post):
+                return post
+
+        rs422_log_path = getattr(getattr(_nicegui_app.state, "eb_interface", None), "rs422_log_path", None)
+        if rs422_log_path:
+            try:
+                eb_packet_utility.read_pkt(rs422_log_path, latest_only=True)
+            except Exception:
+                pass
+
+        time.sleep(max(0.05, poll_s))
+
+    return None
+
+
+def pull_psu_after_ret(timeout_s: float = 6.0, poll_timeout_s: float = 0.5) -> dict[str, Any] | None:
+    """Return a smoothed PSU sample after RET, with fallback to cached latest sample."""
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    while time.monotonic() < deadline:
+        try:
+            sample = get_smoothed_psu_sample(const.psu_queue, timeout=poll_timeout_s)
+            if isinstance(sample, dict):
+                set_latest_psu(sample)
+                return sample
+        except Empty:
+            cached = get_latest_psu()
+            if isinstance(cached, dict):
+                return cached
+        time.sleep(0.1)
+
+    cached = get_latest_psu()
+    return cached if isinstance(cached, dict) else None
+
+
+def verify_power_state(state: str) -> tuple[str, bool]:
+    """Verify the OB is in the expected power state.
+
+    Fetches the latest HK and PSU samples from their queues, runs a PSU
+    consumption check for *state*, then performs additional HK field checks
+    appropriate for that state:
+
+    State2  — OB Heating:           heater verification (via consumption_check)
+    State3  — OB Heating + Boards:  State2 checks + mech/det boards enabled
+    State4  — OB Heating + TEC 1A:  State3 checks + TEC current > 1 A
+    State5  — Boards + TEC 1A:      boards enabled + TEC current > 1 A
+    State7  — All Active:           State4 checks + motor moving
+
+    Returns (msg, passed) — the same contract as verify_safe_ret / verify_standby_ret.
+    """
+    _BOARD_STATES = {"State3", "State4", "State5", "State7"}
+    _TEC_STATES = {"State4", "State5", "State7"}
+
+    errors: list[str] = []
+    ch4_current_ma: float | None = None
+
+    try:
+        latest_hk = get_latest_hk()
+        latest_psu = get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
+    except Empty:
+        errors.append(f"Missing HK or PSU queue data for {state} verification")
+        latest_hk = None
+        latest_psu = None
+
+    # --- PSU consumption + heater check ---
+    if latest_psu is not None:
+        ch4_current_ma = consumption_check(state, latest_psu, errors, latest_hk)
+
+    if latest_hk is not None:
+        instr = getattr(latest_hk, "INSTR_STATUS_FLAGS", None)
+
+        # --- Boards enabled (State3 / State4 / State5 / State7) ---
+        if state in _BOARD_STATES:
+            mech_board = bool(getattr(instr, "OB_MECHANISM_BOARD_ENABLED", 0))
+            det_board = bool(getattr(instr, "OB_DETECTOR_BOARD_ENABLED", 0))
+            if not mech_board:
+                errors.append("Mech board not enabled (INSTR_STATUS_FLAGS.OB_MECHANISM_BOARD_ENABLED=0)")
+            if not det_board:
+                errors.append("Det board not enabled (INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED=0)")
+
+        # --- TEC at 1 A (State4 / State5 / State7) ---
+        if state in _TEC_STATES:
+            tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
+            if tec_current <= 1.0:
+                # TEC may still be ramping — poll for up to 30 s before failing
+                info_log.debug(
+                    "%s TEC current %.3f A <= 1.0 A, waiting for ramp-up (up to 30 s)...", state, tec_current
+                )
+                _tec_ramped = False
+                for _ in range(30):
+                    time.sleep(1)
+                    _poll_hk = get_latest_hk()
+                    if _poll_hk is not None:
+                        tec_current = getattr(_poll_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
+                        if tec_current > 1.0:
+                            latest_hk = _poll_hk  # use the fresher HK for remaining checks
+                            _tec_ramped = True
+                            break
+                if not _tec_ramped:
+                    errors.append(f"TEC current not at 1 A: {tec_current:.3f} A (expected > 1.0 A)")
+
+        # --- Motor moving (State7) ---
+        if state == "State7":
+            mtr = getattr(latest_hk, "MTR_FLAGS", None)
+            if not bool(getattr(mtr, "MOVING", 0)):
+                errors.append("Motor not moving (MTR_FLAGS.MOVING=0)")
+
+    cos = getattr(latest_hk, "CURRENT_OPERATING_STATE", None) if latest_hk is not None else None
+
+    if errors:
+        count = len(errors)
+        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+        info_log.error(
+            "%s verification failed: %d error%s — PSU_EB_I: %s mA",
+            state,
+            count,
+            "s" if count != 1 else "",
+            f"{ch4_current_ma:.2f}" if ch4_current_ma is not None else "N/A",
+        )
+        msg = f"{state} verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
+        notify(msg, color="negative")
+        return msg, False
+    else:
+        msg = f"Power {state} OK — PSU_EB_I: {ch4_current_ma:.2f} mA, CURRENT_OPERATING_STATE: {cos}"
+        info_log.info(msg)
+        notify(msg, color="positive")
+        return msg, True
+
+
+def verify_safe_ret():
+    errors = []
+    # ?RET and first check
+    # This block performs the SAFE RET verification after issuing a RET and HK request.
+    latest_post = pull_post_after_ret(timeout_s=6.0)
+    latest_psu = pull_psu_after_ret(timeout_s=6.0)
+
+    if latest_post is None:
+        errors.append("\nMissing POST queue data after RET")
+    if latest_psu is None:
+        errors.append("\nMissing PSU queue data after RET")
+
+    ch4_current_ma = None
+    if latest_psu is not None:
+        consumption_check("State1", latest_psu, errors)
+        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
+
+    result = None
+    if latest_post is not None:
+        result = perform_hk_check(hk=None, post=latest_post, hk_type="post")
+
+        # Check the POST packet for all required fields and limits
+        if not (result and result.get("passed", False)):
+            if result and "details" in result and result["details"]:
+                errors.extend(result["details"])
+            else:
+                errors.append(f"POST Packet Check failed with unknown error: {result}")
+    if errors:
+        count = len(errors)
+        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+        info_log.error(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+        msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        notify_negative(msg)
+        return msg, False
+    else:
+        msg = f"Power State 1 - SAFE mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nPOST Packet Check Result: {result}"
+        info_log.info(msg)
+        notify_positive(msg)
+        return msg, True
+
+
+def verify_standby_ret():
+    errors = []
+    # Wait for a fresh HK packet that arrives after the standby TC, not a cached one
+    try:
+        latest_hk = wait_for_fresh_hk(timeout=5.0)
+        if latest_hk is None:
+            errors.append("Timed out waiting for fresh HK after STANDBY")
+        latest_psu = get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
+    except Empty:
+        errors.append("\nMissing PSU queue data after STANDBY")
+        latest_psu = None
+
+    ch4_current_ma = None
+    if latest_psu is not None:
+        consumption_check("Standby", latest_psu, errors)
+        ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
+
+    result = None
+    if latest_hk is not None:
+        result = perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
+
+        # Check the HK packet for all required fields and limits
+        if not (result and result.get("passed", False)):
+            if result and "details" in result and result["details"]:
+                errors.extend(result["details"])
+            else:
+                errors.append(f"HK Check failed with unknown error: {result}")
+    if errors:
+        count = len(errors)
+        numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+        info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+        msg = f"STANDBY RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        notify_negative(msg)
+        return msg, False
+    else:
+        msg = f"Standby mode: EB PSU I : {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA, \nHK Check Result: {result}"
+        info_log.info(msg)
+        notify_positive(msg)
+        return msg, True
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# Script controls — pause / abort / run state
+# ---------------------------------------------------------------------------
+# region Script controls — pause / abort / run state
+
+
+def clear_abort() -> None:
+    _SCRIPT_CONTROL["abort_event"].clear()
+
+
+def clear_pause() -> None:
+    _SCRIPT_CONTROL["pause_event"].clear()
+
+
+def finish_script() -> None:
+    """Clear running state and reset control events."""
+    _SCRIPT_CONTROL["running"] = False
+    _SCRIPT_CONTROL["pause_event"].clear()
+    _SCRIPT_CONTROL["abort_event"].clear()
+    _SCRIPT_CONTROL["current_script"] = None
 
 
 def get_script_control() -> dict:
@@ -1033,6 +1579,26 @@ def get_script_control() -> dict:
     return _SCRIPT_CONTROL
 
 
+def is_aborted() -> bool:
+    return _SCRIPT_CONTROL["abort_event"].is_set()
+
+
+def is_paused() -> bool:
+    return _SCRIPT_CONTROL["pause_event"].is_set()
+
+
+def is_script_running() -> bool:
+    return bool(_SCRIPT_CONTROL.get("running"))
+
+
+def request_abort() -> None:
+    _SCRIPT_CONTROL["abort_event"].set()
+
+
+def request_pause() -> None:
+    _SCRIPT_CONTROL["pause_event"].set()
+
+
 def start_script(script_name: str | None = None) -> None:
     """Mark a script as running and clear control events."""
     _SCRIPT_CONTROL["running"] = True
@@ -1041,30 +1607,6 @@ def start_script(script_name: str | None = None) -> None:
     _SCRIPT_CONTROL["abort_event"].clear()
     # Ensure any UI-forced pause is released when starting a new script
     _FORCE_PAUSE_EVENT.clear()
-
-
-def finish_script() -> None:
-    """Clear running state and reset control events."""
-    _SCRIPT_CONTROL["running"] = False
-    _SCRIPT_CONTROL["pause_event"].clear()
-    _SCRIPT_CONTROL["abort_event"].clear()
-    _SCRIPT_CONTROL["current_script"] = None
-
-
-def is_script_running() -> bool:
-    return bool(_SCRIPT_CONTROL.get("running"))
-
-
-def request_pause() -> None:
-    _SCRIPT_CONTROL["pause_event"].set()
-
-
-def clear_pause() -> None:
-    _SCRIPT_CONTROL["pause_event"].clear()
-
-
-def is_paused() -> bool:
-    return _SCRIPT_CONTROL["pause_event"].is_set()
 
 
 def toggle_pause() -> None:
@@ -1078,183 +1620,16 @@ def toggle_pause() -> None:
         request_pause()
 
 
-def request_abort() -> None:
-    _SCRIPT_CONTROL["abort_event"].set()
+# endregion
 
 
-def clear_abort() -> None:
-    _SCRIPT_CONTROL["abort_event"].clear()
-
-
-def is_aborted() -> bool:
-    return _SCRIPT_CONTROL["abort_event"].is_set()
-
-
-# General controllers
-
-
-def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
-    """Create a mode setter callback bound to current state and app."""
-
-    def set_mode(mode: str) -> None:
-        if mode not in ("EB", "OB"):
-            return
-        previous_mode = state.get("mode")
-        state["mode"] = mode
-        app.state.egse_mode = mode
-        for refresh in state["plot_refreshers"]:
-            refresh(mode)
-        if previous_mode != mode:
-            # Update PSU channels based on the new mode
-            psu_port = state.get("psu_port")
-            psu_lock = state.get("psu_lock")
-            psu_mode_state = state.get("psu_mode_state")
-            if isinstance(psu_mode_state, dict):
-                psu_mode_state["ebmode"] = mode == "EB"
-            if psu_port:
-                ebmode = mode == "EB"
-                lock_ctx = psu_lock if psu_lock is not None else nullcontext()
-                with lock_ctx:
-                    psu.setChannels(psu_port, ebmode)
-            # Run mode change resetters
-            for reset in state.get("mode_change_resetters", []):
-                reset()
-        sync_packet_tabs = state.get("sync_packet_tabs")
-        if callable(sync_packet_tabs):
-            sync_packet_tabs(mode)
-
-    return set_mode
-
-
-def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> None:
-    """Send an OB TC using the shared OB port lock when available."""
-    ob_port = state.get("ob_port")
-    if ob_port is None:
-        ui.notify("OB port unavailable", color="negative")
-        return
-
-    lock = state.get("port_lock")
-    lock_ctx = lock if lock is not None else nullcontext()
-    with lock_ctx:
-        command(ob_port, *args, **kwargs)
-
-
-def create_sci_navigation_state(max_packets: int = 12) -> dict[str, Any]:
-    """Create backend-owned SCI navigation state for packet/point swiping."""
-    return {
-        "packets": [],
-        "identities": set(),
-        "packet_index": 0,
-        "point_index": 0,
-        "max_packets": max_packets,
-    }
-
-
-def sci_current_packet(sci_state: dict[str, Any]) -> Any | None:
-    packets = sci_state.get("packets") or []
-    if not packets:
-        return None
-    idx = int(sci_state.get("packet_index", 0)) % len(packets)
-    return packets[idx]
-
-
-def sci_set_packet_index(sci_state: dict[str, Any], packet_index: int) -> Any | None:
-    packets = sci_state.get("packets") or []
-    if not packets:
-        sci_state["packet_index"] = 0
-        sci_state["point_index"] = 0
-        return None
-    sci_state["packet_index"] = packet_index % len(packets)
-    sci_state["point_index"] = 0
-    return sci_current_packet(sci_state)
-
-
-def sci_shift_packet_index(sci_state: dict[str, Any], delta: int) -> Any | None:
-    current = int(sci_state.get("packet_index", 0))
-    return sci_set_packet_index(sci_state, current + delta)
-
-
-def sci_set_point_index(sci_state: dict[str, Any], point_index: int) -> int:
-    packet = sci_current_packet(sci_state)
-    if packet is None:
-        sci_state["point_index"] = 0
-        return 0
-    point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
-    if point_count <= 0:
-        sci_state["point_index"] = 0
-        return 0
-    sci_state["point_index"] = min(max(point_index, 0), point_count - 1)
-    return sci_state["point_index"]
-
-
-def sci_shift_point_index(sci_state: dict[str, Any], delta: int) -> int:
-    packet = sci_current_packet(sci_state)
-    if packet is None:
-        sci_state["point_index"] = 0
-        return 0
-    point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
-    if point_count <= 0:
-        sci_state["point_index"] = 0
-        return 0
-    current = int(sci_state.get("point_index", 0))
-    sci_state["point_index"] = (current + delta) % point_count
-    return sci_state["point_index"]
-
-
-def sci_add_packet(sci_state: dict[str, Any], raw_packet: Any) -> Any | None:
-    """Normalize, dedupe, and insert an SCI packet into backend state."""
-    packet_obj = raw_packet
-    if not hasattr(packet_obj, "__dict__") and isinstance(packet_obj, dict):
-        packet_obj = SimpleNamespace(**packet_obj)
-    if not hasattr(packet_obj, "__dict__"):
-        return None
-
-    packet_obj = eb_packet_utility.merge_sci_data_packet(packet_obj)
-
-    def _packet_sort_key(packet: Any) -> int:
-        try:
-            return int(getattr(packet, "PACKET_NUMBER", 0))
-        except (TypeError, ValueError):
-            return 0
-
-    def _packet_identity(packet: Any) -> tuple[Any, ...]:
-        packet_number = getattr(packet, "PACKET_NUMBER", None)
-        criticality = getattr(packet, "SCI_PACKET_CRITICALITY", None)
-        point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
-        first_abs_step = None
-        last_abs_step = None
-        sci_points = getattr(packet, "SCI_POINTS", None)
-        if sci_points:
-            first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
-            last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
-        elif hasattr(packet, "ABS_STEPS"):
-            first_abs_step = getattr(packet, "ABS_STEPS", None)
-            last_abs_step = first_abs_step
-        return (packet_number, criticality, point_count, first_abs_step, last_abs_step)
-
-    identities = sci_state.setdefault("identities", set())
-    identity = _packet_identity(packet_obj)
-    if identity in identities:
-        return packet_obj
-
-    packets = sci_state.setdefault("packets", [])
-    packets.append(packet_obj)
-    packets.sort(key=_packet_sort_key)
-
-    max_packets = int(sci_state.get("max_packets", 12) or 12)
-    if len(packets) > max_packets:
-        sci_state["packets"] = packets[-max_packets:]
-        packets = sci_state["packets"]
-
-    sci_state["identities"] = {_packet_identity(packet) for packet in packets}
-    sci_set_packet_index(sci_state, len(packets) - 1)
-    return packet_obj
-
-
+# ---------------------------------------------------------------------------
 # Theme helpers
+# ---------------------------------------------------------------------------
+# region Theme helpers
 
 
-def _apply_theme_to_ui(
+def apply_theme_to_ui(
     *,
     ui: Any,
     app: Any,
@@ -1296,7 +1671,7 @@ def create_set_theme(
     def set_theme(theme: str) -> None:
         if theme not in ("dark", "light"):
             return
-        _apply_theme_to_ui(
+        apply_theme_to_ui(
             ui=ui,
             app=app,
             theme=theme,
@@ -1331,245 +1706,30 @@ _PSU_SAMPLE_KEYS = (
     "CH4_V",
     "CH4_I",
 )
+# endregion
 
 
-def _reset_psu_replay(replay: dict[str, Any]) -> None:
-    replay["enabled"] = False
-    replay["source_path"] = None
-    replay["records"] = []
-    replay["index"] = 0
-    replay["hk_anchor"] = None
-    replay["latest_hk_time"] = None
-    replay["psu_anchor"] = None
+# ---------------------------------------------------------------------------
+# TM / HK helpers — decoding, alarm lights, plot cards
+# ---------------------------------------------------------------------------
+# region TM / HK helpers — decoding, alarm lights, plot cards
 
 
-def _card_channel_preferences(card: Any, mode: str) -> tuple[list[str], bool]:
-    by_mode = card.channel.get("replay_channel_by_mode", {})
-    configured = by_mode.get(mode, by_mode.get("EB") or "CH3")
-    if isinstance(configured, str):
-        return [configured.upper()], True
-    if isinstance(configured, list):
-        channels = [str(ch).upper() for ch in configured if str(ch)]
-        return channels, bool(channels)
-    return ["CH3"], True
+def active_flag_names(flag_ns: Any, ordered_names: list[str]) -> list[str]:
+    if flag_ns is None:
+        return []
+    return [
+        name
+        for name in ordered_names
+        if not name.startswith("UNUSED") and not name.startswith("RESERVED") and bool(getattr(flag_ns, name, 0))
+    ]
 
 
-def _update_psu_readings(state: dict[str, Any], psu_sample: dict[str, Any]) -> None:
-    readings = state["last_psu_readings"]
-    for key in _PSU_SAMPLE_KEYS:
-        source_key = "STATUS" if key == "status" else key
-        readings[key] = psu_sample.get(source_key)
+def any_flag(flag_ns: Any) -> bool:
+    return bool(flag_ns) and any(bool(value) for value in flag_ns.__dict__.values())
 
 
-def _update_psu_cards(psu_cards: list[Any], psu_sample: dict[str, Any], *, plot_sample: bool = True) -> None:
-    for card in psu_cards:
-        status_key = card.channel.get("status_key")
-        if isinstance(status_key, str) and status_key in psu_sample and psu_sample.get(status_key) is not None:
-            card.set_enabled_from_psu(bool(psu_sample.get(status_key)))
-        current_key = card.channel.get("live_current_key")
-        if isinstance(current_key, str):
-            if plot_sample:
-                card.push_sample(psu_sample.get("TIME"), psu_sample.get(current_key))
-            else:
-                card.ingest_sample(psu_sample.get(current_key))
-
-
-def _apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
-    _update_psu_readings(state, psu_sample)
-    _update_psu_cards(psu_cards, psu_sample)
-
-
-def _ingest_live_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
-    """Feed live PSU samples into MA buffers without plotting each one."""
-    set_latest_psu(psu_sample)
-    _update_psu_readings(state, psu_sample)
-    _update_psu_cards(psu_cards, psu_sample, plot_sample=False)
-
-
-def _build_replay_psu_sample(state: dict[str, Any], psu_cards: list[Any], record: dict[str, Any]) -> dict[str, Any]:
-    channels = record.get("CHANNELS", {})
-    sample: dict[str, Any] = {key: None for key in _PSU_SAMPLE_KEYS if key != "status"}
-    sample.update({"TIME": datetime.now(), "STATUS": bool(record.get("STATUS", True))})
-
-    for card in psu_cards:
-        channel_data: dict[str, Any] = {}
-        preferred_channels, allow_fallback = _card_channel_preferences(card, state["mode"])
-        for channel_name in preferred_channels:
-            candidate = channels.get(channel_name, {})
-            if candidate.get("V") is not None or candidate.get("I") is not None:
-                channel_data = candidate
-                break
-        if not channel_data and allow_fallback:
-            for fallback_name in ("CH4", "CH3", "CH2", "CH1"):
-                candidate = channels.get(fallback_name, {})
-                if candidate.get("V") is not None or candidate.get("I") is not None:
-                    channel_data = candidate
-                    break
-
-        voltage_key = card.channel.get("live_voltage_key")
-        current_key = card.channel.get("live_current_key")
-        if isinstance(voltage_key, str):
-            sample[voltage_key] = channel_data.get("V")
-        if isinstance(current_key, str):
-            sample[current_key] = channel_data.get("I")
-
-    return sample
-
-
-def create_set_psu_log_path(*, state: dict[str, Any], logger: Any) -> Any:
-    """Create PSU replay-log setter callback bound to current state."""
-
-    def set_psu_log_path(psu_log_path: str | None) -> bool:
-        replay = state["psu_replay"]
-        if not psu_log_path:
-            _reset_psu_replay(replay)
-            return False
-
-        records = psu_log_utility.load_psu_channel_samples(psu_log_path)
-        now = datetime.now()
-        replay["enabled"] = bool(records)
-        replay["source_path"] = psu_log_path
-        replay["records"] = records
-        replay["index"] = 0
-        replay["hk_anchor"] = now if records else None
-        replay["latest_hk_time"] = now if records else None
-        replay["psu_anchor"] = records[0]["TIME"] if records else None
-
-        if records:
-            logger.info("Loaded %d PSU replay samples from %s", len(records), psu_log_path)
-            return True
-
-        logger.warning("No valid PSU replay samples found in %s", psu_log_path)
-        return False
-
-    return set_psu_log_path
-
-
-def create_set_psu_card_profiles(*, ch1_card: Any, ch2_card: Any, ch3_card: Any, ch4_card: Any) -> Any:
-    """Create mode-dependent PSU card profile callback bound to PSU card controllers."""
-
-    def set_psu_card_profiles(mode: str) -> None:
-        ob_mode = mode == "OB"
-        ch1_card.apply_profile(
-            title="CH1 +12V Current",
-            visible=ob_mode,
-            live_voltage_key="CH1_V",
-            live_current_key="CH1_I",
-            replay_channels=["CH1"],
-        )
-        ch2_card.apply_profile(
-            title="CH2 -12V Current",
-            visible=ob_mode,
-            live_voltage_key="CH2_V",
-            live_current_key="CH2_I",
-            replay_channels=["CH2"],
-        )
-        ch3_card.apply_profile(
-            title="CH3 +5V Current" if ob_mode else "CH3 ROVHTR Current",
-            visible=True,
-            live_voltage_key="CH3_V" if ob_mode else "PSU_ROV_HTR_V",
-            live_current_key="CH3_I" if ob_mode else "PSU_ROV_HTR_I",
-            replay_channels=["CH3"],
-        )
-        ch4_card.apply_profile(
-            title="CH4 ROVHTR Current" if ob_mode else "CH4 +28V Current",
-            visible=True,
-            live_voltage_key="CH4_V" if ob_mode else "PSU_EB_V",
-            live_current_key="CH4_I" if ob_mode else "PSU_EB_I",
-            replay_channels=["CH4"],
-        )
-
-    return set_psu_card_profiles
-
-
-def create_poll_psu(*, state: dict[str, Any], const: Any, psu_cards: list[Any]) -> Any:
-    """Create PSU polling callback bound to the current UI state and cards."""
-
-    def poll_psu() -> None:
-        replay = state["psu_replay"]
-        saw_live_psu = False
-        latest_live_sample = None
-        # Bound per-tick queue work to keep the UI event loop responsive.
-        max_live_samples_per_tick = 25
-        processed = 0
-        while not const.psu_queue.empty() and processed < max_live_samples_per_tick:
-            saw_live_psu = True
-            latest_live_sample = const.psu_queue.get()
-            _ingest_live_psu_sample(state, psu_cards, latest_live_sample)
-            processed += 1
-
-        if latest_live_sample is not None:
-            # Draw one point per UI tick while MA includes all drained live samples.
-            for card in psu_cards:
-                card.push_smoothed(latest_live_sample.get("TIME"))
-
-        if saw_live_psu:
-            return
-
-        # Replay is only used when there are no live PSU samples available.
-        if not state["log_search"]["enabled"] and not replay.get("enabled"):
-            return
-
-        if not replay.get("enabled"):
-            return
-        records = replay.get("records") or []
-        if not records:
-            return
-
-        idx = int(replay.get("index", 0))
-        sample = _build_replay_psu_sample(state, psu_cards, records[idx % len(records)])
-        _apply_psu_sample(state, psu_cards, sample)
-        replay["index"] = idx + 1
-
-    return poll_psu
-
-
-# TM helpers
-
-
-_OB_TRP_FIELDS = tuple(name for name in ("OB_DIGITAL_TRP", "OB_DETECTOR_TRP", "OB_MECHANISM_TRP", "OB_MOTOR_TRP"))
-_VOLTAGE_3V3_FIELDS = tuple(name for name in ("OB_3V3_VOLTAGE", "EB_MEAS_3V3"))
-_WARNING_NAMES = [name for name, _ in tmstruct.eb_warning_flags]
-_FDIR_NAMES = [name for name, _ in tmstruct.eb_fdir_flags]
-_OB_WARNING_FLAGS = {
-    "OB_FDIR_ALARM",
-    "OB_GENERAL_ERROR",
-    "OB_MOTOR_ERROR",
-    "OB_UNRESPONSIVE",
-    "OB_STEP_COUNT_MISMATCH",
-}
-_OB_FDIR_FLAGS = {
-    "FPGA_IO_POWER_SUPPLY",
-    "FPGA_CORE_POWER_SUPPLY",
-    "DIGITAL_BOARD_TRP",
-    "DETECTOR_BOARD_TRP",
-    "MECH_BOARD_TRP",
-    "MOTOR_TRP",
-}
-_EB_WARNING_FLAGS = {
-    "GENERAL_ERROR",
-    "EB_FDIR_ALARM",
-    "WATCHDOG_TIMEOUT_DETECTED",
-    "NO_RET_RECEIVED",
-    "NO_HEALTHY_ASW_IMAGE",
-    "PATCH_WRITING_ERROR",
-    "RS422_RECEIVE_ERROR",
-    "RS422_TRANSMIT_ERROR",
-    "RS485_RECEIVE_ERROR",
-    "RS485_TRANSMIT_ERROR",
-}
-_EB_FDIR_FLAGS = {
-    "EB_PLUS_12V_SUPPLY",
-    "EB_MINUS_12V_SUPPLY",
-    "EB_PLUS_5V_SUPPLY",
-    "EB_PLUS_3V3_SUPPLY",
-    "PROCESSOR_INTERNAL_TEMPERATURE",
-    "INTERNAL_TRP_TEMPERATURE",
-    "PSU_BOARD_TEMPERATURE",
-}
-
-
-def _decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, Any] | None = None) -> list[float] | None:
+def decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, Any] | None = None) -> list[float] | None:
     display_mode = str(
         (state or {}).get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL")
     ).upper()
@@ -1590,7 +1750,7 @@ def _decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, An
     return values
 
 
-def _decoded(packet: Any, field_name: str) -> float | None:
+def decoded(packet: Any, field_name: str) -> float | None:
     value = hk_conversions.decode_field(packet, field_name)
     if value is None:
         return None
@@ -1600,121 +1760,7 @@ def _decoded(packet: Any, field_name: str) -> float | None:
         return None
 
 
-def _active_flag_names(flag_ns: Any, ordered_names: list[str]) -> list[str]:
-    if flag_ns is None:
-        return []
-    return [
-        name
-        for name in ordered_names
-        if not name.startswith("UNUSED") and not name.startswith("RESERVED") and bool(getattr(flag_ns, name, 0))
-    ]
-
-
-def _any_flag(flag_ns: Any) -> bool:
-    return bool(flag_ns) and any(bool(value) for value in flag_ns.__dict__.values())
-
-
-def _ob_alarm_details(hk: Any) -> list[str]:
-    warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), _WARNING_NAMES)
-    fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), _FDIR_NAMES)
-    fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), _FDIR_NAMES)
-
-    details = [f"OB Warning: {flag}" for flag in warning_bits if flag in _OB_WARNING_FLAGS]
-    details.extend([f"OB FDIR Alarm: {flag}" for flag in fdir_alarm_bits if flag in _OB_FDIR_FLAGS])
-    details.extend([f"OB FDIR Warning: {flag}" for flag in fdir_warning_bits if flag in _OB_FDIR_FLAGS])
-    if _any_flag(getattr(hk, "ERRORS", None)):
-        details.append("OB Error flags active")
-    if _any_flag(getattr(hk, "MTR_ERRORS", None)):
-        details.append("OB Motor error flags active")
-    return details
-
-
-def _eb_alarm_details(hk: Any) -> list[str]:
-    warning_bits = _active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), _WARNING_NAMES)
-    fdir_alarm_bits = _active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), _FDIR_NAMES)
-    fdir_warning_bits = _active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), _FDIR_NAMES)
-
-    details: list[str] = []
-    tcs_rejected = int(getattr(hk, "TCS_REJECTED", 0) or 0)
-    if tcs_rejected > 0:
-        details.append(f"TCS Rejected: {tcs_rejected}")
-    details.extend([f"EB Warning: {flag}" for flag in warning_bits if flag in _EB_WARNING_FLAGS])
-    details.extend([f"EB FDIR Alarm: {flag}" for flag in fdir_alarm_bits if flag in _EB_FDIR_FLAGS])
-    details.extend([f"EB FDIR Warning: {flag}" for flag in fdir_warning_bits if flag in _EB_FDIR_FLAGS])
-    return details
-
-
-def _log_new_hk_alarm_details(state: dict[str, Any], logger: Any, channel: str, details: list[str]) -> None:
-    active_details = state.setdefault("hk_active_alarm_details", {"ob": set(), "eb": set()})
-    previous = set(active_details.get(channel, set()))
-    current = set(details)
-
-    for detail in sorted(current - previous):
-        detail_lower = detail.lower()
-        if "error" in detail_lower or "alarm" in detail_lower:
-            logger.error("HK %s alarm raised: %s", channel.upper(), detail)
-        else:
-            logger.warning("HK %s warning raised: %s", channel.upper(), detail)
-
-    active_details[channel] = current
-
-
-def _update_hk_alarm_lights(state: dict[str, Any], hk: Any, logger: Any) -> None:
-    alarm_lights = state.get("alarm_lights") or {}
-    ob_details = _ob_alarm_details(hk)
-    eb_details = _eb_alarm_details(hk)
-
-    active_logger = logger if logger is not None else info_log
-    _log_new_hk_alarm_details(state, active_logger, "ob", ob_details)
-    _log_new_hk_alarm_details(state, active_logger, "eb", eb_details)
-
-    if "ob" in alarm_lights:
-        alarm_lights["ob"].update_from_faults({detail: True for detail in ob_details}, source="hk")
-    if "eb" in alarm_lights:
-        alarm_lights["eb"].update_from_faults({detail: True for detail in eb_details}, source="hk")
-
-
-def _update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_card: Any) -> None:
-    time_value = getattr(hk, "TIME", None)
-    if time_value is None:
-        return
-
-    replay = state["psu_replay"]
-    replay["latest_hk_time"] = time_value
-    if replay.get("hk_anchor") is None:
-        replay["hk_anchor"] = time_value
-
-    instr_flags = getattr(hk, "INSTR_STATUS_FLAGS", None)
-    ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
-    trp_card.set_stream_enabled(ob_enabled)
-    voltage_card.set_stream_enabled(ob_enabled)
-
-    if not ob_enabled:
-        return
-
-    ob_trp_vals = _decode_tuple(hk, _OB_TRP_FIELDS, state)
-    if ob_trp_vals is not None:
-        trp_card.push([time_value], [[v] for v in ob_trp_vals])
-
-    voltage_vals = _decode_tuple(hk, _VOLTAGE_3V3_FIELDS, state)
-    if voltage_vals is not None:
-        voltage_card.push([time_value], [[v] for v in voltage_vals])
-
-
-def _update_packet_viewer(
-    mode: str, packet_viewer_controllers: dict[str, Any], hk: Any, packet_list_controller: Any = None
-) -> None:
-    packet_type = "OB_HK" if mode == "OB" else "EB_HK"
-    packet_viewer_controllers[packet_type].update_from_packet(hk)
-
-    # Add to packet list if available
-    if packet_list_controller is not None:
-        packet_data = hk.__dict__ if hasattr(hk, "__dict__") else (dict(hk) if isinstance(hk, dict) else {})
-        label = f"TM: {packet_type}"
-        packet_list_controller.add_packet(packet_type, packet_data, label)
-
-
-def _drain_packet_queue(queue: Any, handler: Any) -> None:
+def drain_packet_queue(queue: Any, handler: Any) -> None:
     while not queue.empty():
         handler(queue.get())
 
@@ -1740,205 +1786,113 @@ _MMS_FIELDS = (
 )
 
 
-def _violates_limits(value: float | None, limits: tuple[float | None, float | None]) -> bool:
-    if value is None:
-        return False
-    low, high = limits
-    return (low is not None and value < low) or (high is not None and value > high)
+def eb_alarm_details(hk: Any) -> list[str]:
+    warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), _WARNING_NAMES)
+    fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), _FDIR_NAMES)
+    fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), _FDIR_NAMES)
+
+    details: list[str] = []
+    tcs_rejected = int(getattr(hk, "TCS_REJECTED", 0) or 0)
+    if tcs_rejected > 0:
+        details.append(f"TCS Rejected: {tcs_rejected}")
+    details.extend([f"EB Warning: {flag}" for flag in warning_bits if flag in _EB_WARNING_FLAGS])
+    details.extend([f"EB FDIR Alarm: {flag}" for flag in fdir_alarm_bits if flag in _EB_FDIR_FLAGS])
+    details.extend([f"EB FDIR Warning: {flag}" for flag in fdir_warning_bits if flag in _EB_FDIR_FLAGS])
+    return details
 
 
-def _append_violation(
-    reasons: list[str], label: str, value: float | None, limits: tuple[float | None, float | None]
-) -> bool:
-    if not _violates_limits(value, limits):
-        return False
-    low, high = limits
-    reasons.append(f"{label} out of limits: value={value}, limits=({low}, {high})")
-    return True
+def log_new_hk_alarm_details(state: dict[str, Any], logger: Any, channel: str, details: list[str]) -> None:
+    active_details = state.setdefault("hk_active_alarm_details", {"ob": set(), "eb": set()})
+    previous = set(active_details.get(channel, set()))
+    current = set(details)
 
-
-def _limit_tuple(value: Any) -> tuple[float | None, float | None]:
-    if isinstance(value, tuple) and len(value) == 2:
-        return value
-    return (None, None)
-
-
-def _mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]:
-    reasons: list[str] = []
-    tec_pre_action = False
-    ob5v_pre_action = False
-
-    # Check OB_5V_ENABLED and SAFE mode
-    instr_status_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
-    ob_5v_enabled = (instr_status_flags >> 5) & 0x1  # OB_5V_ENABLED is bit 5
-    current_state = int(
-        getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
-    )
-    skip_ob_checks = (not ob_5v_enabled) or (current_state == 0x02)
-
-    for label, field_name, limit_key, tec_field in _MMS_FIELDS:
-        if label.startswith("OB ") and skip_ob_checks:
-            continue  # Skip OB parameter checks if OB is off or in SAFE
-        violated = _append_violation(reasons, label, _decoded(hk, field_name), _limit_tuple(limits.get(limit_key)))
-        tec_pre_action = tec_pre_action or (tec_field and violated)
-        ob5v_pre_action = ob5v_pre_action or (label.startswith("OB ") and violated)
-
-    if bool(getattr(hk, "POST_ERROR_FLAGS", 0)):
-        reasons.append("POST Error Flags asserted")
-
-    if bool(getattr(hk, "ERROR_FLAGS", 0)):
-        ns = getattr(hk, "ERROR_FLAGS_BITS", None)
-        eb_flags = sorted(k for k, v in vars(ns).items() if v == 1 and k != "RESERVED") if ns is not None else []
-        if const.MMS_MASK_OB_GENERAL_ERROR:
-            eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
-        if eb_flags:
-            reasons.append(f"HK Error Flags asserted: {', '.join(eb_flags)}")
-        elif ns is None:
-            reasons.append("HK Error Flags asserted")
-
-    # OB error details — decoded from OB_LAST_ERROR byte.
-    # OB_GENERAL_ERROR on EB is sticky: the OB register may already be 0 by the time
-    # MMS fires.  Always include the raw byte value so operators have full context.
-    ob_last_error_raw = getattr(hk, "OB_LAST_ERROR", None)
-    ob_err_active = (
-        sorted(k for k, v in vars(ns).items() if v == 1 and k not in {"UNUSED1", "UNUSED2"})
-        if (ns := getattr(hk, "ERRORS", None)) is not None
-        else []
-    )
-    if ob_err_active:
-        reasons.append(f"OB Errors: {', '.join(ob_err_active)} (OB_LAST_ERROR=0x{ob_last_error_raw:02X})")
-    elif ob_last_error_raw is not None and ob_last_error_raw != 0:
-        reasons.append(f"OB_LAST_ERROR=0x{ob_last_error_raw:02X} (no active bits decoded)")
-
-    # Motor error details — decoded from OB_MOTOR_ERROR byte.
-    ob_motor_error_raw = getattr(hk, "OB_MOTOR_ERROR", None)
-    mtr_err_active = (
-        sorted(k for k, v in vars(ns).items() if v == 1 and k != "UNUSED")
-        if (ns := getattr(hk, "MTR_ERRORS", None)) is not None
-        else []
-    )
-    if mtr_err_active:
-        reasons.append(f"OB Motor Errors: {', '.join(mtr_err_active)} (OB_MOTOR_ERROR=0x{ob_motor_error_raw:02X})")
-    elif ob_motor_error_raw is not None and ob_motor_error_raw != 0:
-        reasons.append(f"OB_MOTOR_ERROR=0x{ob_motor_error_raw:02X} (no active bits decoded)")
-
-    return reasons, tec_pre_action, ob5v_pre_action
-
-
-def _disable_ob5v(logger: Any) -> None:
-    try:
-        interface = eb_interface.get_egse_interface()
-        status = ebtcs.en_ob5v(interface, 0)
-        if status == "ERROR":
-            logger.warning("MMS pre-action: OB 5V disable command failed over EB link.")
-            return
-        logger.warning("MMS pre-action: OB 5V disable command sent over EB link.")
-    except Exception as exc:
-        logger.error(f"MMS pre-action failed while disabling OB 5V over EB link: {exc}")
-
-
-async def mms(
-    app: Any,
-    state: dict[str, Any],
-    logger: Any,
-    hk: Any,
-    reasons: list[str],
-    tec_pre_action: bool,
-    ob5v_pre_action: bool,
-):
-    mms_cfg = state.setdefault("mms", {})
-    if mms_cfg.get("latched"):
-        return
-    if mms_cfg.get("in_progress"):
-        return
-
-    mms_cfg["in_progress"] = True
-
-    def _run_mms_actions() -> None:
-        mms_cfg = state.setdefault("mms", {})
-        if mms_cfg.get("latched"):
-            return
-
-        # Abort any running script before taking safety actions.
-        if is_script_running():
-            request_abort()
-            clear_pause()
-            clear_force_pause()
-            logger.warning("MMS action: running script aborted.")
-
-        if tec_pre_action:
-            mms_cfg["tec_shutdown_requested"] = True
-            logger.warning("MMS pre-action: TEC current should be forced to 0 (TC not yet implemented).")
-
-        # Only attempt OB 5V disable when EB is not already in SAFE.
-        current_state = int(
-            getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
-        )
-        if ob5v_pre_action and current_state != 0x02:
-            mms_cfg["ob5v_disable_requested"] = True
-            _disable_ob5v(logger)
-        elif ob5v_pre_action:
-            logger.info("MMS pre-action: OB 5V disable skipped — EB already in SAFE state.")
-
-        logger.warning("MMS trigger detected: attempting SET SAFE then PSU shutdown. Reasons: %s", "; ".join(reasons))
-        safe_confirmed = False
-        try:
-            interface = eb_interface.get_egse_interface()
-            safe_status = ebtcs.safe(interface, 0)
-            if safe_status != "ERROR":
-                time.sleep(2)
-                ret_status = ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
-            else:
-                ret_status = "ERROR"
-
-            if safe_status != "ERROR" and ret_status != "ERROR":
-                logger.warning("MMS action: SAFE and RET commands sent via ebtcs.")
-                rs422_log_path = getattr(app.state.eb_interface, "rs422_log_path", None)
-                safe_confirmed = interface.wait_for_safe_state(rs422_log_path, timeout_s=10.0, poll_s=0.5)
-                logger.warning(
-                    "MMS action: %s",
-                    "SAFE operating state confirmed from HK."
-                    if safe_confirmed
-                    else "SAFE operating state could not be confirmed from HK.",
-                )
-            else:
-                logger.warning("MMS action: SAFE/RET command sequence failed.")
-        except Exception as exc:
-            logger.error(f"MMS action failed while sending SET SAFE command: {exc}")
-
-        psu_port = state.get("psu_port")
-
-        # Latch MMS state first so trigger information is recorded even if shutdown fails.
-        mms_cfg["latched"] = True
-        mms_cfg["mode_at_trigger"] = state.get("mode")
-        mms_cfg["triggered_at"] = datetime.now().isoformat(timespec="seconds")
-        mms_cfg["reasons"] = reasons
-
-        # Always attempt PSU emergency shutdown if PSU port is available, regardless of SAFE confirmation.
-        if psu_port is not None:
-            if not safe_confirmed:
-                logger.warning("MMS action: SAFE state was not confirmed; proceeding with PSU shutdown anyway.")
-            lock = state.get("port_lock")
-            lock_ctx = lock if lock is not None else nullcontext()
-            try:
-                with lock_ctx:
-                    psu.emergencyShutDown(psu_port)
-                logger.warning(
-                    "MMS action: PSU emergency shutdown executed (all channels OFF). Reasons: %s",
-                    "; ".join(reasons) if reasons else "none",
-                )
-            except Exception as exc:
-                logger.error(f"MMS action failed during PSU emergency shutdown: {exc}")
+    for detail in sorted(current - previous):
+        detail_lower = detail.lower()
+        if "error" in detail_lower or "alarm" in detail_lower:
+            logger.error("HK %s alarm raised: %s", channel.upper(), detail)
         else:
-            logger.warning("MMS action: PSU emergency shutdown skipped because PSU port is unavailable.")
+            logger.warning("HK %s warning raised: %s", channel.upper(), detail)
 
-    try:
-        await run.io_bound(_run_mms_actions)
-    except Exception as exc:
-        mms_cfg["last_error"] = str(exc)
-        raise
-    finally:
-        mms_cfg["in_progress"] = False
+    active_details[channel] = current
+
+
+def ob_alarm_details(hk: Any) -> list[str]:
+    warning_bits = active_flag_names(getattr(hk, "WARNING_FLAGS_BITS", None), _WARNING_NAMES)
+    fdir_alarm_bits = active_flag_names(getattr(hk, "FDIR_ALARM_FLAGS_BITS", None), _FDIR_NAMES)
+    fdir_warning_bits = active_flag_names(getattr(hk, "FDIR_WARNING_FLAGS_BITS", None), _FDIR_NAMES)
+
+    details = [f"OB Warning: {flag}" for flag in warning_bits if flag in _OB_WARNING_FLAGS]
+    details.extend([f"OB FDIR Alarm: {flag}" for flag in fdir_alarm_bits if flag in _OB_FDIR_FLAGS])
+    details.extend([f"OB FDIR Warning: {flag}" for flag in fdir_warning_bits if flag in _OB_FDIR_FLAGS])
+    if any_flag(getattr(hk, "ERRORS", None)):
+        details.append("OB Error flags active")
+    if any_flag(getattr(hk, "MTR_ERRORS", None)):
+        details.append("OB Motor error flags active")
+    return details
+
+
+def update_hk_alarm_lights(state: dict[str, Any], hk: Any, logger: Any) -> None:
+    alarm_lights = state.get("alarm_lights") or {}
+    ob_details = ob_alarm_details(hk)
+    eb_details = eb_alarm_details(hk)
+
+    active_logger = logger if logger is not None else info_log
+    log_new_hk_alarm_details(state, active_logger, "ob", ob_details)
+    log_new_hk_alarm_details(state, active_logger, "eb", eb_details)
+
+    if "ob" in alarm_lights:
+        alarm_lights["ob"].update_from_faults({detail: True for detail in ob_details}, source="hk")
+    if "eb" in alarm_lights:
+        alarm_lights["eb"].update_from_faults({detail: True for detail in eb_details}, source="hk")
+
+
+def update_packet_viewer(
+    mode: str, packet_viewer_controllers: dict[str, Any], hk: Any, packet_list_controller: Any = None
+) -> None:
+    packet_type = "OB_HK" if mode == "OB" else "EB_HK"
+    packet_viewer_controllers[packet_type].update_from_packet(hk)
+
+    # Add to packet list if available
+    if packet_list_controller is not None:
+        packet_data = hk.__dict__ if hasattr(hk, "__dict__") else (dict(hk) if isinstance(hk, dict) else {})
+        label = f"TM: {packet_type}"
+        packet_list_controller.add_packet(packet_type, packet_data, label)
+
+
+def update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_card: Any) -> None:
+    time_value = getattr(hk, "TIME", None)
+    if time_value is None:
+        return
+
+    replay = state["psu_replay"]
+    replay["latest_hk_time"] = time_value
+    if replay.get("hk_anchor") is None:
+        replay["hk_anchor"] = time_value
+
+    instr_flags = getattr(hk, "INSTR_STATUS_FLAGS", None)
+    ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
+    trp_card.set_stream_enabled(ob_enabled)
+    voltage_card.set_stream_enabled(ob_enabled)
+
+    if not ob_enabled:
+        return
+
+    ob_trp_vals = decode_tuple(hk, _OB_TRP_FIELDS, state)
+    if ob_trp_vals is not None:
+        trp_card.push([time_value], [[v] for v in ob_trp_vals])
+
+    voltage_vals = decode_tuple(hk, _VOLTAGE_3V3_FIELDS, state)
+    if voltage_vals is not None:
+        voltage_card.push([time_value], [[v] for v in voltage_vals])
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# TM polling — create_poll_tm and supporting helpers
+# ---------------------------------------------------------------------------
+# region TM polling — create_poll_tm and supporting helpers
 
 
 def create_poll_tm(
@@ -2006,12 +1960,12 @@ def create_poll_tm(
 
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
-            _update_hk_alarm_lights(state, hk, logger)
+            update_hk_alarm_lights(state, hk, logger)
 
             # MMS runs continuously while in EB mode and latches on first trigger.
             mms_cfg = state.get("mms") or {}
             if state.get("mode") == "EB" and bool(mms_cfg.get("enabled", True)):
-                reasons, tec_pre_action, ob5v_pre_action = _mms_reasons(hk, mms_cfg.get("limits") or {})
+                reasons, tec_pre_action, ob5v_pre_action = mms_reasons(hk, mms_cfg.get("limits") or {})
                 if reasons:
                     if mms_cfg.get("latched") or mms_cfg.get("in_progress") or mms_cfg.get("pending"):
                         pass
@@ -2041,11 +1995,11 @@ def create_poll_tm(
                             mms_cfg["pending"] = False
                             logger.exception("Could not schedule MMS task: %s", exc)
 
-            _update_plot_cards(state, hk, trp_card, voltage_card)
+            update_plot_cards(state, hk, trp_card, voltage_card)
             if hk_explorer_card is not None:
                 hk_explorer_card.push_data({"EB_HK": hk})
             packet_list_controller = state.get("packet_list_controller")
-            _update_packet_viewer(mode, packet_viewer_controllers, hk, packet_list_controller)
+            update_packet_viewer(mode, packet_viewer_controllers, hk, packet_list_controller)
 
         # In static/mock-log runs, HK may stop updating. Keep replay time moving so
         # PSU log playback can continue even without fresh HK packets.
@@ -2193,3 +2147,298 @@ def create_poll_tm(
         packet_metrics_card.refresh()
 
     return poll_tm
+
+
+def disable_ob5v(logger: Any) -> None:
+    try:
+        interface = eb_interface.get_egse_interface()
+        status = ebtcs.en_ob5v(interface, 0)
+        if status == "ERROR":
+            logger.warning("MMS pre-action: OB 5V disable command failed over EB link.")
+            return
+        logger.warning("MMS pre-action: OB 5V disable command sent over EB link.")
+    except Exception as exc:
+        logger.error(f"MMS pre-action failed while disabling OB 5V over EB link: {exc}")
+
+
+async def mms(
+    app: Any,
+    state: dict[str, Any],
+    logger: Any,
+    hk: Any,
+    reasons: list[str],
+    tec_pre_action: bool,
+    ob5v_pre_action: bool,
+):
+    mms_cfg = state.setdefault("mms", {})
+    if mms_cfg.get("latched"):
+        return
+    if mms_cfg.get("in_progress"):
+        return
+
+    mms_cfg["in_progress"] = True
+
+    def _run_mms_actions() -> None:
+        mms_cfg = state.setdefault("mms", {})
+        if mms_cfg.get("latched"):
+            return
+
+        # Abort any running script before taking safety actions.
+        if is_script_running():
+            request_abort()
+            clear_pause()
+            clear_force_pause()
+            logger.warning("MMS action: running script aborted.")
+
+        if tec_pre_action:
+            mms_cfg["tec_shutdown_requested"] = True
+            logger.warning("MMS pre-action: TEC current should be forced to 0 (TC not yet implemented).")
+
+        # Only attempt OB 5V disable when EB is not already in SAFE.
+        current_state = int(
+            getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
+        )
+        if ob5v_pre_action and current_state != 0x02:
+            mms_cfg["ob5v_disable_requested"] = True
+            disable_ob5v(logger)
+        elif ob5v_pre_action:
+            logger.info("MMS pre-action: OB 5V disable skipped — EB already in SAFE state.")
+
+        logger.warning("MMS trigger detected: attempting SET SAFE then PSU shutdown. Reasons: %s", "; ".join(reasons))
+        safe_confirmed = False
+        try:
+            interface = eb_interface.get_egse_interface()
+            safe_status = ebtcs.safe(interface, 0)
+            if safe_status != "ERROR":
+                time.sleep(2)
+                ret_status = ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+            else:
+                ret_status = "ERROR"
+
+            if safe_status != "ERROR" and ret_status != "ERROR":
+                logger.warning("MMS action: SAFE and RET commands sent via ebtcs.")
+                rs422_log_path = getattr(app.state.eb_interface, "rs422_log_path", None)
+                safe_confirmed = interface.wait_for_safe_state(rs422_log_path, timeout_s=10.0, poll_s=0.5)
+                logger.warning(
+                    "MMS action: %s",
+                    "SAFE operating state confirmed from HK."
+                    if safe_confirmed
+                    else "SAFE operating state could not be confirmed from HK.",
+                )
+            else:
+                logger.warning("MMS action: SAFE/RET command sequence failed.")
+        except Exception as exc:
+            logger.error(f"MMS action failed while sending SET SAFE command: {exc}")
+
+        psu_port = state.get("psu_port")
+
+        # Latch MMS state first so trigger information is recorded even if shutdown fails.
+        mms_cfg["latched"] = True
+        mms_cfg["mode_at_trigger"] = state.get("mode")
+        mms_cfg["triggered_at"] = datetime.now().isoformat(timespec="seconds")
+        mms_cfg["reasons"] = reasons
+
+        # Always attempt PSU emergency shutdown if PSU port is available, regardless of SAFE confirmation.
+        if psu_port is not None:
+            if not safe_confirmed:
+                logger.warning("MMS action: SAFE state was not confirmed; proceeding with PSU shutdown anyway.")
+            lock = state.get("port_lock")
+            lock_ctx = lock if lock is not None else nullcontext()
+            try:
+                with lock_ctx:
+                    psu.emergencyShutDown(psu_port)
+                logger.warning(
+                    "MMS action: PSU emergency shutdown executed (all channels OFF). Reasons: %s",
+                    "; ".join(reasons) if reasons else "none",
+                )
+            except Exception as exc:
+                logger.error(f"MMS action failed during PSU emergency shutdown: {exc}")
+        else:
+            logger.warning("MMS action: PSU emergency shutdown skipped because PSU port is unavailable.")
+
+    try:
+        await run.io_bound(_run_mms_actions)
+    except Exception as exc:
+        mms_cfg["last_error"] = str(exc)
+        raise
+    finally:
+        mms_cfg["in_progress"] = False
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# UI controllers — general
+# ---------------------------------------------------------------------------
+# region UI controllers — general
+
+
+def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
+    """Create a mode setter callback bound to current state and app."""
+
+    def set_mode(mode: str) -> None:
+        if mode not in ("EB", "OB"):
+            return
+        previous_mode = state.get("mode")
+        state["mode"] = mode
+        app.state.egse_mode = mode
+        for refresh in state["plot_refreshers"]:
+            refresh(mode)
+        if previous_mode != mode:
+            # Update PSU channels based on the new mode
+            psu_port = state.get("psu_port")
+            psu_lock = state.get("psu_lock")
+            psu_mode_state = state.get("psu_mode_state")
+            if isinstance(psu_mode_state, dict):
+                psu_mode_state["ebmode"] = mode == "EB"
+            if psu_port:
+                ebmode = mode == "EB"
+                lock_ctx = psu_lock if psu_lock is not None else nullcontext()
+                with lock_ctx:
+                    psu.setChannels(psu_port, ebmode)
+            # Run mode change resetters
+            for reset in state.get("mode_change_resetters", []):
+                reset()
+        sync_packet_tabs = state.get("sync_packet_tabs")
+        if callable(sync_packet_tabs):
+            sync_packet_tabs(mode)
+
+    return set_mode
+
+
+def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> None:
+    """Send an OB TC using the shared OB port lock when available."""
+    ob_port = state.get("ob_port")
+    if ob_port is None:
+        ui.notify("OB port unavailable", color="negative")
+        return
+
+    lock = state.get("port_lock")
+    lock_ctx = lock if lock is not None else nullcontext()
+    with lock_ctx:
+        command(ob_port, *args, **kwargs)
+
+
+# endregion
+
+
+# ---------------------------------------------------------------------------
+# UI controllers — SCI packet navigation
+# ---------------------------------------------------------------------------
+# region UI controllers — SCI packet navigation
+
+
+def create_sci_navigation_state(max_packets: int = 12) -> dict[str, Any]:
+    """Create backend-owned SCI navigation state for packet/point swiping."""
+    return {
+        "packets": [],
+        "identities": set(),
+        "packet_index": 0,
+        "point_index": 0,
+        "max_packets": max_packets,
+    }
+
+
+def sci_add_packet(sci_state: dict[str, Any], raw_packet: Any) -> Any | None:
+    """Normalize, dedupe, and insert an SCI packet into backend state."""
+    packet_obj = raw_packet
+    if not hasattr(packet_obj, "__dict__") and isinstance(packet_obj, dict):
+        packet_obj = SimpleNamespace(**packet_obj)
+    if not hasattr(packet_obj, "__dict__"):
+        return None
+
+    packet_obj = eb_packet_utility.merge_sci_data_packet(packet_obj)
+
+    def _packet_sort_key(packet: Any) -> int:
+        try:
+            return int(getattr(packet, "PACKET_NUMBER", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _packet_identity(packet: Any) -> tuple[Any, ...]:
+        packet_number = getattr(packet, "PACKET_NUMBER", None)
+        criticality = getattr(packet, "SCI_PACKET_CRITICALITY", None)
+        point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
+        first_abs_step = None
+        last_abs_step = None
+        sci_points = getattr(packet, "SCI_POINTS", None)
+        if sci_points:
+            first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
+            last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
+        elif hasattr(packet, "ABS_STEPS"):
+            first_abs_step = getattr(packet, "ABS_STEPS", None)
+            last_abs_step = first_abs_step
+        return (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+
+    identities = sci_state.setdefault("identities", set())
+    identity = _packet_identity(packet_obj)
+    if identity in identities:
+        return packet_obj
+
+    packets = sci_state.setdefault("packets", [])
+    packets.append(packet_obj)
+    packets.sort(key=_packet_sort_key)
+
+    max_packets = int(sci_state.get("max_packets", 12) or 12)
+    if len(packets) > max_packets:
+        sci_state["packets"] = packets[-max_packets:]
+        packets = sci_state["packets"]
+
+    sci_state["identities"] = {_packet_identity(packet) for packet in packets}
+    sci_set_packet_index(sci_state, len(packets) - 1)
+    return packet_obj
+
+
+def sci_current_packet(sci_state: dict[str, Any]) -> Any | None:
+    packets = sci_state.get("packets") or []
+    if not packets:
+        return None
+    idx = int(sci_state.get("packet_index", 0)) % len(packets)
+    return packets[idx]
+
+
+def sci_set_packet_index(sci_state: dict[str, Any], packet_index: int) -> Any | None:
+    packets = sci_state.get("packets") or []
+    if not packets:
+        sci_state["packet_index"] = 0
+        sci_state["point_index"] = 0
+        return None
+    sci_state["packet_index"] = packet_index % len(packets)
+    sci_state["point_index"] = 0
+    return sci_current_packet(sci_state)
+
+
+def sci_set_point_index(sci_state: dict[str, Any], point_index: int) -> int:
+    packet = sci_current_packet(sci_state)
+    if packet is None:
+        sci_state["point_index"] = 0
+        return 0
+    point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
+    if point_count <= 0:
+        sci_state["point_index"] = 0
+        return 0
+    sci_state["point_index"] = min(max(point_index, 0), point_count - 1)
+    return sci_state["point_index"]
+
+
+def sci_shift_packet_index(sci_state: dict[str, Any], delta: int) -> Any | None:
+    current = int(sci_state.get("packet_index", 0))
+    return sci_set_packet_index(sci_state, current + delta)
+
+
+def sci_shift_point_index(sci_state: dict[str, Any], delta: int) -> int:
+    packet = sci_current_packet(sci_state)
+    if packet is None:
+        sci_state["point_index"] = 0
+        return 0
+    point_count = int(getattr(packet, "SCI_POINT_COUNT", 0) or 0)
+    if point_count <= 0:
+        sci_state["point_index"] = 0
+        return 0
+    current = int(sci_state.get("point_index", 0))
+    sci_state["point_index"] = (current + delta) % point_count
+    return sci_state["point_index"]
+
+
+# endregion
