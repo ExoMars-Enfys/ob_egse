@@ -603,23 +603,23 @@ def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip
     event_log.info("Science Measurements Completed!!")
 
 
-def sweep_offset_mwir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
+def sweep_offset_mwir(port, start_value=0, end_value=4095, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
     This function sweeps through the mwir DAC from 0 to 4095 using the increment specified.
     A science reading is the acquired at each DAC offset.
     """
     event_log.info("Running ABU MWIR Sweep")
-    for offset in range(0, 4096, step):
+    for offset in range(start_value, end_value + 1, step):
         set_offset_and_check_sci(port, 100, offset, sci_adc_samp, sci_adc_skip)
 
 
-def sweep_offset_swir(port, step=16, sci_adc_samp=0, sci_adc_skip=100):
+def sweep_offset_swir(port, start_value=0, end_value=4095, step=16, sci_adc_samp=0, sci_adc_skip=100):
     """
     This function sweeps through the swir DAC from 0 to 4095 using the increment specified.
     A science reading is the acquired at each DAC offset.
     """
     event_log.info("Running ABU SWIR Sweep")
-    for offset in range(0, 4096, step):
+    for offset in range(start_value, end_value + 1, step):
         set_offset_and_check_sci(port, offset, 100, sci_adc_samp, sci_adc_skip)
 
 
@@ -930,8 +930,8 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
         # Request a Science Measurement and log the result.
         sci = _sci(port, sci_adc_samp, sci_adc_skip)
         event_log.info(
-            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
-            f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
+            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}"
+            + f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
             + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
             + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
             + f"   SW_M: {sci.SWIR_MED:04d}"
