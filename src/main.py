@@ -158,10 +158,18 @@ def main() -> None:
 
         abu.first_power_on_cal_outer(ob_port)  # Power on inc Cal to outer
 
-        abu.abu_measurement_table_scan2(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        ## Measure using Outer Cal and tables
+        abu.abu_measurement_table_scan(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
         time.sleep(1)  # Adding a 1 second delay
 
-        abu.abu_measurement_table_scan2(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        # abu.abu_measurement_table_scan_no(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+
+        ## DAC Sweeps
+
+        abu.sweep_offset_mwir(ob_port, start_value=2000, end_value=2100, step=16)
+
+        abu.sweep_offset_swir(ob_port, start_value=2000, end_value=2100, step=16)
+
         # abu.abu_measurement_mode2_scan(ob_port, 2739, 1, 300)
 
         # abu.abu_measurement_mode2_scan(ob_port, 8000, 1, 600)
