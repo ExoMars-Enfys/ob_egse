@@ -886,26 +886,11 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
     if not hk.MTR_FLAGS.OUTER and not hk.MTR_FLAGS.BASE:
         event_log.info("Motor is away from end stops")
 
-
-def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
-    """
-    Performs the basic Enfys science measurement table operation
-    After an earlier Calibration to Outer and home to base!!!
-    Goes to the Base Does ABC
-    Drives across the whole range of the mechanism using the step_spacing specified in the function
-    Halts once Base Stop is reached
-    """
-
+def choose_dac_offsets(port):
     SWIR_BINARY_CHOP_LOCATION = 9600
     SWIR_BINARY_CHOP_TARGET = 5000
     MWIR_BINARY_CHOP_LOCATION = 8000
     MWIR_BINARY_CHOP_TARGET = 15000
-
-    event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
-
-    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
-    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
-    table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
 
     # SWIR binary chop
     mv_abs_pos(port, SWIR_BINARY_CHOP_LOCATION)
@@ -917,12 +902,12 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
     mwir_offset = find_dac_offset(port, "MWIR", MWIR_BINARY_CHOP_TARGET, swir_offset)
     event_log.info(f"MWIR offset = {mwir_offset}")
 
-    # FIXME - should we home to outer and check motor steps at this point?
+def do_table_scan(port, table, sci_adc_samp, sci_adc_skip):
 
-    event_log.info("Starting Science Measurements")
-
-    # Run through the measurement table - we tell the iterator the
+    # Run through a measurement table - we tell the iterator the
     # current motor steps so it can align things where we expect them to be.
+    hk_tm = _hk(port)
+
     for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
         # Action the requested move (assuming a move was needed).
         mv_abs_pos(port, abs_pos)
@@ -948,45 +933,65 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
         # EB.
         hk_tm = _hk(port)
 
+def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=100, dark_table_0=0, dark_table_1=1):
+    """
+    Performs the basic Enfys science measurement table operation
+    After an earlier Calibration to Outer and home to base!!!
+    Does ABC at SWIR and MWIR DAC locations.
+    Uses predefined table in measurement_table.py to generate a lost of locations for taking readings.
+    """
+
+    event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
+
+    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
+    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
+    table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
+
+    choose_dac_offsets(port)
+
+    # FIXME - should we home to outer and check motor steps at this point?
+
+    event_log.info("Starting Science Measurements")
+
+    do_table_scan(port, table, sci_adc_samp, sci_adc_skip)
+
     # FIXME - should we home to base and check motor steps at this point?
 
     event_log.info("Science Measurements Completed")
 
 
-def abu_measurement_mode2_scan(port, measurement_location, interval_seconds, count, sci_adc_samp=4, sci_adc_skip=20):
+def abu_measurement_mode2(port, measurement_location, interval_seconds, total_duration_seconds, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement at a single position
-    Homes and Calibrates to Base
-    Does binary chops
-    Takes a specified number of measurements at a single location, with specified interval between
-    Gets measurements at binary chop locations
-    Goes back to base
+    After an earlier Calibration to Outer and home to base!!!
+    Does ABC at SWIR and MWIR DAC locations.
+    Scans first dark table.
+    Moves to specified position.
+    Repeatedly requests science packets, pausing interval_seconds between requests, until total_duration_seconds have passed.
     """
+
     event_log.info(
-        f"Running ABU Mode2 Scan at {measurement_location} for {count} samples at {interval_seconds}s intervals"
+        f"Running ABU Mode2 Scan at {measurement_location}: samples at {interval_seconds}s intervals for {total_duration_seconds}s"
     )
 
-    # Cal to Base
-    cal_motor_to_base(port)
+    # Get the two dark tables.
+    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
+    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
 
-    # SWIR binary chop at base (9960)
-    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
-    event_log.info(f"SWIR offset = {swir_offset}")
+    choose_dac_offsets(port)
 
-    # Move to 8,000 for MWIR binary chop.
-    mv_neg_steps(port, 1960)
+    event_log.info("Starting Science Measurements")
 
-    # Do MWIR binary chop.
-    mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
-    event_log.info(f"MWIR offset = {mwir_offset}")
+    # FIXME - should we home to outer and check motor steps at this point?
 
+    # Scan dark table 0.
+    do_table_scan(port, dark0, sci_adc_samp, sci_adc_skip)
+
+    # Move to measurement location
     mv_abs_pos(port, measurement_location)
 
-    # Get HK so we know the current position.
-    hk_tm = _hk(port)
-    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
-
-    for _ in range(count):
+    end_time = time.time() + total_duration_seconds
+    while time.time() < end_time:
         # Request a Science Measurement and log the result.
         sci = _sci(port, sci_adc_samp, sci_adc_skip)
         event_log.info(
@@ -1001,37 +1006,9 @@ def abu_measurement_mode2_scan(port, measurement_location, interval_seconds, cou
         )
         time.sleep(interval_seconds)
 
-    mv_abs_pos(port, 8000)
-    sci = _sci(port, sci_adc_samp, sci_adc_skip)
-    event_log.info(
-        "At MWIR BC location "
-        + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
-        + f"   SW_M: {sci.SWIR_MED:04d}"
-        + f"   SW_H: {sci.SWIR_HIGH:04d}"
-        + f"\t MW_L: {sci.MWIR_LOW:04d}"
-        + f"   MW_M: {sci.MWIR_MED:04d}"
-        + f"   MW_HH: {sci.MWIR_HIGH:04d}"
-        + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
-        + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
-    )
+    # Scan dark table 1.
+    do_table_scan(port, dark1, sci_adc_samp, sci_adc_skip)
 
-    # Home to base so we can check motor steps is OK.
-    home_to_base(port)
-
-    sci = _sci(port, sci_adc_samp, sci_adc_skip)
-    event_log.info(
-        "At SWIR BC location"
-        + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
-        + f"   SW_M: {sci.SWIR_MED:04d}"
-        + f"   SW_H: {sci.SWIR_HIGH:04d}"
-        + f"\t MW_L: {sci.MWIR_LOW:04d}"
-        + f"   MW_M: {sci.MWIR_MED:04d}"
-        + f"   MW_HH: {sci.MWIR_HIGH:04d}"
-        + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
-        + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
-    )
-
-    # FIXME: We should do something if MTR_ABS_STEPS is not
-    # close enough to 9960 at this point.
+    # FIXME - should we home to base and check motor steps at this point?
 
     event_log.info("Science Measurements Completed")
