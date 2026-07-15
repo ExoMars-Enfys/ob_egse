@@ -194,14 +194,14 @@ def main() -> None:
         # event_log.info("Starting Science Measurements")
 
         # abu.home_to_outer(ob_port)  # Because this is where science measurements start
-        # hk = tc.hk_request(ob_port)
+        # hk = abu.hk_request(ob_port)
         # outer_position = hk.MTR_ABS_STEPS
         # outer_position = 0  # Placeholder value since hk request is commented out
 
         # Take samples from 1200 up to 9960 in steps of 30.
         # for position in range(outer_position, 9960, 30):
         #    abu.mv_abs_pos(ob_port, position)
-        #    sci = tc.sci_request(ob_port, sci_adc_samp=4, sci_adc_skip=100)
+        #    sci = abu.sci_request(ob_port)
 
         ## Clear Errors
         # tc.clear_errors(ob_port)
@@ -274,8 +274,8 @@ def main() -> None:
         # while True:
         #    swir_offset = abu.find_dac_offset(ob_port, "SWIR", 200, 1)
         #    mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 1500, swir_offset)
-        #    hk_tm = tc.hk_request(ob_port)
-        #    sci = tc.sci_request(ob_port, 4, 100)
+        #    hk_tm = abu.hk_request(ob_port)
+        #    sci = abu.sci_request(ob_port)
         #    print(f"HT_SINK_TEMP={sci.HT_SINK_TEMP}")
         #    time.sleep(30)
 
@@ -289,7 +289,7 @@ def main() -> None:
         #    mwir_offset = abu.find_dac_offset(ob_port, "MWIR", 1500, swir_offset)
 
         ## Get a science packet so we can note the TRP values in our log.
-        #    sci = tc.sci_request(ob_port, 4, 100)
+        #    sci = abu.sci_request(ob_port)
 
         #    print(f"{time.time()-start_time:.0f},{swir_offset},{mwir_offset},{sci.HT_SINK_TEMP},{sci.SWIR_TEMP},{sci.SWIR_HIGH},{sci.MWIR_HIGH}", file=choplog)
         #    choplog.flush()
