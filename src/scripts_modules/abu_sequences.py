@@ -890,133 +890,47 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
 def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement table operation
-    Homes and Calibrates to Base
-    Goes to the Outer
-    Drives across the whole range of the mechanism using the step_spacing specified in the function
-    Halts once Base Stop is reached
-    """
-    event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
-
-    dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
-    dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
-    table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
-
-    # Cal to Base
-    cal_motor_to_base(port)
-
-    # SWIR binary chop at base (9960)
-    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
-    event_log.info(f"SWIR offset = {swir_offset}")
-
-    # Move to 8,000 for MWIR binary chop.
-    mv_neg_steps(port, 1960)
-
-    # Do MWIR binary chop.
-    mwir_offset = find_dac_offset(port, "MWIR", 5000, swir_offset)
-    event_log.info(f"MWIR offset = {mwir_offset}")
-
-    # Home to Outer
-    home_to_outer(port)
-
-    # Get HK so we can find the current position.
-    hk_tm = _hk(port)
-
-    # FIXME: We should do something if MTR_ABS_STEPS is not
-    # close enough to 1000 at this point.
-
-    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
-
-    # Run through the measurement table - we tell the iterator the
-    # current motor steps so it can align things where we expect them to be.
-    for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
-        # Action the requested move (assuming a move was needed).
-        if rel_move < 0:
-            mv_neg_steps(port, -rel_move)
-        elif rel_move > 0:
-            mv_pos_steps(port, rel_move)
-
-        # Request a Science Measurement and log the result.
-        sci = _sci(port, sci_adc_samp, sci_adc_skip)
-        hk_tm = _hk(port)
-        event_log.info(
-            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
-            f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
-            + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
-            + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
-            + f"   SW_M: {sci.SWIR_MED:04d}"
-            + f"   SW_H: {sci.SWIR_HIGH:04d}"
-            + f"\t MW_L: {sci.MWIR_LOW:04d}"
-            + f"   MW_M: {sci.MWIR_MED:04d}"
-            + f"   MW_HH: {sci.MWIR_HIGH:04d}"
-            + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
-            + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
-        )
-
-    # Home to base so we can check motor steps is OK.
-    home_to_base(port)
-
-    # FIXME: We should do something if MTR_ABS_STEPS is not
-    # close enough to 9960 at this point.
-
-    event_log.info("Science Measurements Completed")
-
-
-def abu_measurement_table_scan2(port, table_number, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
-    """
-    Performs the basic Enfys science measurement table operation
     After an earlier Calibration to Outer and home to base!!!
     Goes to the Base Does ABC
     Drives across the whole range of the mechanism using the step_spacing specified in the function
     Halts once Base Stop is reached
     """
+
+    SWIR_BINARY_CHOP_LOCATION = 9600
+    SWIR_BINARY_CHOP_TARGET = 5000
+    MWIR_BINARY_CHOP_LOCATION = 8000
+    MWIR_BINARY_CHOP_TARGET = 15000
+
     event_log.info(f"Running ABU Measurement Table Scan using table {table_number}")
 
     dark0 = mt.MeasurementTable(mt.predefined[dark_table_0])
     dark1 = mt.MeasurementTable(mt.predefined[dark_table_1])
     table = mt.MeasurementTable(mt.predefined[table_number], before_table=dark0, after_table=dark1)
 
-    # Cal to Outer
-    # cal_motor_to_outer(port)
-
-    # Move to Base
-    home_to_base(port)
-
-    # SWIR binary chop at base (9600)
-    swir_offset = find_dac_offset(port, "SWIR", 5000, 1)
+    # SWIR binary chop
+    mv_abs_pos(port, SWIR_BINARY_CHOP_LOCATION)
+    swir_offset = find_dac_offset(port, "SWIR", SWIR_BINARY_CHOP_TARGET, 1)
     event_log.info(f"SWIR offset = {swir_offset}")
 
-    # Move to 8,000 for MWIR binary chop.
-    mv_neg_steps(port, 1600)
-
-    # Do MWIR binary chop.
-    mwir_offset = find_dac_offset(port, "MWIR", 15000, swir_offset)
+    # MWIR binary chop.
+    mv_abs_pos(port, MWIR_BINARY_CHOP_LOCATION)
+    mwir_offset = find_dac_offset(port, "MWIR", MWIR_BINARY_CHOP_TARGET, swir_offset)
     event_log.info(f"MWIR offset = {mwir_offset}")
 
-    # Home to Outer
-    home_to_outer(port)
+    # FIXME - should we home to outer and check motor steps at this point?
 
-    # Get HK so we can find the current position.
-    hk_tm = _hk(port)
-
-    # FIXME: We should do something if MTR_ABS_STEPS is not
-    # close enough to 1000 at this point.
-
-    event_log.info(f"Starting Science Measurements, MTR_ABS_STEPS={hk_tm.MTR_ABS_STEPS}")
+    event_log.info("Starting Science Measurements")
 
     # Run through the measurement table - we tell the iterator the
     # current motor steps so it can align things where we expect them to be.
     for rel_move, abs_pos in table.scan(start_motor_steps=hk_tm.MTR_ABS_STEPS):
         # Action the requested move (assuming a move was needed).
-        if rel_move < 0:
-            mv_neg_steps(port, -rel_move)
-        elif rel_move > 0:
-            mv_pos_steps(port, rel_move)
+        mv_abs_pos(port, abs_pos)
 
         # Request a Science Measurement and log the result.
         sci = _sci(port, sci_adc_samp, sci_adc_skip)
-        hk_tm = _hk(port)
         event_log.info(
-            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
+            f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" +
             f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
             + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
             + f"\t\t SW_L: {sci.SWIR_LOW:04d}"
@@ -1029,11 +943,12 @@ def abu_measurement_table_scan2(port, table_number, sci_adc_samp=4, sci_adc_skip
             + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
         )
 
-    # Home to base so we can check motor steps is OK.
-    home_to_base(port)
+        # Also request a HK so we've got other TRP values. This is
+        # purely there for debugging drift and is probably not needed on the
+        # EB.
+        hk_tm = _hk(port)
 
-    # FIXME: We should do something if MTR_ABS_STEPS is not
-    # close enough to 9960 at this point.
+    # FIXME - should we home to base and check motor steps at this point?
 
     event_log.info("Science Measurements Completed")
 
