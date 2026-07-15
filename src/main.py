@@ -159,20 +159,23 @@ def main() -> None:
         abu.first_power_on_cal_outer(ob_port)  # Power on inc Cal to outer
 
         ## Measure using Outer Cal and tables
-        abu.abu_measurement_table_scan(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        abu.abu_measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
         time.sleep(1)  # Adding a 1 second delay
-
-        # abu.abu_measurement_table_scan_no(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py)
+        abu.abu_measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
 
         ## DAC Sweeps
+        # abu.mv_abs_pos(ob_port, 8000)  # move to MWIR DAC posn
+        # abu.sweep_offset_mwir(ob_port, start_value=000, end_value=4095, step=16)
 
-        abu.sweep_offset_mwir(ob_port, start_value=2000, end_value=2100, step=16)
+        # abu.mv_abs_pos(ob_port, 9600)  # move to SWIR DAC posn
+        # abu.sweep_offset_swir(ob_port, start_value=000, end_value=4095, step=16)
 
-        abu.sweep_offset_swir(ob_port, start_value=2000, end_value=2100, step=16)
+        #
+        #
 
-        # abu.abu_measurement_mode2_scan(ob_port, 2739, 1, 300)
+        # abu.abu_measurement_mode2(ob_port, 8000, 2, 1800) ##location (abs posn), time between measurements (sec), total duration (sec)
 
-        # abu.abu_measurement_mode2_scan(ob_port, 8000, 1, 600)
+        # abu.abu_measurement_table_scan_no(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py) no DAC
 
         # Now move back to 9960.
         # abu.mv_abs_pos(ob_port, 9960)
@@ -216,10 +219,10 @@ def main() -> None:
 
         # #   Start new log and do measurement scan in the forward direction.
         # open_new_logs()
-        # abu.measurement_scan(ob_port, 30, 4, 100)
+        # abu.measurement_scan(ob_port, 30)
 
         # open_new_logs()
-        # abu.measurement_scan_neg(ob_port, 30, 4, 100)
+        # abu.measurement_scan_neg(ob_port, 30)
         ######## end of 2025-09-26 automation for darks
 
         # abu.mv_abs_pos(ob_port, 100)
@@ -240,20 +243,20 @@ def main() -> None:
         # abu.mv_pos_steps(ob_port, 7600-283)
         # abu.mv_neg_steps(ob_port, 1358)
 
-        # abu.set_offset_and_check_sci(ob_port, 2112, 1544, 4, 100)
+        # abu.set_offset_and_check_sci(ob_port, 2112, 1544)
 
         ## Move to absolute position and take a reading
         # abu.mv_abs_pos(ob_port, 8000)
         # abu.move_and_measure(ob_port, 0)
 
         # swir binary chop
-        # abu.swir_binary_chop(ob_port, 100, 4, 100)
+        # abu.swir_binary_chop(ob_port, 100)
 
         # mwir binary chop
-        # abu.mwir_binary_chop(ob_port, 1600, 4, 100)
+        # abu.mwir_binary_chop(ob_port, 1600)
 
         # Measurement scan with found (or set) values
-        # abu.abu_measurement_scan(ob_port, 30, 4, 100)
+        # abu.abu_measurement_scan(ob_port, 30)
 
         # Measurement scan with found (or set) values looping
         # abu.abu_measurement_scan_loop(ob_port)
@@ -302,8 +305,8 @@ def main() -> None:
         ###############################
 
         # abu.mv_abs_pos(ob_port, 7500)
-        # swir_offset = abu.swir_binary_chop(ob_port, 100, 4, 100)
-        # abu.mwir_binary_chop(ob_port, swir_offset, 4, 100)
+        # swir_offset = abu.swir_binary_chop(ob_port, 100)
+        # abu.mwir_binary_chop(ob_port, swir_offset, 4)
 
         # for i in range(7200):
         #    abu.move_and_measure(ob_port, 0)
