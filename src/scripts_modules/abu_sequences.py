@@ -15,17 +15,28 @@ import scripts_modules.measurement_table as mt
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 
+# ----Constants Setup-------------------------------------------------------------------------------
+
+# Sampling parameters
+SCI_ADC_SAMP = 4
+SCI_ADC_SKIP = 100
+
+# Binary chop parameters
+SWIR_BINARY_CHOP_LOCATION = 9600
+SWIR_BINARY_CHOP_TARGET = 5000
+MWIR_BINARY_CHOP_LOCATION = 8000
+MWIR_BINARY_CHOP_TARGET = 15000
 
 def _hk(port) -> Any:
     return tc.hk_request(port)
 
 
-def _sci(port, sci_adc_samp, sci_adc_skip) -> Any:
-    return tc.sci_request(port, sci_adc_samp, sci_adc_skip)
+def _sci(port) -> Any:
+    return tc.sci_request(port, SCI_ADC_SAMP, SCI_ADC_SKIP)
 
 
-def _check_sci(port, sci_adc_samp, sci_adc_skip) -> Any:
-    return sq.check_sci(port, sci_adc_samp, sci_adc_skip)
+def _check_sci(port) -> Any:
+    return sq.check_sci(port, SCI_ADC_SAMP, SCI_ADC_SKIP)
 
 
 # ----
@@ -384,7 +395,7 @@ def mv_neg_steps(port, steps):
     wait_movement_complete(port, steps)
 
 
-def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci_adc_skip=20):
+def set_offset_and_check_sci(port, swir_offset, mwir_offset):
     """
     Function that will power the detector board if it isn't already.
     Apply the offsets, set within the variables.
@@ -408,14 +419,14 @@ def set_offset_and_check_sci(port, swir_offset, mwir_offset, sci_adc_samp=4, sci
         event_log.error(f"MWIR offset not updated in HK. Got {hk.MWIR_OFFSET}")
 
     # Take SCI reading and check.
-    sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+    sci = _check_sci(port)
     if sci.SWIR_OFFSET != swir_offset:
         event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}")
     if sci.MWIR_OFFSET != mwir_offset:
         event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}")
 
 
-def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
+def mwir_binary_chop(port, swir_fixed=2048):
     """
     This fixes the SWIR DAC offset as per the functional call.
     It then itterates throgh the MWIR DAC offsets doing a binary search.
@@ -437,7 +448,7 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         mwir_delta = 0x1 << (i - 1)
         event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
         repeat(port, tc.sci_offset, swir_fixed, mwir_value + mwir_delta)
-        sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+        sci = _check_sci(port)
         if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
             event_log.error(
                 f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value + mwir_delta}"
@@ -459,7 +470,7 @@ def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     return sci.MWIR_OFFSET
 
 
-def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
+def swir_binary_chop(port, mwir_fixed=2048):
     """
     This sets the MWIR DAC offset as per the functional call.
     It then itterates throgh the SWIR DAC offsets doing a binary search.
@@ -481,7 +492,7 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
         swir_delta = 0x1 << (i - 1)
         event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
         repeat(port, tc.sci_offset, swir_value + swir_delta, mwir_fixed)
-        sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+        sci = _check_sci(port)
         if sci.SWIR_OFFSET != (swir_value + swir_delta):
             event_log.error(
                 f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {swir_value + swir_delta}"
@@ -503,7 +514,7 @@ def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2):
     return sci.SWIR_OFFSET
 
 
-def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
+def move_and_measure(port, pos_steps):
     """
     Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
     and the sequence will just measure the same point once again.
@@ -521,7 +532,7 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     else:
         event_log.info("No need to move any steps, proceeding to measurement")
     # Request a Science Mesaurement and log to the screen.
-    sci = _sci(port, sci_adc_samp, sci_adc_skip)
+    sci = _sci(port)
     hk_tm = _hk(port)
     event_log.info(
         f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
@@ -539,7 +550,7 @@ def move_and_measure(port, pos_steps, sci_adc_samp=4, sci_adc_skip=20):
     return
 
 
-def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
+def abu_measurement_scan(port, step_spacing=50):
     """
     Performs the basic Enfys science measurement
     Homes and Calibrates to Base
@@ -559,9 +570,9 @@ def abu_measurement_scan(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20)
     # Measurement sequence
     # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
     event_log.info("Starting Science Measurements")
-    move_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    move_and_measure(port, 0)
     for i in range(0, 8900, step_spacing):
-        move_and_measure(port, step_spacing, sci_adc_samp, sci_adc_skip)
+        move_and_measure(port, step_spacing)
 
     event_log.info("Science Measurements Completed!!")
 
@@ -581,7 +592,7 @@ def abu_measurement_scan_loop(port):
     return
 
 
-def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip=20):
+def abu_measurement_scan_neg(port, step_spacing=50):
     """
     Performs the basic Enfys science measurement
     Homes and Calibrates to Base
@@ -596,31 +607,31 @@ def abu_measurement_scan_neg(port, step_spacing=50, sci_adc_samp=4, sci_adc_skip
     # Measurement sequence
     # TODO! Emulate Dark Offset and Edge finding (with SWIR and broad lamp)
     event_log.info("Starting Science Measurements")
-    move_and_measure(port, 0, sci_adc_samp, sci_adc_skip)
+    move_and_measure(port, 0)
     for i in range(0, 8900, step_spacing):
-        move_and_measure(port, -step_spacing, sci_adc_samp, sci_adc_skip)
+        move_and_measure(port, -step_spacing)
 
     event_log.info("Science Measurements Completed!!")
 
 
-def sweep_offset_mwir(port, start_value=0, end_value=4095, step=16, sci_adc_samp=0, sci_adc_skip=100):
+def sweep_offset_mwir(port, start_value=0, end_value=4095, step=16):
     """
     This function sweeps through the mwir DAC from 0 to 4095 using the increment specified.
     A science reading is the acquired at each DAC offset.
     """
     event_log.info("Running ABU MWIR Sweep")
     for offset in range(start_value, end_value + 1, step):
-        set_offset_and_check_sci(port, 100, offset, sci_adc_samp, sci_adc_skip)
+        set_offset_and_check_sci(port, 100, offset)
 
 
-def sweep_offset_swir(port, start_value=0, end_value=4095, step=16, sci_adc_samp=0, sci_adc_skip=100):
+def sweep_offset_swir(port, start_value=0, end_value=4095, step=16):
     """
     This function sweeps through the swir DAC from 0 to 4095 using the increment specified.
     A science reading is the acquired at each DAC offset.
     """
     event_log.info("Running ABU SWIR Sweep")
     for offset in range(start_value, end_value + 1, step):
-        set_offset_and_check_sci(port, offset, 100, sci_adc_samp, sci_adc_skip)
+        set_offset_and_check_sci(port, offset, 100)
 
 
 def first_power_on(port):
@@ -672,8 +683,6 @@ def find_dac_offset(
     target_output: int,
     fixed_offset: int,
     max_miss: int = 1600,
-    sci_adc_samp: int = 4,
-    sci_adc_skip: int = 100,
 ):
     """
     This function tries to find a DAC offset which results in a high gain output close
@@ -688,8 +697,6 @@ def find_dac_offset(
     :param target_output: The output value we're aiming for
     :param fixed_offset: The fixed value that the other sensor will take during the chop.
     :param max_miss: If the final value is more than this distance from the target output, report a problem.
-    :param sci_adc_samp: ADC oversampling factor.
-    :param sci_adc_skip: How many samples to skip.
     :return: The DAC offset that gives an output closest to the target value.
     """
     event_log.info(f"Running abu targeted_binary_chop for {sensor_name} with target value {target_output}")
@@ -721,7 +728,7 @@ def find_dac_offset(
             repeat(port, tc.sci_offset, fixed_offset, test_value)
 
             # Check it was successfully set
-            sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+            sci = _check_sci(port)
             if sci.MWIR_OFFSET != test_value:
                 event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
 
@@ -730,7 +737,7 @@ def find_dac_offset(
         else:
             # Ditto for SWIR.
             repeat(port, tc.sci_offset, test_value, fixed_offset)
-            sci = _check_sci(port, sci_adc_samp, sci_adc_skip)
+            sci = _check_sci(port)
             if sci.SWIR_OFFSET != test_value:
                 event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
             reading = sci.SWIR_HIGH
@@ -887,11 +894,6 @@ def move_off_endstops(port: serial.rs485.RS485) -> None:
         event_log.info("Motor is away from end stops")
 
 def choose_dac_offsets(port):
-    SWIR_BINARY_CHOP_LOCATION = 9600
-    SWIR_BINARY_CHOP_TARGET = 5000
-    MWIR_BINARY_CHOP_LOCATION = 8000
-    MWIR_BINARY_CHOP_TARGET = 15000
-
     # SWIR binary chop
     mv_abs_pos(port, SWIR_BINARY_CHOP_LOCATION)
     swir_offset = find_dac_offset(port, "SWIR", SWIR_BINARY_CHOP_TARGET, 1)
@@ -902,7 +904,7 @@ def choose_dac_offsets(port):
     mwir_offset = find_dac_offset(port, "MWIR", MWIR_BINARY_CHOP_TARGET, swir_offset)
     event_log.info(f"MWIR offset = {mwir_offset}")
 
-def do_table_scan(port, table, sci_adc_samp, sci_adc_skip):
+def do_table_scan(port, table):
 
     # Run through a measurement table - we tell the iterator the
     # current motor steps so it can align things where we expect them to be.
@@ -913,7 +915,7 @@ def do_table_scan(port, table, sci_adc_samp, sci_adc_skip):
         mv_abs_pos(port, abs_pos)
 
         # Request a Science Measurement and log the result.
-        sci = _sci(port, sci_adc_samp, sci_adc_skip)
+        sci = _sci(port)
         event_log.info(
             f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}"
             + f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
@@ -933,7 +935,7 @@ def do_table_scan(port, table, sci_adc_samp, sci_adc_skip):
         # EB.
         hk_tm = _hk(port)
 
-def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=100, dark_table_0=0, dark_table_1=1):
+def abu_measurement_table_scan(port, table_number, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement table operation
     After an earlier Calibration to Outer and home to base!!!
@@ -953,14 +955,14 @@ def abu_measurement_table_scan(port, table_number, sci_adc_samp=4, sci_adc_skip=
 
     event_log.info("Starting Science Measurements")
 
-    do_table_scan(port, table, sci_adc_samp, sci_adc_skip)
+    do_table_scan(port, table)
 
     # FIXME - should we home to base and check motor steps at this point?
 
     event_log.info("Science Measurements Completed")
 
 
-def abu_measurement_mode2(port, measurement_location, interval_seconds, total_duration_seconds, sci_adc_samp=4, sci_adc_skip=20, dark_table_0=0, dark_table_1=1):
+def abu_measurement_mode2(port, measurement_location, interval_seconds, total_duration_seconds, dark_table_0=0, dark_table_1=1):
     """
     Performs the basic Enfys science measurement at a single position
     After an earlier Calibration to Outer and home to base!!!
@@ -985,7 +987,7 @@ def abu_measurement_mode2(port, measurement_location, interval_seconds, total_du
     # FIXME - should we home to outer and check motor steps at this point?
 
     # Scan dark table 0.
-    do_table_scan(port, dark0, sci_adc_samp, sci_adc_skip)
+    do_table_scan(port, dark0)
 
     # Move to measurement location
     mv_abs_pos(port, measurement_location)
@@ -993,7 +995,7 @@ def abu_measurement_mode2(port, measurement_location, interval_seconds, total_du
     end_time = time.time() + total_duration_seconds
     while time.time() < end_time:
         # Request a Science Measurement and log the result.
-        sci = _sci(port, sci_adc_samp, sci_adc_skip)
+        sci = _sci(port)
         event_log.info(
             f"\t\t SW_L: {sci.SWIR_LOW:04d}"
             + f"   SW_M: {sci.SWIR_MED:04d}"
@@ -1007,7 +1009,7 @@ def abu_measurement_mode2(port, measurement_location, interval_seconds, total_du
         time.sleep(interval_seconds)
 
     # Scan dark table 1.
-    do_table_scan(port, dark1, sci_adc_samp, sci_adc_skip)
+    do_table_scan(port, dark1)
 
     # FIXME - should we home to base and check motor steps at this point?
 
