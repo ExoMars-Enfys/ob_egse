@@ -1,11 +1,10 @@
-from platform import system
-import sys
-import scripts.sequences as sq
-
-import tc
 import logging
+import sys
 import time
+
 import constants as const
+import scripts.sequences as sq
+import tc
 from send_cmd import cmd_repeat as repeat
 
 event_log = logging.getLogger("event_log")

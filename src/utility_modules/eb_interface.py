@@ -1,15 +1,16 @@
 # Std library
+import ctypes
 import logging
+import shutil
 import subprocess
 import time
-import ctypes
-import shutil
 from ctypes import windll
 
 # Added packages
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any
+
 import pywinauto
 from pywinauto.keyboard import send_keys
 
@@ -176,7 +177,7 @@ class EGSEInterface:
                 send_enter=True,
                 pause=0.05,
             ):
-                print(f"[ERROR] Failed to send script path to CmdTool input")
+                print("[ERROR] Failed to send script path to CmdTool input")
                 return False
             print(f"[OK] Script path sent: {script_cmd}")
             return True
@@ -288,7 +289,7 @@ class EGSEInterface:
                     if send_enter:
                         send_keys("{ENTER}", pause=pause)
 
-                    info_log.debug(f"Text sent via clipboard successfully")
+                    info_log.debug("Text sent via clipboard successfully")
                     return True
                 else:
                     info_log.debug("Clipboard set failed, trying keyboard approach")
@@ -306,7 +307,7 @@ class EGSEInterface:
             if send_enter:
                 send_keys("{ENTER}", pause=pause)
 
-            info_log.debug(f"Text sent via keyboard successfully")
+            info_log.debug("Text sent via keyboard successfully")
             return True
 
         except Exception as e:

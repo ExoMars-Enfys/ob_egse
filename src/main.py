@@ -1,13 +1,13 @@
 # ----Module Imports--------------------------------------------------------------------------------
 # Std library
-import logging
-import time
-import atexit
 import argparse
-from nicegui import ui
-from pathlib import Path
+import atexit
+import logging
 import threading
+import time
+from pathlib import Path
 
+from nicegui import ui
 
 # Local modules
 # core
@@ -141,6 +141,12 @@ def main() -> None:
 
     if args.script:
         info_log.info("Running Script")
+        const.hk_queue = None
+        const.hk_explorer_queue = None  # Separate queue for HK parameter explorer
+        const.eb_post_queue = None
+        const.psu_queue = None
+        const.sci_queue = None
+
         psu.switch_psu_channel(psu_port, channel=1, state=1)  # Switch on PSU
         psu.switch_psu_channel(psu_port, channel=2, state=1)
         time.sleep(2.5)
@@ -335,6 +341,7 @@ def main() -> None:
         info_log.info("Running GUI")
         if psu_port is not None and not psu_thread.is_alive():
             psu_thread.start()
+
         parent_window_widget.build_ui(
             default_mode=startup_mode,
             psu_port=psu_port,

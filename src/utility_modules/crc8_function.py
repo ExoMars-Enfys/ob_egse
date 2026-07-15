@@ -1,5 +1,6 @@
-import crc8
 from binascii import unhexlify
+
+import crc8
 
 
 def crc8Calculate(cmdInput):

@@ -32,10 +32,10 @@ def test_mms_reasons_masks_ob_general_error(monkeypatch) -> None:
     )
     limits = {"eb_12v": (11.0, 13.0)}
 
-    monkeypatch.setattr(urc, "_decoded", lambda packet, field: 12.0)
+    monkeypatch.setattr(urc, "decoded", lambda packet, field: 12.0)
     monkeypatch.setattr(urc.const, "MMS_MASK_OB_GENERAL_ERROR", True)
 
-    reasons, tec_pre_action, ob5v_pre_action = urc._mms_reasons(hk, limits)
+    reasons, tec_pre_action, ob5v_pre_action = urc.mms_reasons(hk, limits)
 
     assert reasons == []
     assert tec_pre_action is False
@@ -56,9 +56,9 @@ def test_mms_reasons_adds_ob_error_details_even_without_active_bits(monkeypatch)
     )
     limits = {}
 
-    monkeypatch.setattr(urc, "_decoded", lambda packet, field: 0.0)
+    monkeypatch.setattr(urc, "decoded", lambda packet, field: 0.0)
 
-    reasons, _, _ = urc._mms_reasons(hk, limits)
+    reasons, _, _ = urc.mms_reasons(hk, limits)
 
     assert "OB_LAST_ERROR=0x10 (no active bits decoded)" in reasons
     assert "OB_MOTOR_ERROR=0x04 (no active bits decoded)" in reasons
@@ -96,7 +96,7 @@ def test_mms_runs_actions_and_latches(monkeypatch) -> None:
         "clear_force_pause",
         lambda: calls.__setitem__("clear_force_pause", calls["clear_force_pause"] + 1),
     )
-    monkeypatch.setattr(urc, "_disable_ob5v", lambda _logger: calls.__setitem__("disable_ob5v", calls["disable_ob5v"] + 1))
+    monkeypatch.setattr(urc, "disable_ob5v", lambda _logger: calls.__setitem__("disable_ob5v", calls["disable_ob5v"] + 1))
     monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: _Interface())
     monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: calls.__setitem__("safe", calls["safe"] + 1) or "OK")
     monkeypatch.setattr(

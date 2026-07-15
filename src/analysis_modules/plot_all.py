@@ -4,32 +4,32 @@ Combined analysis: HK temperatures, HK voltages, SWIR, and MWIR
 on a single shared datetime x-axis.  Zooming any subplot updates all others.
 """
 
-import sys
-import re
 import argparse
 import csv
+import os
+import re
+import sys
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import messagebox
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
-import numpy as np
 import matplotlib as mpl
+import numpy as np
 
 try:
     mpl.use("TkAgg")
 except Exception:
     # Fall back to default if TkAgg is not available in this environment
     pass
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utility_modules import eb_packet_utility
-from utility_modules.eb_packet_utility import parse_eb_hk, decode_eb_trps, adu_to_temp
+from utility_modules.eb_packet_utility import adu_to_temp, decode_eb_trps, parse_eb_hk
 from utility_modules.psu_log_utility import load_psu_channel_samples
 
 # Ensure Unicode characters (e.g. box-drawing) survive PowerShell piping
@@ -461,9 +461,11 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
         or fall back to 260 ms.
     """
     sci_datetimes = []
+    sci_abs_steps = []
     swir_low, swir_med, swir_high = [], [], []
     mwir_low, mwir_med, mwir_high = [], [], []
     packet_boundaries = []
+    packet_modes = []
     if acq_configs_list is None:
         acq_configs_list = []
 
@@ -477,6 +479,9 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
         # Determine spacing from set_acq_configs if available
         spacing_source = "estimated"
         cfg = _find_preceding_acq_config(packet_timestamp, acq_configs_list) if acq_configs_list else None
+
+        packet_mode = cfg["mode"] if cfg is not None else None
+        packet_modes.append(packet_mode)
 
         if cfg is not None and cfg["mode"] == 0x01 and cfg["spacing_ms"] > 0:
             spacing_ms = cfg["spacing_ms"]
@@ -511,15 +516,32 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
         mwir_low.extend(series["mwir_low"])
         mwir_med.extend(series["mwir_med"])
         mwir_high.extend(series["mwir_high"])
+        sci_abs_steps.extend(series["abs_steps"])
 
         for i in range(num_points):
             offset_ms = (num_points - 1 - i) * spacing_ms
             sci_datetimes.append(packet_timestamp - timedelta(milliseconds=offset_ms))
 
         end_idx = len(sci_datetimes) - 1
-        packet_boundaries.append((start_idx, end_idx, packet_num, packet_timestamp))
+        packet_boundaries.append((start_idx, end_idx, packet_num, packet_timestamp, packet_mode))
 
-    return sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, packet_boundaries
+    unique_modes = {mode for mode in packet_modes if mode in (0x00, 0x01)}
+    sci_axis_mode = "abs_steps" if unique_modes == {0x00} else "time"
+    if unique_modes == {0x00, 0x01}:
+        print("Mixed SCI acquisition modes detected; using time baseline for combined SWIR/MWIR plots.")
+
+    return (
+        sci_datetimes,
+        sci_abs_steps,
+        sci_axis_mode,
+        swir_low,
+        swir_med,
+        swir_high,
+        mwir_low,
+        mwir_med,
+        mwir_high,
+        packet_boundaries,
+    )
 
 
 # ── Click handler ─────────────────────────────────────────────────────────────
@@ -529,6 +551,9 @@ class ClickHandler:
     def __init__(
         self,
         sci_datetimes,
+        sci_plot_x,
+        sci_axis_mode,
+        sci_abs_steps,
         swir_low,
         swir_med,
         swir_high,
@@ -541,8 +566,13 @@ class ClickHandler:
         error_events,
         click_axes,
     ):
-        # Convert datetimes to matplotlib float for fast nearest-point lookup
-        self.sci_dates_num = mdates.date2num(sci_datetimes)
+        self.sci_datetimes = list(sci_datetimes)
+        self.sci_axis_mode = sci_axis_mode
+        self.sci_abs_steps = np.array(sci_abs_steps, dtype=float)
+        if sci_axis_mode == "abs_steps":
+            self.sci_x = np.array(sci_plot_x, dtype=float)
+        else:
+            self.sci_x = mdates.date2num(sci_plot_x)
         self.swir_low = np.array(swir_low)
         self.swir_med = np.array(swir_med)
         self.swir_high = np.array(swir_high)
@@ -598,15 +628,15 @@ class ClickHandler:
 
         if event.inaxes not in (self.ax_swir, self.ax_mwir) or event.xdata is None:
             return
-        if len(self.sci_dates_num) == 0:
+        if len(self.sci_x) == 0:
             return
 
-        idx = int(np.argmin(np.abs(self.sci_dates_num - event.xdata)))
+        idx = int(np.argmin(np.abs(self.sci_x - event.xdata)))
         click_y = event.ydata
 
         # Which packet?
         packet_info = "Unknown packet"
-        for start_idx, end_idx, packet_num, ts in self.packet_boundaries:
+        for start_idx, end_idx, packet_num, ts, _packet_mode in self.packet_boundaries:
             if start_idx <= idx <= end_idx:
                 packet_info = f"Packet {packet_num} (received {ts})"
                 break
@@ -630,11 +660,20 @@ class ClickHandler:
             vals = [self.mwir_low[idx], self.mwir_med[idx], self.mwir_high[idx]]
 
         best = int(np.argmin(dists))
-        ts_str = mdates.num2date(self.sci_dates_num[idx]).strftime("%H:%M:%S.%f")[:-3]
+        ts_str = self.sci_datetimes[idx].strftime("%H:%M:%S.%f")[:-3]
+        axis_str = (
+            f"ABS_STEPS: {int(self.sci_abs_steps[idx])}"
+            if self.sci_axis_mode == "abs_steps"
+            else f"Time:      {ts_str}"
+        )
 
         print(f"\n{'=' * 60}")
         print(f"  {packet_info}")
-        print(f"  Time:      {ts_str}")
+        if self.sci_axis_mode == "abs_steps":
+            print(f"  Time:      {ts_str}")
+            print(f"  {axis_str}")
+        else:
+            print(f"  {axis_str}")
         print(f"  Channel:   {names[best]}")
         print(f"  Intensity: {int(vals[best])}")
         print(f"{'=' * 60}")
@@ -917,6 +956,8 @@ def _draw_all_axes(
     temp_jumps,
     volt_jumps,
     sci_datetimes,
+    sci_abs_steps,
+    sci_axis_mode,
     swir_low,
     swir_med,
     swir_high,
@@ -932,6 +973,7 @@ def _draw_all_axes(
     selected_params=None,
     custom_axes=None,
     custom_series=None,
+    replay_overlay=None,
 ):
     """Clear and redraw all subplots in-place."""
     panel_visibility = panel_visibility or {k: True for k in PANEL_ORDER}
@@ -939,6 +981,7 @@ def _draw_all_axes(
 
     custom_axes = custom_axes or []
     custom_series = custom_series or {}
+    replay_overlay = replay_overlay or {}
 
     axes = [ax_temp, ax_volt, ax_err, ax_psu_ch3, ax_psu_ch4, ax_swir, ax_mwir] + [ax for _field, ax in custom_axes]
     for ax in axes:
@@ -1148,13 +1191,18 @@ def _draw_all_axes(
             hk_end = hk_timestamps[-1]
             finite = [(t, i) for t, i in finite if hk_start <= t <= hk_end]
 
-        if finite:
+        show_raw = True
+        show_ma = False
+        replay_ma_series = None
+        if channel == "CH4" and isinstance(replay_overlay, dict):
+            show_raw = bool(replay_overlay.get("show_psu_raw", True))
+            show_ma = bool(replay_overlay.get("show_psu_ma", False))
+            replay_ma_series = replay_overlay.get("psu_ma_series")
+
+        if finite and show_raw:
             psu_t, psu_i = zip(*finite)
             ax_psu.plot(psu_t, [i * 1000 for i in psu_i], "o-", markersize=2, label=f"{channel} I")
-            handles, labels = ax_psu.get_legend_handles_labels()
-            if handles:
-                ax_psu.legend(loc="best", fontsize=7)
-        else:
+        elif not finite and not (channel == "CH4" and show_ma and replay_ma_series):
             ax_psu.text(
                 0.5,
                 0.5,
@@ -1166,50 +1214,111 @@ def _draw_all_axes(
                 color="gray",
             )
 
+        if channel == "CH4" and show_ma and isinstance(replay_ma_series, tuple):
+            ma_times, ma_vals = replay_ma_series
+            finite_ma = [(t, i) for t, i in zip(ma_times, ma_vals) if np.isfinite(i)]
+            if hk_timestamps:
+                hk_start = hk_timestamps[0]
+                hk_end = hk_timestamps[-1]
+                finite_ma = [(t, i) for t, i in finite_ma if hk_start <= t <= hk_end]
+            if finite_ma:
+                ma_t, ma_i = zip(*finite_ma)
+                ax_psu.plot(ma_t, ma_i, "-", linewidth=1.8, color="#0b6e4f", label="CH4 MA(5)")
+
+        handles, labels = ax_psu.get_legend_handles_labels()
+        if handles:
+            ax_psu.legend(loc="best", fontsize=7)
+
         ax_psu.set_ylabel("PSU I (mA)")
         ax_psu.set_title(title)
         ax_psu.grid(True, alpha=0.3)
         for ts in active_error_times:
             ax_psu.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.45)
 
+        if channel == "CH4":
+            replay_events = replay_overlay.get("events") if isinstance(replay_overlay, dict) else None
+            if isinstance(replay_events, list):
+                for event in replay_events:
+                    if not isinstance(event, dict):
+                        continue
+                    check_start = event.get("check_start")
+                    check_end = event.get("check_end")
+                    acq_time = event.get("acq_time")
+                    expected_min = event.get("expected_min")
+                    expected_max = event.get("expected_max")
+                    median_ma = event.get("median_ma")
+                    result = event.get("result")
+                    if isinstance(check_start, datetime) and isinstance(check_end, datetime):
+                        ax_psu.axvspan(
+                            check_start,
+                            check_end,
+                            color=("#2e7d32" if result == "PASS" else "#c62828"),
+                            alpha=0.10,
+                        )
+                        ax_psu.axvline(check_start, color="#1565c0", linestyle="--", linewidth=1.0, alpha=0.8)
+                    if isinstance(acq_time, datetime):
+                        ax_psu.axvline(acq_time, color="#ff8f00", linestyle=":", linewidth=1.0, alpha=0.8)
+                    if isinstance(expected_min, (int, float)) and isinstance(expected_max, (int, float)):
+                        ax_psu.axhspan(expected_min, expected_max, color="#1565c0", alpha=0.06)
+                    if (
+                        isinstance(check_start, datetime)
+                        and isinstance(check_end, datetime)
+                        and isinstance(median_ma, (int, float))
+                    ):
+                        mid = check_start + (check_end - check_start) / 2
+                        ax_psu.scatter(
+                            [mid],
+                            [median_ma],
+                            color=("#2e7d32" if result == "PASS" else "#c62828"),
+                            marker="D",
+                            s=36,
+                            zorder=6,
+                        )
+
     _plot_psu_axis(ax_psu_ch3, "psu_ch3", "CH3", "PSU Current (CH3)")
     _plot_psu_axis(ax_psu_ch4, "psu_ch4", "CH4", "PSU Current (CH4)")
+
+    sci_x = sci_abs_steps if sci_axis_mode == "abs_steps" else sci_datetimes
 
     # SWIR
     if ax_swir.get_visible():
         swir_map = {"SWIR_LOW": swir_low, "SWIR_MED": swir_med, "SWIR_HIGH": swir_high}
         plotted_swir = 0
-        if sci_datetimes:
+        if sci_x:
             for key, label in SCI_PLOT_SPECS["swir"]:
                 if not _has_param("swir", key):
                     continue
                 vals = swir_map[key]
-                ax_swir.scatter(sci_datetimes, vals, s=2, label=label, alpha=0.6)
-                ax_swir.plot(sci_datetimes, vals, linewidth=0.3, alpha=0.4)
+                ax_swir.scatter(sci_x, vals, s=2, label=label, alpha=0.6)
+                ax_swir.plot(sci_x, vals, linewidth=0.3, alpha=0.4)
                 plotted_swir += 1
             if plotted_swir > 0:
-                for _start, _end, packet_num, packet_rx_ts in packet_boundaries:
-                    ax_swir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
-                    ax_swir.text(
-                        packet_rx_ts,
-                        0.95,
-                        f"{packet_num}",
-                        transform=ax_swir.get_xaxis_transform(),
-                        rotation=90,
-                        va="top",
-                        ha="left",
-                        fontsize=8,
-                        color="red",
-                        alpha=0.7,
-                    )
+                if sci_axis_mode == "time":
+                    for _start, _end, packet_num, packet_rx_ts, _packet_mode in packet_boundaries:
+                        ax_swir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
+                        ax_swir.text(
+                            packet_rx_ts,
+                            0.95,
+                            f"{packet_num}",
+                            transform=ax_swir.get_xaxis_transform(),
+                            rotation=90,
+                            va="top",
+                            ha="left",
+                            fontsize=8,
+                            color="red",
+                            alpha=0.7,
+                        )
         if plotted_swir == 0:
             _show_no_params(ax_swir, "SWIR")
         else:
             ax_swir.set_ylabel("Intensity")
             ax_swir.set_title("SWIR")
             ax_swir.grid(True, alpha=0.3)
+            if sci_axis_mode == "abs_steps":
+                ax_swir.set_xlabel("Absolute Motor Steps")
             for ts in active_error_times:
-                ax_swir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+                if sci_axis_mode == "time":
+                    ax_swir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
             handles, labels = ax_swir.get_legend_handles_labels()
             if handles:
                 ax_swir.legend(loc="upper right", fontsize=7)
@@ -1218,37 +1327,41 @@ def _draw_all_axes(
     if ax_mwir.get_visible():
         mwir_map = {"MWIR_LOW": mwir_low, "MWIR_MED": mwir_med, "MWIR_HIGH": mwir_high}
         plotted_mwir = 0
-        if sci_datetimes:
+        if sci_x:
             for key, label in SCI_PLOT_SPECS["mwir"]:
                 if not _has_param("mwir", key):
                     continue
                 vals = mwir_map[key]
-                ax_mwir.scatter(sci_datetimes, vals, s=2, label=label, alpha=0.6)
-                ax_mwir.plot(sci_datetimes, vals, linewidth=0.3, alpha=0.4)
+                ax_mwir.scatter(sci_x, vals, s=2, label=label, alpha=0.6)
+                ax_mwir.plot(sci_x, vals, linewidth=0.3, alpha=0.4)
                 plotted_mwir += 1
             if plotted_mwir > 0:
-                for _start, _end, packet_num, packet_rx_ts in packet_boundaries:
-                    ax_mwir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
-                    ax_mwir.text(
-                        packet_rx_ts,
-                        0.95,
-                        f"{packet_num}",
-                        transform=ax_mwir.get_xaxis_transform(),
-                        rotation=90,
-                        va="top",
-                        ha="left",
-                        fontsize=8,
-                        color="red",
-                        alpha=0.7,
-                    )
+                if sci_axis_mode == "time":
+                    for _start, _end, packet_num, packet_rx_ts, _packet_mode in packet_boundaries:
+                        ax_mwir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
+                        ax_mwir.text(
+                            packet_rx_ts,
+                            0.95,
+                            f"{packet_num}",
+                            transform=ax_mwir.get_xaxis_transform(),
+                            rotation=90,
+                            va="top",
+                            ha="left",
+                            fontsize=8,
+                            color="red",
+                            alpha=0.7,
+                        )
         if plotted_mwir == 0:
             _show_no_params(ax_mwir, "MWIR")
         else:
             ax_mwir.set_ylabel("Intensity")
             ax_mwir.set_title("MWIR")
             ax_mwir.grid(True, alpha=0.3)
+            if sci_axis_mode == "abs_steps":
+                ax_mwir.set_xlabel("Absolute Motor Steps")
             for ts in active_error_times:
-                ax_mwir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+                if sci_axis_mode == "time":
+                    ax_mwir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
             handles, labels = ax_mwir.get_legend_handles_labels()
             if handles:
                 ax_mwir.legend(loc="upper right", fontsize=7)
@@ -1273,9 +1386,20 @@ def _draw_all_axes(
             continue
 
         ts, vals = ts_vals
-        ax_custom.plot(ts, vals, "o-", markersize=2, linewidth=0.8, label=field_name)
-        ax_custom.set_title(f"HK Parameter: {field_name}")
-        ax_custom.set_ylabel("Value")
+        style = "o-"
+        title = f"HK Parameter: {field_name}"
+        ylabel = "Value"
+        if field_name == "__REPLAY_STATE__":
+            style = ".-"
+            title = "Replay: CURRENT_OPERATING_STATE"
+            ylabel = "State"
+        elif field_name == "__REPLAY_MOVING__":
+            style = ".-"
+            title = "Replay: Motor MOVING / HOMING_COMPLETE"
+            ylabel = "Flag"
+        ax_custom.plot(ts, vals, style, markersize=2, linewidth=0.8, label=field_name)
+        ax_custom.set_title(title)
+        ax_custom.set_ylabel(ylabel)
         ax_custom.grid(True, alpha=0.3)
         handles, _labels = ax_custom.get_legend_handles_labels()
         if handles:
@@ -1286,10 +1410,14 @@ def _draw_all_axes(
     visible_axes = [ax for ax in axes if ax is not None and ax.get_visible()]
     if visible_axes:
         bottom_ax = visible_axes[-1]
-        bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-        bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        bottom_ax.set_xlabel("Time (HH:MM:SS)")
-    fig.autofmt_xdate(rotation=45, ha="right")
+        if sci_axis_mode == "abs_steps" and bottom_ax in (ax_swir, ax_mwir):
+            bottom_ax.set_xlabel("Absolute Motor Steps")
+        else:
+            bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+            bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+            bottom_ax.set_xlabel("Time (HH:MM:SS)")
+    if not (sci_axis_mode == "abs_steps" and visible_axes and visible_axes[-1] in (ax_swir, ax_mwir)):
+        fig.autofmt_xdate(rotation=45, ha="right")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -1349,7 +1477,18 @@ def main():
         print(f"set_acq_configs TCs (combined): {len(all_acq)}")
         print(f"Science packets (combined): {len(all_sci)}")
         sci = build_sci_arrays(all_sci, all_acq)
-        sci_datetimes, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, packet_boundaries = sci
+        (
+            sci_datetimes,
+            sci_abs_steps,
+            sci_axis_mode,
+            swir_low,
+            swir_med,
+            swir_high,
+            mwir_low,
+            mwir_med,
+            mwir_high,
+            packet_boundaries,
+        ) = sci
 
         acq_windows = extract_acq_windows(all_hk)
         if acq_windows:
@@ -1404,6 +1543,8 @@ def main():
             "err_ts": err_ts,
             "err_data": err_data,
             "sci_datetimes": sci_datetimes,
+            "sci_abs_steps": sci_abs_steps,
+            "sci_axis_mode": sci_axis_mode,
             "swir_low": swir_low,
             "swir_med": swir_med,
             "swir_high": swir_high,
@@ -1775,17 +1916,21 @@ def main():
     fig.subplots_adjust(top=0.90, hspace=0.35)
 
     # Keep controls on a dedicated row below the title to avoid overlap.
-    ax_btn_plots = fig.add_axes((0.33, 0.92, 0.10, 0.024))
+    ax_btn_plots = fig.add_axes((0.11, 0.92, 0.09, 0.024))
     btn_plots = Button(ax_btn_plots, "Plots", color="lavender", hovercolor="thistle")
-    ax_btn_params = fig.add_axes((0.44, 0.92, 0.10, 0.024))
+    ax_btn_params = fig.add_axes((0.21, 0.92, 0.09, 0.024))
     btn_params = Button(ax_btn_params, "Params", color="honeydew", hovercolor="palegreen")
-    ax_btn_errors = fig.add_axes((0.55, 0.92, 0.10, 0.024))
+    ax_btn_replay = fig.add_axes((0.31, 0.92, 0.09, 0.024))
+    btn_replay = Button(ax_btn_replay, "Replay", color="aliceblue", hovercolor="lightskyblue")
+    ax_btn_axis = fig.add_axes((0.41, 0.92, 0.09, 0.024))
+    btn_axis = Button(ax_btn_axis, "SCI: Auto", color="honeydew", hovercolor="palegreen")
+    ax_btn_errors = fig.add_axes((0.51, 0.92, 0.09, 0.024))
     btn_errors = Button(ax_btn_errors, "Errors", color="mistyrose", hovercolor="lightcoral")
-    ax_btn_rs422 = fig.add_axes((0.66, 0.92, 0.10, 0.024))
+    ax_btn_rs422 = fig.add_axes((0.61, 0.92, 0.09, 0.024))
     btn_rs422 = Button(ax_btn_rs422, "Open RS422", color="lightgrey", hovercolor="gainsboro")
-    ax_btn_psu = fig.add_axes((0.77, 0.92, 0.10, 0.024))
+    ax_btn_psu = fig.add_axes((0.71, 0.92, 0.09, 0.024))
     btn_psu = Button(ax_btn_psu, "Open PSU", color="lightgrey", hovercolor="gainsboro")
-    ax_btn_reload = fig.add_axes((0.88, 0.92, 0.09, 0.024))
+    ax_btn_reload = fig.add_axes((0.81, 0.92, 0.09, 0.024))
     btn_reload = Button(ax_btn_reload, "\u27f3 Reload", color="lightsteelblue", hovercolor="deepskyblue")
 
     state: dict[str, object] = {
@@ -1798,13 +1943,369 @@ def main():
         "last_result": None,
         "custom_fields": [],
         "custom_axes": [],
+        "replay_output_dir": Path("reports") / "acq_visual_replay",
+        "replay_overlay": None,
+        "replay_extra_fields": [],
+        "replay_cursor_time": None,
+        "replay_cursor_bounds": None,
+        "replay_cursor_artists": [],
+        "replay_timer": None,
+        "sci_axis_display_mode": None,
     }
+
+    def _update_sci_axis_button_label():
+        display_mode = state.get("sci_axis_display_mode")
+        if display_mode == "abs_steps":
+            btn_axis.label.set_text("SCI: Steps")
+        elif display_mode == "time":
+            btn_axis.label.set_text("SCI: Time")
+        else:
+            btn_axis.label.set_text("SCI: Auto")
+
+    def _toggle_sci_axis_mode(_event=None):
+        current_mode = state.get("sci_axis_display_mode")
+        next_mode = "abs_steps" if current_mode != "abs_steps" else "time"
+        state["sci_axis_display_mode"] = next_mode
+        _update_sci_axis_button_label()
+        last_result = state.get("last_result")
+        if isinstance(last_result, dict):
+            _apply_analysis(last_result)
+
+    _update_sci_axis_button_label()
+
+    def _stop_replay_timer():
+        timer = state.get("replay_timer")
+        stop_timer = getattr(timer, "stop", None)
+        if callable(stop_timer):
+            try:
+                stop_timer()
+            except Exception:
+                pass
+        state["replay_timer"] = None
+
+    def _clear_replay_cursor_artists():
+        artists = state.get("replay_cursor_artists")
+        if isinstance(artists, list):
+            for artist in artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+        state["replay_cursor_artists"] = []
+
+    def _install_replay_cursor(play: bool = False):
+        _stop_replay_timer()
+        _clear_replay_cursor_artists()
+        bounds = state.get("replay_cursor_bounds")
+        cursor_time = state.get("replay_cursor_time")
+        if not (isinstance(bounds, tuple) and len(bounds) == 2 and isinstance(cursor_time, datetime)):
+            return
+
+        start_time, end_time = bounds
+        if cursor_time < start_time:
+            cursor_time = start_time
+        if cursor_time > end_time:
+            cursor_time = start_time
+        state["replay_cursor_time"] = cursor_time
+
+        custom_axes = state.get("custom_axes")
+        if not isinstance(custom_axes, list):
+            custom_axes = []
+        panel_visibility = state.get("panel_visibility")
+        if not isinstance(panel_visibility, dict):
+            panel_visibility = {k: True for k in PANEL_ORDER}
+        visible_axes = []
+        for ax, panel in (
+            (ax_temp, "temp"),
+            (ax_volt, "volt"),
+            (ax_err, "err"),
+            (ax_psu_ch3, "psu_ch3"),
+            (ax_psu_ch4, "psu_ch4"),
+            (ax_swir, "swir"),
+            (ax_mwir, "mwir"),
+        ):
+            if ax is not None and panel_visibility.get(panel, True):
+                visible_axes.append(ax)
+        visible_axes.extend([ax for _field, ax in custom_axes if ax is not None and ax.get_visible()])
+
+        artists = []
+        for ax in visible_axes:
+            artists.append(ax.axvline(cursor_time, color="#6a1b9a", linewidth=1.6, alpha=0.85))
+        state["replay_cursor_artists"] = artists
+        fig.canvas.draw_idle()
+
+        if not play:
+            return
+
+        timer = fig.canvas.new_timer(interval=150)
+
+        def _tick():
+            current = state.get("replay_cursor_time")
+            bounds_now = state.get("replay_cursor_bounds")
+            if not (isinstance(current, datetime) and isinstance(bounds_now, tuple) and len(bounds_now) == 2):
+                _stop_replay_timer()
+                return
+            start_now, end_now = bounds_now
+            next_time = current + timedelta(seconds=2)
+            if next_time > end_now:
+                next_time = start_now
+            state["replay_cursor_time"] = next_time
+            artists_now = state.get("replay_cursor_artists")
+            if isinstance(artists_now, list):
+                for artist in artists_now:
+                    try:
+                        artist.set_xdata([next_time, next_time])
+                    except Exception:
+                        pass
+            fig.canvas.draw_idle()
+
+        timer.add_callback(_tick)
+        timer.start()
+        state["replay_timer"] = timer
+
+    def _build_inline_replay_overlay(logs_root: Path, run_filter: str = ""):
+        if acq_visual_replay is None:
+            raise RuntimeError("acq_visual_replay module is not available")
+        try:
+            events, hk_points = acq_visual_replay._collect_events_for_root(
+                logs_root,
+                cmd_offset_hours=1.0,
+                trigger_s=150.0,
+                duration_s=3.0,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"failed to collect replay events: {exc}") from exc
+
+        if not events:
+            return None
+
+        current_psu = state.get("psu_log")
+        current_psu_name = current_psu.name if isinstance(current_psu, Path) else ""
+        selected = []
+        for event in events:
+            if (
+                run_filter
+                and run_filter.lower() not in event.run.lower()
+                and run_filter.lower() not in event.cmd_file.lower()
+            ):
+                continue
+            if current_psu_name and Path(event.psu_log).name != current_psu_name:
+                continue
+            selected.append(event)
+        if not selected:
+            for event in events:
+                if (
+                    run_filter
+                    and run_filter.lower() not in event.run.lower()
+                    and run_filter.lower() not in event.cmd_file.lower()
+                ):
+                    continue
+                selected.append(event)
+        if not selected:
+            return None
+
+        selected.sort(key=lambda e: e.acq_cmd_time)
+        run_start = min(e.acq_cmd_time for e in selected) - timedelta(seconds=20)
+        run_end = max(e.check_end for e in selected) + timedelta(seconds=20)
+        hk_run = [p for p in hk_points if run_start <= p.time <= run_end]
+        state_series = ([p.time for p in hk_run], [p.state if p.state is not None else -1 for p in hk_run])
+        moving_series = ([p.time for p in hk_run], [p.moving + 0.1 * p.homing_complete for p in hk_run])
+
+        return {
+            "events": [
+                {
+                    "acq_index": e.acq_index,
+                    "acq_time": e.acq_cmd_time + timedelta(hours=1),
+                    "check_start": e.check_start,
+                    "check_end": e.check_end,
+                    "median_ma": e.median_ma,
+                    "expected_min": e.expected_min_ma,
+                    "expected_max": e.expected_max_ma,
+                    "resolved_states": e.resolved_states,
+                    "result": e.result,
+                }
+                for e in selected
+            ],
+            "state_series": state_series,
+            "moving_series": moving_series,
+            "psu_ma_series": acq_visual_replay._build_psu_series(current_psu)[0::2]
+            if isinstance(current_psu, Path)
+            else None,
+            "cursor_start": run_start,
+            "cursor_end": run_end,
+        }
+
+    def _guess_replay_root() -> Path | None:
+        logs = state.get("rs422_logs")
+        psu_log = state.get("psu_log")
+        paths: list[Path] = []
+        if isinstance(logs, list):
+            paths.extend([p for p in logs if isinstance(p, Path)])
+        if isinstance(psu_log, Path):
+            paths.append(psu_log)
+        if not paths:
+            return None
+        try:
+            common = os.path.commonpath([str((p.parent if p.is_file() else p)) for p in paths])
+            return Path(common)
+        except Exception:
+            return paths[0].parent
+
+    def _show_replay_suite_selector(_event=None):
+        replay_root = _guess_replay_root()
+        if replay_root is None or not replay_root.exists():
+            messagebox.showinfo("Replay Suite", "Load data first so a replay root can be inferred.")
+            return
+
+        root = getattr(tk, "_default_root", None)
+        owns_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            owns_root = True
+
+        win = tk.Toplevel(root)
+        win.title("Replay Suite")
+        win.geometry("560x420")
+
+        frame = tk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tk.Label(frame, text="Replay root folder:").grid(row=0, column=0, sticky="w")
+        root_var = tk.StringVar(value=str(replay_root))
+        tk.Entry(frame, textvariable=root_var).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
+        tk.Label(frame, text="Run filter (optional):").grid(row=2, column=0, sticky="w")
+        run_filter_var = tk.StringVar(value="")
+        tk.Entry(frame, textvariable=run_filter_var).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
+        tk.Label(frame, text="Animation step (s, 0 disables):").grid(row=4, column=0, sticky="w")
+        animation_var = tk.StringVar(value="2")
+        tk.Entry(frame, textvariable=animation_var).grid(row=5, column=0, sticky="w", pady=(0, 12))
+
+        checks_box = tk.LabelFrame(frame, text="Replayable Checks")
+        checks_box.grid(row=6, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        include_acq_var = tk.BooleanVar(value=True)
+        include_homing_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(checks_box, text="SCI ACQ current check", variable=include_acq_var).pack(
+            anchor="w", padx=6, pady=4
+        )
+        tk.Checkbutton(checks_box, text="Homing complete check", variable=include_homing_var).pack(
+            anchor="w", padx=6, pady=4
+        )
+
+        layers_box = tk.LabelFrame(frame, text="Replay Layers")
+        layers_box.grid(row=6, column=1, sticky="nsew", pady=(0, 8))
+        show_state_var = tk.BooleanVar(value=True)
+        show_motor_var = tk.BooleanVar(value=True)
+        show_raw_var = tk.BooleanVar(value=True)
+        show_ma_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(layers_box, text="State changes", variable=show_state_var).pack(anchor="w", padx=6, pady=4)
+        tk.Checkbutton(layers_box, text="Motor movement", variable=show_motor_var).pack(anchor="w", padx=6, pady=4)
+        tk.Checkbutton(layers_box, text="PSU raw trace", variable=show_raw_var).pack(anchor="w", padx=6, pady=4)
+        tk.Checkbutton(layers_box, text="PSU MA(5) trace", variable=show_ma_var).pack(anchor="w", padx=6, pady=4)
+        inline_only = tk.Label(frame, text="Apply to the current matplotlib plotter, not external HTML.")
+        inline_only.grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(1, weight=1)
+
+        def _browse_root():
+            chosen = filedialog.askdirectory(initialdir=root_var.get() or str(replay_root), title="Select Replay Root")
+            if chosen:
+                root_var.set(chosen)
+
+        def _apply_inline_replay(play: bool):
+            logs_root = Path(root_var.get().strip())
+            if not logs_root.exists():
+                messagebox.showwarning("Replay Suite", f"Replay root does not exist:\n{logs_root}")
+                return
+
+            try:
+                animation_step = float(animation_var.get().strip() or "0")
+            except ValueError:
+                messagebox.showwarning("Replay Suite", "Animation step must be numeric.")
+                return
+
+            try:
+                overlay = _build_inline_replay_overlay(logs_root, run_filter_var.get().strip())
+            except Exception as exc:
+                messagebox.showerror("Replay Suite", f"Failed to build replay:\n{exc}")
+                return
+
+            if not overlay:
+                messagebox.showinfo("Replay Suite", "No replay data matched the current selection.")
+                return
+
+            extra_fields = []
+            if bool(show_state_var.get()):
+                extra_fields.append("__REPLAY_STATE__")
+            if bool(show_motor_var.get()):
+                extra_fields.append("__REPLAY_MOVING__")
+            state["replay_extra_fields"] = extra_fields
+            state["replay_overlay"] = {
+                "events": overlay["events"] if bool(include_acq_var.get()) else [],
+                "state_series": overlay["state_series"],
+                "moving_series": overlay["moving_series"],
+                "show_psu_raw": bool(show_raw_var.get()),
+                "show_psu_ma": bool(show_ma_var.get()),
+                "show_state": bool(show_state_var.get()),
+                "show_motor": bool(show_motor_var.get()),
+                "show_homing": bool(include_homing_var.get()),
+            }
+            state["replay_cursor_time"] = overlay["cursor_start"]
+            state["replay_cursor_bounds"] = (overlay["cursor_start"], overlay["cursor_end"])
+
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+                _install_replay_cursor(play=play and animation_step > 0)
+            win.destroy()
+
+        def _clear_inline_replay():
+            state["replay_overlay"] = None
+            state["replay_extra_fields"] = []
+            state["replay_cursor_time"] = None
+            state["replay_cursor_bounds"] = None
+            _stop_replay_timer()
+            _clear_replay_cursor_artists()
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+
+        btn_row = tk.Frame(frame)
+        btn_row.grid(row=8, column=0, columnspan=2, pady=(6, 0), sticky="w")
+        tk.Button(btn_row, text="Browse Root", command=_browse_root).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Apply", command=lambda: _apply_inline_replay(False)).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Apply + Play", command=lambda: _apply_inline_replay(True)).pack(
+            side="left", padx=(0, 8)
+        )
+        tk.Button(btn_row, text="Clear Replay", command=_clear_inline_replay).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
+
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
+
+        if owns_root:
+
+            def _close_and_cleanup():
+                win.destroy()
+                root.destroy()
+
+            win.protocol("WM_DELETE_WINDOW", _close_and_cleanup)
+            win.mainloop()
 
     def _sync_custom_axes():
         custom_fields = state.get("custom_fields")
         if not isinstance(custom_fields, list):
             custom_fields = []
             state["custom_fields"] = custom_fields
+        replay_extra_fields = state.get("replay_extra_fields")
+        if not isinstance(replay_extra_fields, list):
+            replay_extra_fields = []
+            state["replay_extra_fields"] = replay_extra_fields
+        combined_fields = [*replay_extra_fields, *custom_fields]
 
         existing = state.get("custom_axes")
         if isinstance(existing, list):
@@ -1814,7 +2315,7 @@ def main():
                 except Exception:
                     pass
 
-        n = len(custom_fields)
+        n = len(combined_fields)
         if n == 0:
             state["custom_axes"] = []
             return
@@ -1823,7 +2324,7 @@ def main():
         gap = 0.012
         bottom_start = 0.045
         custom_axes = []
-        for i, field in enumerate(custom_fields):
+        for i, field in enumerate(combined_fields):
             y = bottom_start + (n - 1 - i) * (panel_h + gap)
             ax = fig.add_axes((0.08, y, 0.86, panel_h), sharex=ax_mwir)
             custom_axes.append((field, ax))
@@ -1840,6 +2341,12 @@ def main():
             selected_params = {k: set(v) for k, v in PARAM_OPTIONS.items()}
             state["selected_params"] = selected_params
 
+        display_sci_axis_mode = state.get("sci_axis_display_mode")
+        if display_sci_axis_mode not in ("abs_steps", "time"):
+            display_sci_axis_mode = result["sci_axis_mode"]
+            state["sci_axis_display_mode"] = display_sci_axis_mode
+        _update_sci_axis_button_label()
+
         _sync_custom_axes()
         custom_axes = state.get("custom_axes")
         if not isinstance(custom_axes, list):
@@ -1849,7 +2356,16 @@ def main():
         hk_packets = result.get("hk_packets")
         if isinstance(hk_packets, list):
             for field_name, _ax in custom_axes:
-                custom_series[field_name] = build_hk_field_series(hk_packets, field_name)
+                if field_name == "__REPLAY_STATE__":
+                    replay_overlay = state.get("replay_overlay")
+                    if isinstance(replay_overlay, dict):
+                        custom_series[field_name] = replay_overlay.get("state_series")
+                elif field_name == "__REPLAY_MOVING__":
+                    replay_overlay = state.get("replay_overlay")
+                    if isinstance(replay_overlay, dict):
+                        custom_series[field_name] = replay_overlay.get("moving_series")
+                else:
+                    custom_series[field_name] = build_hk_field_series(hk_packets, field_name)
 
         _draw_all_axes(
             ax_temp,
@@ -1867,6 +2383,8 @@ def main():
             result["temp_jumps"],
             result["volt_jumps"],
             result["sci_datetimes"],
+            result["sci_abs_steps"],
+            display_sci_axis_mode,
             result["swir_low"],
             result["swir_med"],
             result["swir_high"],
@@ -1882,6 +2400,7 @@ def main():
             selected_params,
             custom_axes,
             custom_series,
+            state.get("replay_overlay"),
         )
 
         cid = state.get("cid")
@@ -1912,6 +2431,9 @@ def main():
 
         hdlr = ClickHandler(
             result["sci_datetimes"],
+            result["sci_abs_steps"] if display_sci_axis_mode == "abs_steps" else result["sci_datetimes"],
+            display_sci_axis_mode,
+            result["sci_abs_steps"],
             result["swir_low"],
             result["swir_med"],
             result["swir_high"],
@@ -1937,6 +2459,7 @@ def main():
 
         fig.suptitle(_title_for_logs(result["valid_logs"]), fontsize=13, fontweight="bold", y=0.985)
         fig.canvas.draw_idle()
+        _install_replay_cursor(play=False)
 
     def _reload(_event=None):
         print("\n--- Reload ---")
@@ -1980,6 +2503,8 @@ def main():
 
     btn_plots.on_clicked(_show_plot_selector)
     btn_params.on_clicked(_show_parameter_selector)
+    btn_replay.on_clicked(_show_replay_suite_selector)
+    btn_axis.on_clicked(_toggle_sci_axis_mode)
     btn_errors.on_clicked(_show_errors_popup)
     btn_rs422.on_clicked(_open_rs422)
     btn_psu.on_clicked(_open_psu)

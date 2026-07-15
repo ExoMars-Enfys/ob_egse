@@ -1,12 +1,10 @@
 # from __future__ import annotations
 
-from queue import Empty
-import time
 
-from core_modules import constants as const
+import logging
+
 from utility_modules import eb_interface, ebtcs
 from widget_modules import ui_runtime_controller
-import logging
 
 info_log = logging.getLogger("info_log")
 

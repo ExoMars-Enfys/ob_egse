@@ -4,12 +4,13 @@ import logging
 
 # Additional libraries
 from abc import abstractmethod
-from datetime import datetime
 from collections import namedtuple
-from bitstruct import unpack_from as upf
+from datetime import datetime
+
 import bitstruct
 import crc8
 import serial.rs485
+from bitstruct import unpack_from as upf
 
 # Local modules
 # core
@@ -22,7 +23,6 @@ from core_modules import tmstruct as tmstruct
 from utility_modules import comms as comms
 from utility_modules import tc as tc
 from utility_modules import tm as tm
-
 
 info_log = logging.getLogger("info_log")
 
@@ -313,10 +313,13 @@ def parse_tm(response):
 
     if response.cmd_type == "HK_Request":
         ack = HK(response)
-        const.hk_queue.put(ack)
+        if const.hk_queue is not None:
+            const.hk_queue.put(ack)
+
     elif response.cmd_type == "SCI_Request":
         ack = SCI(response)
-        const.sci_queue.put(ack)
+        if const.sci_queue is not None:
+            const.sci_queue.put(ack)
         #info_log.warning(
         #    f"SCI Received: SWIR_HIGH:{ack.SWIR_HIGH >> 4}, SWIR_MED:{ack.SWIR_MED >> 4}, SWIR_LOW:{ack.SWIR_LOW >> 4}, MWIR_HIGH:{ack.MWIR_HIGH >> 4}, MWIR_MED:{ack.MWIR_MED >> 4}, MWIR_LOW:{ack.MWIR_LOW >> 4}, HT_SINK_TEMP:{ack.HT_SINK_TEMP >> 4}, SWIR_TEMP:{ack.SWIR_TEMP >> 4}"
         #)

@@ -1,12 +1,12 @@
 # from __future__ import annotations
 
-from queue import Empty
+import logging
 import time
+from queue import Empty
 
 from core_modules import constants as const
 from utility_modules import eb_interface, ebtcs
 from widget_modules import ui_runtime_controller
-import logging
 
 info_log = logging.getLogger("info_log")
 
@@ -111,7 +111,7 @@ def run_emc_he() -> None:
                 ) from exc
             ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
         try:
-            latest_sci = const.sci_queue.get(timeout=2.0)
+            const.sci_queue.get(timeout=2.0)
         except Empty as exc:
             raise AssertionError("Initial FFT verification failed: missing SCI Packet") from exc
 

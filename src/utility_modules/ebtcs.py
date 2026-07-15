@@ -5,10 +5,11 @@ import time
 # Added packages
 from datetime import datetime
 
+from core_modules import cmd_ids as cmd_ids
+
 # Local modules
 # core
 from core_modules import constants as const
-from core_modules import cmd_ids as cmd_ids
 
 info_log = logging.getLogger("info_log")
 
@@ -197,8 +198,7 @@ def _verify_flag_equals(packet, namespace_name, flag_name, expected_value):
 def _read_latest_hk_and_index():
     """Read latest HK and its line index from currently selected RS422 log."""
     try:
-        from utility_modules import eb_interface
-        from utility_modules import eb_packet_utility
+        from utility_modules import eb_interface, eb_packet_utility
 
         log_path = getattr(eb_interface, "rs422_log_path", None)
         if not log_path:
@@ -275,7 +275,7 @@ def _verify_tc_applied(name, after_hk, args):
 def _send_named_tc(interface, tc_name, *args):
     before_hk, before_index = _read_latest_hk_and_index()
     cmd_line = _build_ebtc_line(tc_name, *args)
-    status = send_tc(interface, cmd_line, cmd_type=tc_name)
+    send_tc(interface, cmd_line, cmd_type=tc_name)
     # if status == "ERROR":
     #     return "ERROR"
 

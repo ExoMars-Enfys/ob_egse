@@ -2,27 +2,23 @@ from __future__ import annotations
 
 import argparse
 import re
-from pathlib import Path
 import sys
-from datetime import datetime, timedelta
-from collections import defaultdict
-from typing import Any, Callable, cast
 import tkinter as tk
-from tkinter import Tk, filedialog
-from tkinter import scrolledtext
+from datetime import datetime, timedelta
+from pathlib import Path
+from tkinter import Tk, filedialog, scrolledtext
+from typing import Any, Callable, cast
 
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
 import numpy as np
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utility_modules import eb_packet_utility as eb_sniffer
-from core_modules import constants as const
 import sci_plot
 
+from utility_modules import eb_packet_utility as eb_sniffer
 
 _DATETIME_FORMATS = (
     "%Y-%m-%d_%H-%M-%S",
@@ -720,7 +716,7 @@ def _error_bits_to_value(error_flags_bits) -> int:
                 if flag_val:
                     value |= 1 << bit_pos
                 bit_pos += 1
-            except:
+            except Exception:
                 pass
     return value
 
@@ -738,7 +734,7 @@ def _decode_error_flags(error_flags_bits) -> dict[str, bool]:
                 value = getattr(error_flags_bits, attr_name)
                 if isinstance(value, (bool, int)):
                     flags[attr_name] = bool(value)
-            except:
+            except Exception:
                 pass
     return flags
 
@@ -936,7 +932,6 @@ def _create_eb_plot(
     fig.suptitle(f"EB System Analysis{title_suffix}", fontsize=16, fontweight="bold")
 
     times = np.array(ts_data["times"])
-    packets = ts_data.get("packets", [])
 
     # EB Voltage plot
     ax_volt = axes[0]
@@ -1081,7 +1076,6 @@ def _create_ob_plot(
     fig.suptitle(f"OB System Analysis{title_suffix}", fontsize=16, fontweight="bold")
 
     times = np.array(ts_data["times"])
-    packets = ts_data.get("packets", [])
 
     # OB Voltage plot
     ax_volt = axes[0]

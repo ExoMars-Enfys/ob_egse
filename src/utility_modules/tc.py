@@ -1,9 +1,9 @@
 # Std library
 import logging
+import time
 
 # Added packages
 from datetime import datetime
-import time
 
 # Local modules
 # core
@@ -12,9 +12,9 @@ from core_modules import constants as const
 
 # utilities
 from utility_modules import comms as comms
-from utility_modules.crc8_function import crc8Calculate
 from utility_modules import tc as tc
 from utility_modules import tm as tm
+from utility_modules.crc8_function import crc8Calculate
 
 info_log = logging.getLogger("info_log")
 
