@@ -13,5 +13,5 @@
         100,
         120
     ],
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
 }
