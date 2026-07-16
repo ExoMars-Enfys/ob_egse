@@ -1,127 +1,115 @@
 :root {
-    --theme-default: dark;
-    --logo-light-src: "/rsrc/Enfys_logo.png";
-    --logo-dark-src: "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png";
+  --theme-default: dark;
+  --logo-light-src: "/rsrc/Enfys_logo.png";
+  --logo-dark-src: "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png";
 
-    --dark-primary-bg: #2b3038;
-    --dark-secondary-bg: #383f4a;
-    --dark-heading-color: #ffffff;
-    --dark-text-color: #ffffff;
-    --dark-accent_color: #2b6d34;
-    --dark-plot-bg: #2b3038;
-    --dark-plot-grid: #616b79;
-    --dark-plot-axis: #ffffff;
-    --dark-plot-legend: #ffffff;
-    --dark-plot-spine: #ffffff;
-    --dark-plot-tick: #ffffff;
+  /*Dark Theme Colours*/
 
-    --light-primary-bg: #ffffff;
-    --light-secondary-bg: #f3f4f6;
-    --light-heading-color: #111827;
-    --light-text-color: #111827;
-    --light-accent_color: #2b6d34;
-    --light-plot-bg: #ffffff;
-    --light-plot-grid: #d1d5db;
-    --light-plot-axis: #111827;
-    --light-plot-legend: #111827;
-    --light-plot-spine: #111827;
-    --light-plot-tick: #111827;
+  --dark-primary-bg: #2b3038;
+  --dark-secondary-bg: #383f4a;
+  --dark-heading-color: #ffffff;
+  --dark-text-color: #ffffff;
+  --dark-accent_color: #2b6d34;
+  --dark-plot-bg: #2b3038;
+  --dark-plot-grid: #616b79;
+  --dark-plot-axis: #ffffff;
+  --dark-plot-legend: #ffffff;
+  --dark-plot-spine: #ffffff;
+  --dark-plot-tick: #ffffff;
 
-    --primary-bg: var(--dark-primary-bg);
-    --secondary-bg: var(--dark-secondary-bg);
-    --heading-color: var(--dark-heading-color);
-    --text-color: var(--dark-text-color);
-    --accent_color: var(--dark-accent_color);
-    --plot-bg: var(--dark-plot-bg);
-    --plot-grid: var(--dark-plot-grid);
-    --plot-axis: var(--dark-plot-axis);
-    --plot-legend: var(--dark-plot-legend);
-    --plot-spine: var(--dark-plot-spine);
-    --plot-tick: var(--dark-plot-tick);
+  /*Light Theme Colours*/
+  --light-primary-bg: #ffffff;
+  --light-secondary-bg: #f3f4f6;
+  --light-heading-color: #111827;
+  --light-text-color: #111827;
+  --light-accent_color: #2b6d34;
+  --light-plot-bg: #ffffff;
+  --light-plot-grid: #d1d5db;
+  --light-plot-axis: #111827;
+  --light-plot-legend: #111827;
+  --light-plot-spine: #111827;
+  --light-plot-tick: #111827;
+  --q-primary: var(--accent_color);
+  --q-secondary: var(--secondary-bg);
+  --q-positive: var(--accent_color);
+  --q-negative: #b64545;
 
-    --q-primary: var(--accent_color);
-    --q-secondary: var(--secondary-bg);
-    --q-positive: var(--accent_color);
-    --q-negative: #b64545;
+  --status-ok: #2ecc71;
+  --status-alarm: #e74c3c;
+  --status-info: #3498db;
+  --status-neutral: #9e9e9e;
 
-    /* Status indicator colours — override per theme when needed */
-    --status-ok: #2ecc71;
-    --status-alarm: #e74c3c;
-    --status-info: #3498db;
-    --status-neutral: #9e9e9e;
+  --log-debug: #9e9e9e;
+  --log-info: #3498db;
+  --log-warning: #e67e22;
+  --log-error: #e74c3c;
+  --log-critical: #e74c3c;
 
-    /* Log-level indicator colours */
-    --log-debug: #9e9e9e;
-    --log-info: #3498db;
-    --log-warning: #e67e22;
-    --log-error: #e74c3c;
-    --log-critical: #e74c3c;
+  --series-dig-trp: #e74c3c;
+  --series-det-trp: #e67e22;
+  --series-mech-trp: #2ecc71;
+  --series-mtr-trp: #3498db;
+  --series-ob-3v3: #e74c3c;
+  --series-eb-3v3: #e67e22;
+  --chart-rov-htr: #2f80ed;
+  --chart-eb-current: #f2994a;
 
-    /* Chart series identity colours (constant across themes) */
-    --series-dig-trp: #e74c3c;
-    --series-det-trp: #e67e22;
-    --series-mech-trp: #2ecc71;
-    --series-mtr-trp: #3498db;
-    --series-ob-3v3: #e74c3c;
-    --series-eb-3v3: #e67e22;
-    --chart-rov-htr: #2f80ed;
-    --chart-eb-current: #f2994a;
+  --ui-label-size: 0.585rem;
+  --heading-size: 1.1rem;
+  --heading-weight: 700;
+  --metric-label-size: 0.698rem;
+  --metric-value-size: 0.9rem;
+  --body-font-family:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 
-    /* Typography and sizing (widgets and plots should read these) */
-    --ui-label-size: 0.585rem;
-    --heading-size: 0.99rem;
-    --heading-weight: 700;
-    --metric-label-size: 0.698rem;
-    --metric-value-size: 0.9rem;
-    --body-font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  --plot-font-size: 0.875rem;
+  --plot-footer-size: 0.75rem;
+  --plot-linewidth: 1;
+  --plot-grid-alpha: 0.6;
+  --plot-grid-width: 0.6;
+  --plot-tick-size: 10;
 
-    /* Plot styling (matplotlib will convert these to numeric values) */
-    --plot-font-size: 0.875rem;
-    --plot-footer-size: 0.75rem;
-    --plot-linewidth: 1.0;
-    --plot-grid-alpha: 0.6;
-    --plot-grid-width: 0.6;
-    --plot-tick-size: 10;
+  --limit-warn: #e67e22;
+  --limit-alarm: #e74c3c;
 
-    /* Limit line colours for plots */
-    --limit-warn: #e67e22;
-    --limit-alarm: #e74c3c;
+  --packet-viewer: 12vw;
+  --console: 48vw;
+  --right-drawer: 40vw;
+  --top-bar: 7.5vh;
+  --log-console: 10vh;
+  --drawer-content-pad: 0px;
+  --drawer-card-pad: 0px;
 }
 
 body.theme-dark {
-    --primary-bg: var(--dark-primary-bg);
-    --secondary-bg: var(--dark-secondary-bg);
-    --heading-color: var(--dark-heading-color);
-    --text-color: var(--dark-text-color);
-    --accent_color: var(--dark-accent_color);
-    --plot-bg: var(--dark-plot-bg);
-    --plot-grid: var(--dark-plot-grid);
-    --plot-axis: var(--dark-plot-axis);
-    --plot-legend: var(--dark-plot-legend);
-    --plot-spine: var(--dark-plot-spine);
-    --plot-tick: var(--dark-plot-tick);
-    --q-primary: var(--accent_color);
-    --q-secondary: var(--secondary-bg);
-    --q-positive: var(--accent_color);
+  --primary-bg: var(--dark-primary-bg);
+  --secondary-bg: var(--dark-secondary-bg);
+  --heading-color: var(--dark-heading-color);
+  --text-color: var(--dark-text-color);
+  --accent_color: var(--dark-accent_color);
+  --plot-bg: var(--dark-plot-bg);
+  --plot-grid: var(--dark-plot-grid);
+  --plot-axis: var(--dark-plot-axis);
+  --plot-legend: var(--dark-plot-legend);
+  --plot-spine: var(--dark-plot-spine);
+  --plot-tick: var(--dark-plot-tick);
 }
 
 body.theme-light {
-    --primary-bg: var(--light-primary-bg);
-    --secondary-bg: var(--light-secondary-bg);
-    --heading-color: var(--light-heading-color);
-    --text-color: var(--light-text-color);
-    --accent_color: var(--light-accent_color);
-    --plot-bg: var(--light-plot-bg);
-    --plot-grid: var(--light-plot-grid);
-    --plot-axis: var(--light-plot-axis);
-    --plot-legend: var(--light-plot-legend);
-    --plot-spine: var(--light-plot-spine);
-    --plot-tick: var(--light-plot-tick);
-    --q-primary: var(--accent_color);
-    --q-secondary: var(--secondary-bg);
-    --q-positive: var(--accent_color);
+  --primary-bg: var(--light-primary-bg);
+  --secondary-bg: var(--light-secondary-bg);
+  --heading-color: var(--light-heading-color);
+  --text-color: var(--light-text-color);
+  --accent_color: var(--light-accent_color);
+  --plot-bg: var(--light-plot-bg);
+  --plot-grid: var(--light-plot-grid);
+  --plot-axis: var(--light-plot-axis);
+  --plot-legend: var(--light-plot-legend);
+  --plot-spine: var(--light-plot-spine);
+  --plot-tick: var(--light-plot-tick);
 }
 
+/* Base surfaces */
 body,
 .nicegui-content,
 .q-page,
@@ -129,218 +117,279 @@ body,
 .q-page-container,
 .q-layout__section,
 .q-layout__shadow,
-.q-drawer__content {
-    background-color: var(--primary-bg);
-    color: var(--text-color);
-}
-
 .q-drawer,
+.q-drawer__content,
 .q-footer,
-.q-header {
-    background-color: var(--primary-bg);
-    color: var(--text-color);
-}
-
-.q-card,
-.q-card__section {
-    background-color: var(--secondary-bg);
-}
-
-.q-markdown,
-.q-item,
-.q-field,
-.q-input,
-.q-toggle,
-.q-checkbox,
-.q-radio,
-.q-tab,
-.q-item__label,
-.q-field__label,
-.q-field__native,
-.q-field__input,
-.q-tab__label {
-    color: var(--text-color);
-}
-
+.q-header,
 .q-tabs,
 .q-tabs__content,
 .q-tab-panels,
 .q-tab-panel {
-    background-color: var(--primary-bg);
+  background-color: var(--primary-bg);
+  color: var(--text-color);
 }
 
-.q-tab {
-    color: var(--text-color);
-    background-color: transparent;
+.q-card,
+.q-card__section,
+.q-menu,
+.q-list,
+.q-field__control,
+.q-field__native {
+  background-color: var(--secondary-bg);
+  color: var(--text-color);
 }
 
+/* Accent interactions */
 .q-tab--active,
-.q-tab.q-tab--active {
-    color: var(--accent_color);
-}
-
+.q-tab.q-tab--active,
 .q-tab__indicator {
-    background-color: var(--accent_color);
-}
-
-.q-markdown h1,
-.q-markdown h2,
-.q-markdown h3,
-.q-markdown h4,
-.q-markdown h5,
-.q-markdown h6 {
-    color: var(--heading-color);
+  color: var(--accent_color);
+  background-color: var(--primary-bg);
 }
 
 .q-btn,
 .q-btn--standard,
 .q-btn--unelevated,
-.q-btn.bg-primary {
-    background-color: var(--accent_color);
-    color: #ffffff;
-}
-
-.bg-accent_color,
-.q-btn.bg-accent_color,
-.q-btn--standard.bg-accent_color,
-.q-btn--unelevated.bg-accent_color {
-    background-color: var(--accent_color) !important;
-}
-
-.text-accent_color,
-.q-btn.text-accent_color {
-    color: var(--accent_color) !important;
-}
-
-.bg-primary,
 .q-btn.bg-primary,
-.q-btn--standard.bg-primary,
-.q-btn--unelevated.bg-primary {
-    background-color: var(--accent_color) !important;
-}
-
-.text-primary,
-.q-btn.text-primary {
-    color: var(--accent_color) !important;
+.bg-primary,
+.bg-accent_color {
+  background-color: var(--primary-bg) !important;
+  color: #ffffff;
 }
 
 .q-btn .q-icon {
-    color: #ffffff;
+  color: #ffffff;
 }
 
-.q-btn.flat,
-.q-btn--flat,
-.q-btn--outline {
-    background-color: transparent;
-    color: var(--accent_color);
+.text-primary,
+.text-accent_color {
+  color: var(--accent_color) !important;
 }
 
-.q-chip[class*="bg-grey"] .q-icon,
-.q-chip[class*="bg-gray"] .q-icon {
-    display: none;
+/* Header logo must scale down without cropping. */
+.q-img.q-img--menu .q-img__image {
+  object-fit: contain !important;
+  object-position: left center !important;
 }
 
-.q-field__control,
-.q-field__native {
-    background-color: var(--secondary-bg);
-    color: var(--text-color);
+/* Typography (single source: lines 57-62 vars in :root) */
+body,
+.nicegui-content,
+.q-page,
+.q-layout,
+.q-page-container,
+.q-drawer__content,
+.q-card,
+.q-btn,
+.q-tab,
+.q-chip,
+.q-item,
+.q-field__native,
+.q-field__input,
+.q-radio__label,
+.q-toggle__label,
+.q-checkbox__label {
+  font-family: var(--body-font-family);
 }
 
-.q-menu,
-.q-list {
-    background-color: var(--secondary-bg);
-    color: var(--text-color);
+body,
+.nicegui-content,
+.q-item,
+.q-field__native,
+.q-field__input,
+.q-radio__label,
+.q-toggle__label,
+.q-checkbox__label,
+.q-btn,
+.q-tab {
+  font-size: var(--ui-label-size);
 }
 
-.status-light {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid rgba(0, 0, 0, 0.25);
+.q-chip {
+  font-size: var(--metric-value-size);
 }
 
-.status-light-lg {
-    width: 44px;
-    height: 44px;
+.font-bold {
+  font-weight: var(--heading-weight) !important;
 }
 
-.status-light.ok {
-    background-color: var(--status-ok);
-    box-shadow: 0 0 0 rgba(46, 204, 113, 0.6);
-    animation: pulse-green 1.6s infinite;
+/* Map common Tailwind text helpers to theme typography vars. */
+.text-xs {
+  font-size: var(--metric-label-size) !important;
 }
 
-.status-light.alarm {
-    background-color: var(--status-alarm);
-    box-shadow: 0 0 12px rgba(231, 76, 60, 0.8);
-    animation: pulse-red 1.1s infinite;
+.text-sm {
+  font-size: var(--ui-label-size) !important;
 }
 
-@keyframes pulse-green {
-    0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 rgba(46, 204, 113, 0.6);
-    }
-
-    70% {
-        transform: scale(1.1);
-        box-shadow: 0 0 20px rgba(46, 204, 113, 0.0);
-    }
-
-    100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 rgba(46, 204, 113, 0.0);
-    }
+.text-base,
+.text-lg,
+.text-xl,
+.text-xxl {
+  font-size: var(--heading-size) !important;
 }
 
-@keyframes pulse-red {
-    0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 rgba(231, 76, 60, 0.8);
-    }
-
-    60% {
-        transform: scale(1.2);
-        box-shadow: 0 0 28px rgba(231, 76, 60, 0.0);
-    }
-
-    100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 rgba(231, 76, 60, 0.0);
-    }
+.egse-title {
+  font-size: var(--heading-size) !important;
 }
 
-/* Quasar chip status colour overrides — sources all chip colours from CSS variables */
-.q-chip.bg-green {
-    background-color: var(--status-ok) !important;
+.egse-text {
+  font-size: var(--ui-label-size) !important;
 }
 
-.q-chip.bg-red {
-    background-color: var(--status-alarm) !important;
+.egse-metric-label {
+  font-size: var(--metric-label-size) !important;
 }
 
-.q-chip.bg-blue {
-    background-color: var(--status-info) !important;
+.egse-metric-value {
+  font-size: var(--metric-value-size) !important;
 }
 
-.q-chip.bg-grey,
-.q-chip.bg-gray {
-    background-color: var(--status-neutral) !important;
+.egse-packet-viewer-card .egse-packet-text {
+  padding-left: 0.2rem;
 }
 
-/* Quasar radio/toggle level-indicator colour overrides */
-.q-radio__inner--truthy.text-grey {
-    color: var(--log-debug) !important;
+.egse-packet-viewer-card .egse-packet-title {
+  font-size: var(--heading-size) !important;
 }
 
-.q-radio__inner--truthy.text-blue {
-    color: var(--log-info) !important;
+.egse-packet-viewer-card .egse-packet-line-text {
+  font-size: var(--metric-label-size) !important;
 }
 
-.q-radio__inner--truthy.text-orange {
-    color: var(--log-warning) !important;
+/* Three-column layout (single source of truth: CSS variables in :root) */
+.q-layout,
+.q-layout-container {
+  --q-size-left: var(--packet-viewer);
+  --q-size-right: var(--right-drawer);
 }
 
-.q-radio__inner--truthy.text-red {
-    color: var(--log-error) !important;
+/*
+   NiceGUI attaches custom drawer classes to .q-drawer__content, but Quasar
+   controls positioning/space with the outer .q-drawer wrapper.
+*/
+.q-drawer.q-drawer--left:has(> .q-drawer__content.egse-left-drawer) {
+  width: var(--packet-viewer) !important;
+  min-width: var(--packet-viewer) !important;
+  max-width: var(--packet-viewer) !important;
+}
+
+.q-drawer.q-drawer--right:has(> .q-drawer__content.egse-right-drawer) {
+  width: var(--right-drawer) !important;
+  min-width: var(--right-drawer) !important;
+  max-width: var(--right-drawer) !important;
+}
+
+.q-drawer__content.egse-left-drawer,
+.q-drawer__content.egse-right-drawer {
+  padding: var(--drawer-content-pad);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+}
+
+.q-drawer__content.egse-left-drawer > *,
+.q-drawer__content.egse-right-drawer > * {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.q-drawer__content.egse-left-drawer .q-card,
+.q-drawer__content.egse-right-drawer .q-card,
+.q-drawer__content.egse-left-drawer .q-tabs,
+.q-drawer__content.egse-right-drawer .q-tabs,
+.q-drawer__content.egse-left-drawer .q-tab-panels,
+.q-drawer__content.egse-right-drawer .q-tab-panels,
+.q-drawer__content.egse-left-drawer .q-tab-panel,
+.q-drawer__content.egse-right-drawer .q-tab-panel,
+.q-drawer__content.egse-left-drawer .nicegui-pyplot,
+.q-drawer__content.egse-right-drawer .nicegui-pyplot {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.q-drawer__content.egse-left-drawer .q-card,
+.q-drawer__content.egse-right-drawer .q-card {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: var(--drawer-card-pad);
+  padding-right: var(--drawer-card-pad);
+  overflow: hidden;
+}
+
+.q-drawer__content.egse-left-drawer .egse-left-packet-panels,
+.q-drawer__content.egse-left-drawer .egse-left-packet-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.q-drawer__content.egse-left-drawer .egse-left-packet-panel {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.q-drawer__content.egse-left-drawer .egse-left-packet-panels > .q-panel {
+  width: 100% !important;
+  overflow: visible !important;
+  scrollbar-gutter: auto !important;
+}
+
+.q-page-container {
+  padding-left: var(--packet-viewer) !important;
+  padding-right: var(--right-drawer) !important;
+  padding-bottom: calc(var(--log-console) + 0.75rem);
+}
+
+.egse-centre-console {
+  width: 100%;
+  max-width: min(
+    var(--console),
+    calc(100vw - var(--packet-viewer) - var(--right-drawer) - 1rem)
+  );
+  min-width: 0;
+  margin: 0 auto;
+}
+
+/*
+   Fluid sizing guards: keep child widgets tied to parent width.
+   This avoids intrinsic min-content sizes causing chop/overflow.
+*/
+.egse-centre-console,
+.q-drawer__content.egse-left-drawer,
+.q-drawer__content.egse-right-drawer {
+  min-width: 0;
+}
+
+.egse-centre-console .nicegui-row,
+.egse-centre-console .nicegui-column,
+.egse-centre-console .q-card,
+.egse-centre-console .q-card__section,
+.egse-centre-console .q-tab-panels,
+.egse-centre-console .q-tab-panel,
+.egse-centre-console .nicegui-pyplot,
+.q-drawer__content.egse-left-drawer .nicegui-row,
+.q-drawer__content.egse-left-drawer .nicegui-column,
+.q-drawer__content.egse-right-drawer .nicegui-row,
+.q-drawer__content.egse-right-drawer .nicegui-column {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Allow rows in constrained widths to wrap instead of forcing overflow. */
+.egse-centre-console .nicegui-row {
+  flex-wrap: wrap;
+}
+
+/* Keep dense status chips readable without forcing container overflow. */
+.egse-centre-console .q-chip,
+.q-drawer__content.egse-left-drawer .q-chip,
+.q-drawer__content.egse-right-drawer .q-chip {
+  max-width: 100%;
 }

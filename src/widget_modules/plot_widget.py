@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import weakref
 
 # Std library
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import matplotlib.pyplot as plt
 from matplotlib import dates as mdates
 from matplotlib import ticker
 
@@ -24,11 +26,13 @@ class SeriesConfig:
 
 @dataclass
 class PlotCardController:
+    card: Any
     plot: Any
     set_mode: Callable[[str], None]
     push: Callable[[list[Any], list[list[float]]], None]
     set_series_labels: Callable[[list[str]], None]
     set_stream_enabled: Callable[[bool], None]
+    close: Callable[[], None]
 
 
 def create_plot_card(
@@ -76,13 +80,21 @@ def create_plot_card(
     from utility_modules import app_theme
 
     palette = getattr(app.state, "theme_palette", None)
-    ui_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
-    chk_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
+    plot_font_pt = app_theme.font_size_px(palette.get("plot_font_size") if isinstance(palette, dict) else None)
+    plot_tick_pt = app_theme.font_size_px(palette.get("plot_tick_size") if isinstance(palette, dict) else None)
+    plot_footer_pt = app_theme.font_size_px(palette.get("plot_footer_size") if isinstance(palette, dict) else None)
+    try:
+        plot_linewidth = (
+            float(palette.get("plot_linewidth"))
+            if isinstance(palette, dict) and palette.get("plot_linewidth") is not None
+            else 1.0
+        )
+    except Exception:
+        plot_linewidth = 1.0
 
-    with ui.card().classes("flex-1 min-w-0"):
+    with ui.card().classes("w-full flex-1 min-w-0") as card:
         title_label = ui.label(title)
-        title_label.style(f"font-size: {ui_sz}")
-        title_label.classes("font-bold")
+        title_label.classes("font-bold pl-3 egse-title")
         if not show_title:
             title_label.classes(add="hidden")
 
@@ -93,19 +105,32 @@ def create_plot_card(
                     cb = ui.checkbox(cfg.label, value=cfg.visible).props(
                         f'checked-icon="radio_button_checked" unchecked-icon="radio_button_unchecked" keep-color color="{cfg.color}"'
                     )
-                    cb.style(f"font-size: {chk_sz}")
+                    cb.classes("egse-text")
                     cb.style(f"color: {cfg.color}")
                     checkboxes.append(cb)
 
         plot = (
             ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
-            .classes(f"w-full {plot_height_class}")
-            .style("width: 100%; min-width: 0; max-width: 100%; padding: 0;")
+            .classes(f"w-full self-start {plot_height_class}")
+            .style("width: 100%; min-width: 0; max-width: 100%; padding: 0; margin-left: 0; margin-right: auto;")
         )
 
     # access matplotlib axes/figure
     ax = plot.fig.axes[0]
     fig = plot.fig
+
+    closed_state = {"done": False}
+
+    def close_plot() -> None:
+        if closed_state["done"]:
+            return
+        closed_state["done"] = True
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+
+    weakref.finalize(plot, close_plot)
 
     # X-axis: show minutes:seconds:milliseconds on ticks
     def _fmt_x_tick(x, pos):
@@ -120,13 +145,13 @@ def create_plot_card(
     ax.yaxis.set_major_locator(ticker.MaxNLocator(6))
     # let the global theme control grid color/width/alpha
     ax.grid(True, which="major")
-    tick_size = app_theme.font_size_px(palette.get("plot_tick_size") if isinstance(palette, dict) else None)
-    ax.tick_params(labelsize=(tick_size or 11))
+    ax.tick_params(labelsize=(plot_tick_pt or 11))
 
     lines = list(ax.lines)
     for line, cfg in zip(lines, series):
         line.set_color(cfg.color)
         line.set_visible(cfg.visible)
+        line.set_linewidth(plot_linewidth)
         line.set_marker("*")
         line.set_markersize(8)
 
@@ -203,7 +228,7 @@ def create_plot_card(
                 line.set_label(label if line.get_visible() else "_nolegend_")
 
             if any(line.get_visible() for line in lines):
-                ax.legend(loc="upper left", fontsize=11)
+                ax.legend(loc="upper left", fontsize=(plot_font_pt or 11))
                 _style_legend()
 
         _redraw_plot()
@@ -226,8 +251,16 @@ def create_plot_card(
         ax.set_ylim(*y_limits)
     top = 0.92 if show_title else 0.98
     # Keep a little bottom room for footer timestamp while maximizing plot area.
-    fig.subplots_adjust(left=0.065, right=0.995, top=top, bottom=0.19)
-    footer_text_right = fig.text(0.992, 0.02, "", ha="right", va="bottom", fontsize=10, color="white")
+    fig.subplots_adjust(left=0.045, right=0.995, top=top, bottom=0.19)
+    footer_text_right = fig.text(
+        0.992,
+        0.02,
+        "",
+        ha="right",
+        va="bottom",
+        fontsize=(plot_footer_pt or plot_font_pt or 10),
+        color="white",
+    )
     # expose footer on the figure so global theming can style it
     try:
         setattr(fig, "_footer_text_right", footer_text_right)
@@ -291,7 +324,7 @@ def create_plot_card(
             ymin, ymax = mode_limits.get(mode, y_limits or (0.0, 1000.0))
             ax.set_ylim(ymin, ymax)
         if show_title:
-            ax.set_title(f"{title} ({mode})", fontsize=14)
+            ax.set_title(f"{title} ({mode})", fontsize=(plot_font_pt or 14))
             title_label.set_text(f"{title} [{mode}]")
         else:
             ax.set_title("")
@@ -312,9 +345,11 @@ def create_plot_card(
             plot.push(time_points, series_values)
 
     return PlotCardController(
+        card=card,
         plot=plot,
         set_mode=set_mode,
         push=push,
         set_series_labels=_set_legend,
         set_stream_enabled=set_stream_enabled,
+        close=close_plot,
     )

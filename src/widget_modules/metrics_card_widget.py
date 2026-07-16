@@ -17,7 +17,7 @@ from core_modules import constants as const
 from core_modules import tmstruct
 
 # utilities
-from utility_modules import app_theme, hk_conversions
+from utility_modules import hk_conversions
 from utility_modules.eb_packet_utility import adu_to_temp
 
 # widgets
@@ -810,73 +810,68 @@ def _ob_hk_specs() -> list[MetricSpec]:
 
 
 def _render_metric_grid(*, specs: list[MetricSpec], columns: int, pills: list[MetricPill]) -> None:
-    # Read theme palette for metric font sizes
-    palette = getattr(app.state, "theme_palette", None)
-    label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-    value_size = app_theme.ui_font_size(palette.get("metric_value_size") if isinstance(palette, dict) else None)
-
     # Pills that should not display labels (only show state inside)
     label_hidden_pills = {
-        "eb_operating_state",      # OP
-        "eb_has_errors",           # ERR
-        "eb_has_warnings",         # WRN
-        "eb_fdir_alarm",           # FDIR ALM
-        "eb_fdir_warning",         # FDIR WRN
-        "setpoint",                # TEC SETPOINT
-        "drive_i",                 # TEC DRIVE I
-        "temp",                    # TEC TEMP
-        "dac",                     # TEC DAC OUT
-        "eb_tec_at_setpoint",      # TEC AT SET
-        "ob_enabled",              # OB ENBLD
-        "ob_home",                 # HOMED
-        "ob_parked",               # PARKED
-        "ob_warm",                 # OB WARM
-        "ob_mech_pwr",             # MECH PWR
-        "ob_det_pwr",              # DET PWR
-        "ob_acq_cfg_set",          # ACQ CFG SET
-        "ob_motor_moving",         # MOV
-        "ob_mech_cal",             # CAL
-        "mech_htr_status",         # MECH
-        "mech_manual",             # MANUAL
-        "mech_auto",               # AUTO
-        "det_htr_status",          # DET
-        "det_manual",              # MANUAL
-        "det_auto",                # AUTO
-        "det_sci",                 # SCI TOGGLE
+        "eb_operating_state",  # OP
+        "eb_has_errors",  # ERR
+        "eb_has_warnings",  # WRN
+        "eb_fdir_alarm",  # FDIR ALM
+        "eb_fdir_warning",  # FDIR WRN
+        "setpoint",  # TEC SETPOINT
+        "drive_i",  # TEC DRIVE I
+        "temp",  # TEC TEMP
+        "dac",  # TEC DAC OUT
+        "eb_tec_at_setpoint",  # TEC AT SET
+        "ob_enabled",  # OB ENBLD
+        "ob_home",  # HOMED
+        "ob_parked",  # PARKED
+        "ob_warm",  # OB WARM
+        "ob_mech_pwr",  # MECH PWR
+        "ob_det_pwr",  # DET PWR
+        "ob_acq_cfg_set",  # ACQ CFG SET
+        "ob_motor_moving",  # MOV
+        "ob_mech_cal",  # CAL
+        "mech_htr_status",  # MECH
+        "mech_manual",  # MANUAL
+        "mech_auto",  # AUTO
+        "det_htr_status",  # DET
+        "det_manual",  # MANUAL
+        "det_auto",  # AUTO
+        "det_sci",  # SCI TOGGLE
     }
 
     # Pills that should keep label above chip to avoid horizontal shifting with longer values (e.g. ADU)
     label_top_pills = {
-        "3v3",                     # OB +3.3V
-        "1v5",                     # OB +1.5V
-        "dig",                     # OB digital thermistor
-        "det",                     # OB detector thermistor
-        "mech",                    # OB mechanism thermistor
-        "mtr",                     # OB motor thermistor
+        "3v3",  # OB +3.3V
+        "1v5",  # OB +1.5V
+        "dig",  # OB digital thermistor
+        "det",  # OB detector thermistor
+        "mech",  # OB mechanism thermistor
+        "mtr",  # OB motor thermistor
     }
 
     with ui.grid(columns=columns).classes("w-full gap-0"):
         for spec in specs:
             if spec.render == "error_chip":
-                chip = ui.chip(spec.chip_text or spec.label, color="grey").props("dense").classes("w-fit")
-                chip.style(f"font-size: {value_size}")
+                chip = (
+                    ui.chip(spec.chip_text or spec.label, color="grey")
+                    .props("dense")
+                    .classes("w-fit egse-metric-value")
+                )
                 pills.append(MetricPill(spec=spec, chip=chip))
             else:
                 with ui.column().classes("items-center gap-0"):
                     # Only display label if this pill is not in the hidden list
                     if spec.key not in label_hidden_pills:
-                        lbl_elem = ui.label(spec.label)
-                        lbl_elem.style(f"font-size: {label_size}")
+                        ui.label(spec.label).classes("egse-metric-label")
 
                     # Keep selected OB labels above their values; others remain inline.
                     if spec.key in label_top_pills:
-                        chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
-                        chip.style(f"font-size: {value_size}")
+                        chip = ui.chip("---", color="grey").props("dense").classes("w-fit egse-metric-value")
                         pills.append(MetricPill(spec=spec, chip=chip))
                     else:
                         with ui.row().classes("gap-1 items-center"):
-                            chip = ui.chip("---", color="grey").props("dense").classes("w-fit")
-                            chip.style(f"font-size: {value_size}")
+                            chip = ui.chip("---", color="grey").props("dense").classes("w-fit egse-metric-value")
                             pills.append(MetricPill(spec=spec, chip=chip))
 
 
@@ -903,11 +898,8 @@ def create_metrics_card(title: str, specs: list[MetricSpec]) -> MetricsCardContr
     pills: list[MetricPill] = []
 
     with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
-        palette = getattr(app.state, "theme_palette", None)
-        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         title_lbl = ui.label(title)
-        title_lbl.style(f"font-size: {ui_sz}")
-        title_lbl.classes("font-bold mb-2")
+        title_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(specs=specs, columns=5, pills=pills)
 
     controller = MetricsCardController(title=title, pills=pills, card=card)
@@ -920,11 +912,8 @@ def create_default_eb_metrics_card() -> MetricsCardController:
     spec_map = {spec.key: spec for spec in specs}
     pills: list[MetricPill] = []
     with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
-        palette = getattr(app.state, "theme_palette", None)
-        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         eb_lbl = ui.label("EB STATUS")
-        eb_lbl.style(f"font-size: {ui_sz}")
-        eb_lbl.classes("font-bold mb-2")
+        eb_lbl.classes("font-bold mb-2 egse-title")
 
         _render_metric_grid(
             specs=[
@@ -947,8 +936,7 @@ def create_default_eb_metrics_card() -> MetricsCardController:
 
         ui.space()
         tec_lbl = ui.label("TEC STATUS")
-        tec_lbl.style(f"font-size: {ui_sz}")
-        tec_lbl.classes("font-bold mb-2")
+        tec_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("setpoint", "drive_i", "temp", "dac", "eb_tec_at_setpoint")],
             columns=5,
@@ -967,11 +955,8 @@ def create_default_ob_metrics_card() -> MetricsCardController:
     pills: list[MetricPill] = []
 
     with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
-        palette = getattr(app.state, "theme_palette", None)
-        ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
         ob_lbl = ui.label("OB STATUS")
-        ob_lbl.style(f"font-size: {ui_sz}")
-        ob_lbl.classes("font-bold mb-2")
+        ob_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("3v3", "1v5", "dig", "det", "mech", "mtr")],
             columns=6,
@@ -989,8 +974,7 @@ def create_default_ob_metrics_card() -> MetricsCardController:
         )
         ui.space()
         motor_lbl = ui.label("MOTOR STATUS")
-        motor_lbl.style(f"font-size: {ui_sz}")
-        motor_lbl.classes("font-bold mb-2")
+        motor_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("ob_motor_moving", "ob_direction", "ob_stop", "ob_steps", "ob_mech_cal")],
             columns=5,
@@ -1003,9 +987,7 @@ def create_default_ob_metrics_card() -> MetricsCardController:
         )
         ui.space()
         heater_lbl = ui.label("HEATER STATUS")
-        if ui_sz:
-            heater_lbl.style(f"font-size: {ui_sz}")
-        heater_lbl.classes("font-bold mb-2")
+        heater_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("mech_htr_status", "mech_manual", "mech_auto")],
             columns=3,
@@ -1025,8 +1007,7 @@ def create_default_ob_metrics_card() -> MetricsCardController:
         )
         ui.space()
         err_lbl = ui.label("OB ERRORS")
-        err_lbl.style(f"font-size: {ui_sz}")
-        err_lbl.classes("font-bold mb-2")
+        err_lbl.classes("font-bold mb-2 egse-title")
         _render_metric_grid(
             specs=[spec_map[k] for k in ("err_ipi", "err_ios", "err_icr", "err_mor", "err_tmo", "err_ipa")],
             columns=6,
@@ -1048,7 +1029,7 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
     chips: dict[str, Any] = {}
 
     with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;"):
-        ui.label("PACKET METRICS").classes("text-sm font-bold mb-2")
+        ui.label("PACKET METRICS").classes("font-bold mb-2 egse-title")
         with ui.row().classes("w-full gap-2"):
             fields = [
                 ("tc_rejected", "TCs RJCTD"),
@@ -1059,17 +1040,11 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
             ]
             for key, label in fields:
                 with ui.column().classes("flex-1 min-w-0 items-center gap-1") as card_col:
-                    # use theme-aware label size for packet metric labels
-                    palette = getattr(app.state, "theme_palette", None)
-                    pkt_label_size = app_theme.ui_font_size(
-                        palette.get("metric_label_size") if isinstance(palette, dict) else None
-                    )
-                    lbl = ui.label(label).classes("text-center text-xs")
-                    lbl.style(f"font-size: {pkt_label_size}")
+                    ui.label(label).classes("text-center egse-metric-label")
                     chips[key] = (
                         ui.chip("---", color="grey")
                         .props("dense")
-                        .classes("w-full")
+                        .classes("w-full egse-metric-value")
                         .style("justify-content: center;")
                     )
                 cards[key] = card_col

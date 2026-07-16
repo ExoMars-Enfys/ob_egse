@@ -29,7 +29,6 @@ from widget_modules import (
     metrics_card_widget,
     packet_list_widget,
     packet_viewer_widget,
-    parameter_explorer,
     plot_widget,
     psu_widget,
     traffic_light_widget,
@@ -51,107 +50,14 @@ def build_ui(
     stop_event: Any = None,
     psu_mode_state: Any = None,
 ) -> None:
+    normalized_mode = str(default_mode).upper()
+    if normalized_mode not in {"OB", "EB"}:
+        normalized_mode = "OB"
+
     # Serve static resources and apply the master stylesheet globally.
     app.add_static_files("/rsrc", str(_RSRC_DIR))
-    ui.add_head_html('<link rel="stylesheet" href="/rsrc/guimasterconfig.css">', shared=True)
-    ui.add_head_html(
-        """
-<style>
-/* Apply to the outer drawer container */
-
-.q-drawer__content {
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    scroll-behavior: smooth !important;
-}
-
-/* Ensure drawer content doesn't overflow horizontally */
-.egse-left-drawer {
-    width: 100% !important;
-}
-
-.egse-right-drawer {
-    width: 100% !important;
-    overflow: visible !important;
-}
-
-/* Responsive text and spacing scaling */
-.egse-left-drawer div,
-.egse-left-drawer .q-item__label {
-    font-size: clamp(9px, 0.95vw, 11px) !important;
-}
-
-.egse-right-drawer div,
-.egse-right-drawer .q-chip__content,
-.egse-right-drawer .q-item__label {
-    font-size: clamp(9px, 0.95vw, 11px) !important;
-}
-
-.egse-right-drawer .q-chip {
-    padding: 1px 3px !important;
-    min-width: auto !important;
-    height: auto !important;
-    font-size: clamp(8px, 0.85vw, 10px) !important;
-    margin: 0 !important;
-}
-
-.egse-metric-label {
-    font-size: clamp(8px, 0.85vw, 10px) !important;
-    max-width: 3.2rem !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* Responsive gap sizing */
-.egse-metric-row {
-    gap: 0.1rem !important;
-    flex-wrap: wrap !important;
-}
-
-.egse-metric-grid {
-    gap: 0.1rem !important;
-}
-
-/* Compact card spacing */
-.egse-right-drawer .q-card {
-    padding: 0.2rem !important;
-    margin: 0 !important;
-}
-
-.egse-right-drawer .q-card__section {
-    padding: 0.1rem !important;
-}
-
-/* Eliminate nicegui column gaps */
-.egse-right-drawer .nicegui-column {
-    gap: 0.15rem !important;
-}
-
-/* Reduce label margins */
-.egse-right-drawer label,
-.egse-right-drawer div {
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* Tighten title labels */
-.egse-right-drawer .font-bold {
-    margin-bottom: 0.05rem !important;
-}
-
-@media (max-width: 1500px) {
-}
-
-@media (max-width: 1200px) {
-}
-</style>
-""",
-        shared=True,
-    )
+    css_version = _CSS_PATH.stat().st_mtime_ns if _CSS_PATH.exists() else 0
+    ui.add_head_html(f'<link rel="stylesheet" href="/rsrc/guimasterconfig.css?v={css_version}">', shared=True)
 
     # Parse CSS variables once at startup so Python-side code (matplotlib etc.)
     # uses the same colour values as the browser.  Default theme is dark.
@@ -160,7 +66,7 @@ def build_ui(
     _palette = app_theme.get_theme_palette(_css_vars, theme=_theme_state["value"])
 
     state: dict[str, Any] = {
-        "mode": default_mode,
+        "mode": normalized_mode,
         "hk_display_mode": "REAL",
         "voltage_mode": "NOM",
         "logger": logger,
@@ -236,7 +142,7 @@ def build_ui(
 
     app.state.set_egse_mode = set_mode
     app.state.egse_mode_state = set_mode
-    app.state.egse_mode = default_mode
+    app.state.egse_mode = normalized_mode
     app.state.log_search_state = state["log_search"]
     app.state.eb_interface = eb_interface
     app.state.set_psu_log_path = set_psu_log_path
@@ -249,15 +155,15 @@ def build_ui(
         def build_left_drawer() -> dict[str, packet_viewer_widget.PacketViewerController]:
             """Placeholder method for left drawer content
             Creates packet viewer tabs and controllers, and returns the controllers for later updates."""
-            with ui.left_drawer(value=True).props("no-swipe-open no-swipe-close width=260").classes("egse-left-drawer"):
-                palette = getattr(app.state, "theme_palette", None)
-                pv_title_sz = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
-
+            with (
+                ui.left_drawer(value=True)
+                .props("no-swipe-open no-swipe-close breakpoint=0")
+                .classes("egse-left-drawer")
+            ):
                 # Header with title and packet list button
                 with ui.row().classes("w-full items-center justify-between"):
                     lbl = ui.label("Packet Viewers")
-                    lbl.style(f"font-size: {pv_title_sz}")
-                    lbl.classes("font-bold p-2")
+                    lbl.classes("font-bold p-2 egse-title")
                     packet_list_controller = packet_list_widget.create_packet_list(state, {})
                 with ui.tabs().classes("w-full") as packet_tabs:
                     tab_eb_hk = ui.tab("EB HK")
@@ -275,20 +181,20 @@ def build_ui(
                 }
 
                 pv_controllers: dict[str, packet_viewer_widget.PacketViewerController] = {}
-                with ui.tab_panels(packet_tabs).classes("w-full"):
-                    with ui.tab_panel(tab_eb_hk).classes("w-full") as panel_eb_hk:
+                with ui.tab_panels(packet_tabs).classes("w-full egse-left-packet-panels"):
+                    with ui.tab_panel(tab_eb_hk).classes("w-full egse-left-packet-panel") as panel_eb_hk:
                         pv_controllers["EB_HK"] = packet_viewer_widget.create_packet_viewer(state, packet_type="EB_HK")
-                    with ui.tab_panel(tab_eb_post).classes("w-full") as panel_eb_post:
+                    with ui.tab_panel(tab_eb_post).classes("w-full egse-left-packet-panel") as panel_eb_post:
                         pv_controllers["EB_POST"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="EB_POST"
                         )
-                    with ui.tab_panel(tab_eb_sci).classes("w-full") as panel_eb_sci:
+                    with ui.tab_panel(tab_eb_sci).classes("w-full egse-left-packet-panel") as panel_eb_sci:
                         pv_controllers["EB_SCI"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="EB_SCI"
                         )
-                    with ui.tab_panel(tab_ob_hk).classes("w-full") as panel_ob_hk:
+                    with ui.tab_panel(tab_ob_hk).classes("w-full egse-left-packet-panel") as panel_ob_hk:
                         pv_controllers["OB_HK"] = packet_viewer_widget.create_packet_viewer(state, packet_type="OB_HK")
-                    with ui.tab_panel(tab_ob_sci).classes("w-full") as panel_ob_sci:
+                    with ui.tab_panel(tab_ob_sci).classes("w-full egse-left-packet-panel") as panel_ob_sci:
                         pv_controllers["OB_SCI"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="OB_SCI"
                         )
@@ -343,20 +249,30 @@ def build_ui(
                             set_psu_log_path_fn=set_psu_log_path,
                             get_psu_sample_count_fn=app.state.get_psu_replay_sample_count,
                         )
-                        menu_controller.button.props("flat dense round")
+                        menu_controller.button.props("flat dense no-caps")
+                        menu_controller.button.classes("rounded-md p-0 min-w-0")
+                        menu_controller.button.style(
+                            "height: 56px; min-width: 56px; width: auto; padding-left: 0.35rem; padding-right: 0.5rem;"
+                        )
                         initial_logo_src = (
                             _css_vars.get("logo-dark-src", "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png")
                             if _theme_state["value"] == "dark"
                             else _css_vars.get("logo-light-src", "/rsrc/Enfys_logo.png")
                         )
-                        logo = ui.image(initial_logo_src).classes("h-auto w-auto max-h-14 max-w-[260px] object-contain")
+                        initial_logo_src = str(initial_logo_src).strip().strip('"').strip("'")
+                        logo = (
+                            ui.image(initial_logo_src)
+                            .props("fit=contain")
+                            .style("height: 40px; width: 180px; max-width: 180px; margin-left: 0.4rem;")
+                        )
                         logo_images.append(logo)
                     with ui.row().classes("items-center gap-4"):
                         state["alarm_lights"] = traffic_light_widget.create_traffic_lights([("ob", "OB"), ("eb", "EB")])
 
-        def build_right_drawer() -> None:
-            """Placeholder method for right drawer content"""
-            with ui.right_drawer().classes("egse-right-drawer").props("width=320"):
+        def build_centre_console() -> tuple[Any, Any]:
+            """Placeholder method for centre console content"""
+
+            with ui.column().classes("egse-centre-console w-full gap-2 min-w-0"):
                 with ui.column().classes("w-full gap-0.5"):
                     state["packet_metrics_card"] = metrics_card_widget.create_packet_metrics_card(state)
                     state["plot_refreshers"].append(state["packet_metrics_card"].set_mode)
@@ -367,95 +283,116 @@ def build_ui(
                     state["mode_change_resetters"].append(state["packet_metrics_card"].set_no_data)
                     state["mode_change_resetters"].append(state["eb_metrics_card"].set_no_data)
                     state["mode_change_resetters"].append(state["ob_metrics_card"].set_no_data)
-                # Add right drawer content here as needed
+                    # Add right drawer content here as needed
+                with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
+                    trp_card = plot_widget.create_plot_card(
+                        "Thermistors",
+                        series=[
+                            plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
+                            plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
+                            plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
+                            plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
+                        ],
+                        y_label="°C",
+                        y_limits=(-30.0, 80.0),
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(trp_card.set_mode)
+                    trp_card.set_mode(state["mode"])
 
-        def build_centre_console():
-            """Build centre console plot cards and return their controllers."""
-            with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
-                ch1_card = psu_widget.create_psu_channel_card(
-                    state,
-                    key="psu_ch1",
-                    title="CH1",
-                    color=_palette["chart_rov_htr"],
-                    mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
-                    live_voltage_key="CH1_V",
-                    live_current_key="CH1_I",
-                    replay_channel_by_mode={"OB": ["CH1"], "EB": ["CH1"]},
-                )
-                ch2_card = psu_widget.create_psu_channel_card(
-                    state,
-                    key="psu_ch2",
-                    title="CH2",
-                    color=_palette["chart_eb_current"],
-                    mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
-                    live_voltage_key="CH2_V",
-                    live_current_key="CH2_I",
-                    replay_channel_by_mode={"OB": ["CH2"], "EB": ["CH2"]},
-                )
-                ch3_card = psu_widget.create_psu_channel_card(
-                    state,
-                    key="psu_ch3",
-                    title="CH3",
-                    color=_palette["chart_rov_htr"],
-                    mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
-                    live_voltage_key="CH3_V",
-                    live_current_key="CH3_I",
-                    replay_channel_by_mode={"OB": ["CH3"], "EB": ["CH3"]},
-                )
-                ch4_card = psu_widget.create_psu_channel_card(
-                    state,
-                    key="psu_ch4",
-                    title="CH4",
-                    color=_palette["chart_eb_current"],
-                    mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
-                    live_voltage_key="CH4_V",
-                    live_current_key="CH4_I",
-                    replay_channel_by_mode={"OB": ["CH4"], "EB": ["CH4"]},
-                )
-
-            set_psu_card_profiles = ui_runtime_controller.create_set_psu_card_profiles(
-                ch1_card=ch1_card,
-                ch2_card=ch2_card,
-                ch3_card=ch3_card,
-                ch4_card=ch4_card,
-            )
-            state["plot_refreshers"].append(set_psu_card_profiles)
-            set_psu_card_profiles(state["mode"])
-            with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
-                trp_card = plot_widget.create_plot_card(
-                    "Thermistors",
-                    series=[
-                        plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
-                        plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
-                        plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
-                        plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
-                    ],
-                    y_label="°C",
-                    y_limits=(-30.0, 80.0),
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(trp_card.set_mode)
-                trp_card.set_mode(state["mode"])
-
-                voltage_card = plot_widget.create_plot_card(
-                    "Voltages",
-                    series=[
-                        plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
-                        plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
-                    ],
-                    y_label="V",
-                    y_limits=(3, 4),
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(voltage_card.set_mode)
-                voltage_card.set_mode(state["mode"])
+                    voltage_card = plot_widget.create_plot_card(
+                        "Voltages",
+                        series=[
+                            plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
+                            plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
+                        ],
+                        y_label="V",
+                        y_limits=(3, 4),
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(voltage_card.set_mode)
+                    voltage_card.set_mode(state["mode"])
 
             # HK Parameter Explorer
-            hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)
-            state["plot_refreshers"].append(hk_explorer_card.set_mode)
-            hk_explorer_card.set_mode(state["mode"])
+            # hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)
+            # state["plot_refreshers"].append(hk_explorer_card.set_mode)
+            # hk_explorer_card.set_mode(state["mode"])
 
-            return [ch1_card, ch2_card, ch3_card, ch4_card], trp_card, voltage_card, hk_explorer_card
+            return trp_card, voltage_card
+
+        def build_right_drawer(mode: str):
+            """Build centre console plot cards and return their controllers."""
+            with ui.right_drawer(value=True).props("breakpoint=0").classes("egse-right-drawer"):
+                (
+                    set_ob_master_toggle_visible,
+                    sync_ob_master_toggle_value,
+                    bind_ob_master_toggle_cards,
+                ) = psu_widget.create_ob_master_channels_toggle(state)
+
+                with ui.column().classes("w-full gap-4 items-stretch min-w-0"):
+                    ch1_card = psu_widget.create_psu_channel_card(
+                        state,
+                        key="psu_ch1",
+                        title="CH1",
+                        color=_palette["chart_rov_htr"],
+                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        live_voltage_key="CH1_V",
+                        live_current_key="CH1_I",
+                        enabled_switch="enabled",
+                        replay_channel_by_mode={"OB": ["CH1"], "EB": ["CH1"]},
+                    )
+                    ch2_card = psu_widget.create_psu_channel_card(
+                        state,
+                        key="psu_ch2",
+                        title="CH2",
+                        color=_palette["chart_eb_current"],
+                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        live_voltage_key="CH2_V",
+                        live_current_key="CH2_I",
+                        enabled_switch="enabled",
+                        replay_channel_by_mode={"OB": ["CH2"], "EB": ["CH2"]},
+                    )
+                    ch3_card = psu_widget.create_psu_channel_card(
+                        state,
+                        key="psu_ch3",
+                        title="CH3",
+                        color=_palette["chart_rov_htr"],
+                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        live_voltage_key="CH3_V",
+                        live_current_key="CH3_I",
+                        enabled_switch="enabled",
+                        replay_channel_by_mode={"OB": ["CH3"], "EB": ["CH3"]},
+                    )
+                    ch4_card = psu_widget.create_psu_channel_card(
+                        state,
+                        key="psu_ch4",
+                        title="CH4",
+                        color=_palette["chart_eb_current"],
+                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        live_voltage_key="CH4_V",
+                        live_current_key="CH4_I",
+                        enabled_switch="enabled",
+                        replay_channel_by_mode={"OB": ["CH4"], "EB": ["CH4"]},
+                    )
+
+                bind_ob_master_toggle_cards(
+                    ch1_card,
+                    ch2_card,
+                    ch3_card,
+                )
+                state["sync_ob_master_toggle_value"] = sync_ob_master_toggle_value
+                state["plot_refreshers"].append(set_ob_master_toggle_visible)
+                state["plot_refreshers"].append(lambda _mode: sync_ob_master_toggle_value())
+
+                set_psu_card_profiles = ui_runtime_controller.create_set_psu_card_profiles(
+                    ch1_card=ch1_card,
+                    ch2_card=ch2_card,
+                    ch3_card=ch3_card,
+                    ch4_card=ch4_card,
+                )
+                state["plot_refreshers"].append(set_psu_card_profiles)
+                set_psu_card_profiles(state["mode"])
+            return [ch1_card, ch2_card, ch3_card, ch4_card]
 
         def build_ob_controls() -> Any:
             """Build OB-only mechanism/detector control tabs and return visibility sync callback."""
@@ -507,9 +444,10 @@ def build_ui(
         packet_viewer_controllers = build_left_drawer()
         state["packet_viewer_controllers"] = packet_viewer_controllers
         build_top_bar()
-        build_right_drawer()
+        psu_cards = build_right_drawer(state["mode"])
         build_footer()
-        psu_cards, trp_card, voltage_card, hk_explorer_card = build_centre_console()
+        trp_card, voltage_card = build_centre_console()
+        hk_explorer_card = state.get("hk_explorer_card")
         state["trp_card"] = trp_card
         state["voltage_card"] = voltage_card
         state["hk_explorer_card"] = hk_explorer_card
@@ -562,4 +500,4 @@ def build_ui(
 
         ui.timer(0.2, poll_psu)
         ui.timer(0.2, poll_tm)
-        set_mode(default_mode)
+        set_mode(normalized_mode)

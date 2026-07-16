@@ -12,7 +12,7 @@ from nicegui import app, run, ui
 # Local modules
 from core_modules import constants as const
 from scripts_modules import EMC_HE, EMC_HS, EMC_Init, EMC_ReInit, fft
-from utility_modules import app_theme, eb_interface, ebtcs
+from utility_modules import eb_interface, ebtcs
 from utility_modules.desktop_launcher import destroy_desktop_window
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
 
@@ -54,11 +54,8 @@ def create_menu(
     """Creates the menu for the application. The menu contains buttons to start/stop EB EGSE tools, select a log file, and take a log snapshot."""
     menu_state = {"open": False}
     state.setdefault("egse_tools_started", bool(getattr(app.state.eb_interface, "egse_started", False)))
-    # Theme-aware sizes
-    palette = getattr(app.state, "theme_palette", None)
-    menu_label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
     with ui.element("div").classes("relative inline-block"):
-        menu_button = ui.button(icon="menu").props("flat dense round").classes("self-start rounded-full w-36 h-12")
+        menu_button = ui.button(icon="menu").props("flat dense round").classes("self-start rounded-full")
 
         with ui.card().classes("absolute left-0 top-10 z-30 shadow-xl rounded-xl w-max max-w-none") as menu_card:
             with ui.column().classes("w-full gap-2 whitespace-nowrap"):
@@ -69,14 +66,12 @@ def create_menu(
                     ui.notify("SAFE TC sent", type="positive")
 
                 with ui.row().classes("items-center justify-start gap-2"):
-                    lbl_ob = ui.label("OB")
-                    lbl_ob.style(f"font-size: {menu_label_size}")
+                    ui.label("OB").classes("egse-metric-label")
                     ui.switch(
                         value=(state["mode"] == "EB"),
                         on_change=lambda e: _call_set_mode(set_mode_fn, "EB" if e.value else "OB"),
                     )
-                    lbl_eb = ui.label("EB")
-                    lbl_eb.style(f"font-size: {menu_label_size}")
+                    ui.label("EB").classes("egse-metric-label")
 
                     def _current_theme() -> str:
                         return getattr(app.state, "theme_state", {}).get("value", "dark")
@@ -101,14 +96,12 @@ def create_menu(
                         theme_button.style(f"color: {_theme_icon_color(next_theme)};")
 
                     theme_button.on_click(_toggle_theme)
-                    lbl_real = ui.label("Real")
-                    lbl_real.style(f"font-size: {menu_label_size}")
+                    ui.label("Real").classes("egse-metric-label")
                     ui.switch(
                         value=(str(state.get("hk_display_mode", "REAL")).upper() == "ADU"),
                         on_change=lambda e: _set_hk_display_mode(state, "ADU" if e.value else "REAL"),
                     )
-                    lbl_adu = ui.label("ADU")
-                    lbl_adu.style(f"font-size: {menu_label_size}")
+                    ui.label("ADU").classes("egse-metric-label")
                 model_options = const.MODELS
                 model_labels = list(model_options)
 
@@ -123,14 +116,13 @@ def create_menu(
                     ui.notify(f"MMS {'enabled' if enabled else 'disabled'}", type="warning" if enabled else "info")
 
                 with ui.row().classes("items-center justify-start gap-2 w-full"):
-                    lbl_mms = ui.label("MMS")
-                    lbl_mms.style(f"font-size: {menu_label_size}")
+                    ui.label("MMS").classes("egse-metric-label")
                     ui.switch(
                         value=bool(state.get("mms", {}).get("enabled", True)),
                         on_change=_on_mms_toggle,
                     )
                     lbl_mms_state = ui.label("Enabled" if state.get("mms", {}).get("enabled", True) else "Disabled")
-                    lbl_mms_state.style(f"font-size: {menu_label_size}")
+                    lbl_mms_state.classes("egse-metric-label")
 
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.select(

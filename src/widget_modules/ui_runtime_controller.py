@@ -485,6 +485,9 @@ def windowed_consumption_check(
 def apply_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_sample: dict[str, Any]) -> None:
     update_psu_readings(state, psu_sample)
     update_psu_cards(psu_cards, psu_sample)
+    sync_master = state.get("sync_ob_master_toggle_value")
+    if callable(sync_master):
+        sync_master()
 
 
 def build_replay_psu_sample(state: dict[str, Any], psu_cards: list[Any], record: dict[str, Any]) -> dict[str, Any]:
@@ -621,32 +624,37 @@ def create_set_psu_card_profiles(*, ch1_card: Any, ch2_card: Any, ch3_card: Any,
     def set_psu_card_profiles(mode: str) -> None:
         ob_mode = mode == "OB"
         ch1_card.apply_profile(
-            title="CH1 +12V Current",
+            title=" CH1 +12V I",
             visible=ob_mode,
             live_voltage_key="CH1_V",
             live_current_key="CH1_I",
             replay_channels=["CH1"],
+            show_enabled_toggle=False,
         )
         ch2_card.apply_profile(
-            title="CH2 -12V Current",
+            title=" CH2 -12V I",
             visible=ob_mode,
             live_voltage_key="CH2_V",
             live_current_key="CH2_I",
             replay_channels=["CH2"],
+            show_enabled_toggle=False,
         )
         ch3_card.apply_profile(
-            title="CH3 +5V Current" if ob_mode else "CH3 ROVHTR Current",
+            title=" CH3 +5V I" if ob_mode else " CH3 ROVHTR I",
             visible=True,
             live_voltage_key="CH3_V" if ob_mode else "PSU_ROV_HTR_V",
             live_current_key="CH3_I" if ob_mode else "PSU_ROV_HTR_I",
             replay_channels=["CH3"],
+            show_enabled_toggle=(not ob_mode),
         )
         ch4_card.apply_profile(
-            title="CH4 ROVHTR Current" if ob_mode else "CH4 +28V Current",
+            title=" CH4 ROVHTR I" if ob_mode else " CH4 +28V I",
             visible=True,
             live_voltage_key="CH4_V" if ob_mode else "PSU_EB_V",
             live_current_key="CH4_I" if ob_mode else "PSU_EB_I",
             replay_channels=["CH4"],
+            show_enabled_toggle=True,
+            show_lisn_toggle=(not ob_mode),
         )
 
     return set_psu_card_profiles
@@ -686,6 +694,9 @@ def ingest_live_psu_sample(state: dict[str, Any], psu_cards: list[Any], psu_samp
     set_latest_psu(psu_sample)
     update_psu_readings(state, psu_sample)
     update_psu_cards(psu_cards, psu_sample, plot_sample=False)
+    sync_master = state.get("sync_ob_master_toggle_value")
+    if callable(sync_master):
+        sync_master()
 
 
 def reset_psu_replay(replay: dict[str, Any]) -> None:

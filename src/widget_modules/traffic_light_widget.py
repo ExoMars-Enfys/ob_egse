@@ -7,9 +7,6 @@ from typing import Any, Mapping
 # Added packages
 from nicegui import app, ui
 
-# Local utilities
-from utility_modules import app_theme
-
 
 class AlarmLight:
     def __init__(self, *, key: str, label: str) -> None:
@@ -31,9 +28,7 @@ class AlarmLight:
     def _create_fault_widget(self) -> None:
         """Creates the UI elements for the fault light and its dialog."""
         with ui.column().classes("items-center gap-1 cursor-pointer") as container:
-            palette = getattr(app.state, "theme_palette", None)
-            self.label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-            ui.label(self.label).style(f"font-size: {self.label_size}")
+            ui.label(self.label).classes("egse-metric-label")
             self.light = ui.element("div").classes("status-light status-light-lg ok")
         self.container = container
 
@@ -41,18 +36,16 @@ class AlarmLight:
 
         with ui.dialog() as self.fault_dialog:
             with ui.card().classes("w-96"):
-                title_raw = palette.get("ui_label_size") if isinstance(palette, dict) else None
-                title_size = app_theme.ui_font_size(title_raw)
-                self.fault_title = ui.label("Fault Details").style(f"font-size: {title_size}").classes("font-bold")
+                self.fault_title = ui.label("Fault Details").classes("font-bold egse-title")
                 ui.separator()
                 self.current_faults = ui.column().classes("w-full gap-1")
                 with ui.row().classes("gap-2"):
                     ui.button("Clear selected", on_click=self.clear_selected_faults).props("size=sm")
                     ui.button("Clear all", on_click=self.clear_fault).props("size=sm")
                 with ui.expansion("History").classes("w-full"):
-                    self.history_text = ui.label("None").style(f"font-size: {self.label_size}").classes("whitespace-pre-wrap")
+                    self.history_text = ui.label("None").classes("whitespace-pre-wrap egse-metric-label")
                     with ui.expansion("Ignored alarms").classes("w-full"):
-                        self.ignored_text = ui.label("None").style(f"font-size: {self.label_size}").classes("whitespace-pre-wrap")
+                        self.ignored_text = ui.label("None").classes("whitespace-pre-wrap egse-metric-label")
 
     def _refresh_from_sources(self, *, track_history: bool) -> None:
         merged_details: list[str] = []
@@ -149,10 +142,10 @@ class AlarmLight:
                         detail,
                         value=detail in self._checked_details,
                         on_change=_on_change,
-                    ).style(f"font-size: {self.label_size}")
+                    ).classes("egse-metric-label")
         elif self.is_fault:
             with self.current_faults:
-                ui.label(f"{self.label} currently reports a fault condition.").style(f"font-size: {self.label_size}")
+                ui.label(f"{self.label} currently reports a fault condition.").classes("egse-metric-label")
         else:
             with self.current_faults:
                 ui.label(f"{self.label} currently reports OK.").classes("text-sm")

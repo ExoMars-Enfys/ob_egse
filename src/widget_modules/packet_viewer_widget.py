@@ -18,7 +18,7 @@ from analysis_modules import sci_plot
 from core_modules import tmstruct
 
 # utilities
-from utility_modules import app_theme, hk_conversions
+from utility_modules import hk_conversions
 
 # widgets
 from widget_modules import ui_runtime_controller
@@ -411,18 +411,12 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
             return
         await controller.plot_selected_sci_packet()
 
-    # Theme-aware sizes
-    palette = getattr(app.state, "theme_palette", None)
-    ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
-    small_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-
-    with ui.card().classes("w-full min-w-0"):
+    with ui.card().classes("w-full min-w-0 egse-packet-viewer-card"):
         initial_label = "Telemetry Viewer: waiting for telemetry"
         if selected_type is not None:
             initial_label = f"Telemetry Viewer: {selected_type}"
         packet_type_label = ui.label(initial_label)
-        packet_type_label.style(f"font-size: {ui_sz}")
-        packet_type_label.classes("font-bold")
+        packet_type_label.classes("font-bold egse-packet-title egse-packet-text")
         if selected_type != "EB_SCI":
             # Use a flexible column (no fixed height / scroll area) so the
             # viewer expands to the full packet length instead of forcing an
@@ -431,16 +425,20 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
             with ui.column().classes("w-full gap-1"):
                 for _ in range(max_rows):
                     with ui.row().classes("w-full min-w-0 justify-between gap-3"):
-                        name_lbl = ui.label("").classes("font-mono min-w-0 truncate")
-                        val_lbl = ui.label("").classes("font-mono text-right shrink-0")
-                        name_lbl.style(f"font-size: {small_sz}")
-                        val_lbl.style(f"font-size: {small_sz}")
+                        name_lbl = ui.label("").classes(
+                            "font-mono min-w-0 truncate egse-packet-line-text egse-packet-text"
+                        )
+                        val_lbl = ui.label("").classes(
+                            "font-mono text-right shrink-0 egse-packet-line-text egse-packet-text"
+                        )
                         field_name_labels.append(name_lbl)
                         field_value_labels.append(val_lbl)
 
         if selected_type == "EB_SCI":
             ui.separator()
-            sci_status_label = ui.label("Waiting for science packet...").classes("text-sm")
+            sci_status_label = ui.label("Waiting for science packet...").classes(
+                "egse-packet-line-text egse-packet-text"
+            )
             with ui.row(align_items="center").classes("w-full justify-between gap-2"):
                 ui.button(
                     icon="skip_previous",
@@ -451,8 +449,7 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
                     on_click=lambda: controller_ref["value"] and controller_ref["value"].shift_sci_packet(-1),
                 ).props("dense flat")
                 sci_packet_index_label = ui.label("Packet 0 / 0")
-                sci_packet_index_label.style(f"font-size: {small_sz}")
-                sci_packet_index_label.classes("font-bold")
+                sci_packet_index_label.classes("font-bold egse-packet-line-text egse-packet-text")
                 ui.button(
                     icon="chevron_right",
                     on_click=lambda: controller_ref["value"] and controller_ref["value"].shift_sci_packet(1),
@@ -467,18 +464,16 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
 
             with ui.row(align_items="center").classes("w-full gap-2"):
                 pkt_lbl = ui.label("Packet Type:")
-                pkt_lbl.style(f"font-size: {small_sz}")
-                pkt_lbl.classes("font-bold")
-                sci_packet_type_label = ui.label("---")
-                sci_packet_type_label.style(f"font-size: {small_sz}")
+                pkt_lbl.classes("font-bold egse-packet-line-text egse-packet-text")
+                sci_packet_type_label = ui.label("---").classes("egse-packet-line-text egse-packet-text")
 
             with ui.expansion("EB SCI Header", value=False).classes("w-full"):
                 with ui.grid(columns=2).classes("w-full gap-x-4 gap-y-1"):
                     for field_name in SCI_HEADER_FIELDS:
-                        hdr_lbl = ui.label(field_name).classes("text-right")
-                        hdr_lbl.style(f"font-size: {small_sz}; color: var(--accent_color);")
-                        hdr_val = ui.label("---").classes("font-mono")
-                        hdr_val.style(f"font-size: {small_sz}; color: var(--text-primary);")
+                        hdr_lbl = ui.label(field_name).classes("text-right egse-packet-line-text egse-packet-text")
+                        hdr_lbl.style("color: var(--accent_color);")
+                        hdr_val = ui.label("---").classes("font-mono egse-packet-line-text egse-packet-text")
+                        hdr_val.style("color: var(--text-primary);")
                         sci_header_labels[field_name] = hdr_val
 
             with ui.expansion("Science Data Point", value=True).classes("w-full"):
@@ -492,8 +487,7 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
                         on_click=lambda: controller_ref["value"] and controller_ref["value"].shift_sci_point(-1),
                     ).props("dense flat")
                     sci_point_index_label = ui.label("Point 0 / 0")
-                    sci_point_index_label.style(f"font-size: {small_sz}")
-                    sci_point_index_label.classes("font-bold")
+                    sci_point_index_label.classes("font-bold egse-packet-line-text egse-packet-text")
                     ui.button(
                         icon="chevron_right",
                         on_click=lambda: controller_ref["value"] and controller_ref["value"].shift_sci_point(1),
@@ -519,10 +513,10 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
 
                 with ui.grid(columns=2).classes("w-full gap-x-4 gap-y-1"):
                     for field_name in SCI_POINT_FIELDS:
-                        lbl = ui.label(field_name).classes("text-right")
-                        lbl.style(f"font-size: {small_sz}; color: var(--accent_color);")
-                        ui_point = ui.label("---").classes("font-mono")
-                        ui_point.style(f"font-size: {small_sz}; color: var(--text-primary);")
+                        lbl = ui.label(field_name).classes("text-right egse-packet-line-text egse-packet-text")
+                        lbl.style("color: var(--accent_color);")
+                        ui_point = ui.label("---").classes("font-mono egse-packet-line-text egse-packet-text")
+                        ui_point.style("color: var(--text-primary);")
                         sci_point_labels[field_name] = ui_point
 
             with ui.row(align_items="center").classes("w-full justify-center"):

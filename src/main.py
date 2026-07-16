@@ -182,8 +182,13 @@ def main() -> None:
             stop_event=stop_event,
             psu_mode_state=psu_mode_state,
         )
-        ui.run(port=8085, reload=args.reload, show=not args.reload)
-        # TODO What about stop_envent?
+        ui.run(
+            port=8085,
+            reload=args.reload,
+            show=not args.reload,
+            uvicorn_reload_includes="*.py, *.css",
+        )
+        # TODO What about stop_event?
 
     event_log.info("Shutting down")
     if psu_thread.is_alive():

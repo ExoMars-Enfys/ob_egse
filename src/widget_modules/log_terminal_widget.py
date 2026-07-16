@@ -7,10 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Added packages
-from nicegui import app, ui
-
-# utilities
-from utility_modules import app_theme
+from nicegui import ui
 
 
 @dataclass
@@ -125,24 +122,16 @@ def create_log_terminal(
         if handler is not None:
             handler.on_level_change(event)
 
-    # Theme-aware sizes
-    palette = getattr(app.state, "theme_palette", None)
-    ui_sz = app_theme.ui_font_size(palette.get("ui_label_size") if isinstance(palette, dict) else None)
-    small_sz = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center"):
-            lbl = ui.label("Logs")
-            lbl.style(f"font-size: {ui_sz}")
-            lbl.classes("font-bold")
+            ui.label("Logs").classes("font-bold egse-title")
             radio = ui.radio(
                 list(level_options.keys()),
                 value=default_selection,
                 on_change=on_level_change,
             )
             radio.props(f"inline dense size=xs color={level_colors.get(default_selection, 'blue')}")
-            if small_sz:
-                radio.style(f"font-size: {small_sz}")
+            radio.classes("egse-metric-label")
         log = ui.log(max_lines=max_lines).classes("w-full h-56")
 
     # Reuse an existing LogElementHandler on the logger if present (prevents

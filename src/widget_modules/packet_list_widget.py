@@ -9,9 +9,6 @@ from typing import Any
 from nicegui import app, ui
 
 # Local utilities
-from utility_modules import app_theme
-
-
 @dataclass
 class PacketListController:
     """Controller for the packet list viewer."""
@@ -83,10 +80,6 @@ class PacketListController:
 
     def _create_popup(self) -> None:
         """Lazily create the popup dialog on first use."""
-        palette = getattr(app.state, "theme_palette", None)
-        label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-        heading_size = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
-
         # Match packet list table typography/colour to app label styling.
         ui.add_head_html(
             f"""
@@ -96,24 +89,24 @@ class PacketListController:
             }}
             .packet-list-table * {{
                 color: var(--text-primary) !important;
-                font-size: {label_size} !important;
+                font-size: var(--metric-label-size) !important;
             }}
             .packet-list-table .q-table__title {{
                 color: var(--accent_color) !important;
-                font-size: {label_size} !important;
+                font-size: var(--metric-label-size) !important;
                 font-weight: 600 !important;
             }}
             .packet-list-table .q-table thead th,
             .packet-list-table .q-table thead tr th {{
                 color: var(--accent_color) !important;
-                font-size: {label_size} !important;
+                font-size: var(--metric-label-size) !important;
                 font-weight: 600 !important;
                 background: var(--primary-bg) !important;
             }}
             .packet-list-table .q-table tbody td,
             .packet-list-table .q-table tbody tr td {{
                 color: var(--text-primary) !important;
-                font-size: {label_size} !important;
+                font-size: var(--metric-label-size) !important;
                 background: var(--secondary-bg) !important;
             }}
             .packet-list-table .q-table__bottom,
@@ -124,7 +117,7 @@ class PacketListController:
             .packet-list-table .q-btn,
             .packet-list-table .q-icon {{
                 color: var(--text-primary) !important;
-                font-size: {label_size} !important;
+                font-size: var(--metric-label-size) !important;
             }}
             </style>
             """,
@@ -136,8 +129,8 @@ class PacketListController:
         with self.dialog, ui.card().classes("w-full").style("background: var(--primary-bg);"):
             # Header with title and close button
             with ui.row().classes("w-full items-center justify-between"):
-                title = ui.label("Packet List").classes("font-bold")
-                title.style(f"font-size: {heading_size}; color: var(--accent_color);")
+                title = ui.label("Packet List").classes("font-bold egse-title")
+                title.style("color: var(--accent_color);")
                 close_btn = ui.button(icon="close").props("flat dense").style("color: var(--accent_color);")
                 close_btn.on_click(lambda: self.dialog.close())
 
@@ -198,17 +191,13 @@ class PacketListController:
 
     def _show_packet_popup(self, packet_type: str, label: str, packet_data: dict[str, Any]) -> None:
         """Show a popup displaying the selected packet details."""
-        palette = getattr(app.state, "theme_palette", None)
-        heading_size = app_theme.ui_font_size(palette.get("heading_size") if isinstance(palette, dict) else None)
-        label_size = app_theme.ui_font_size(palette.get("metric_label_size") if isinstance(palette, dict) else None)
-
         packet_dialog = ui.dialog()
 
         with packet_dialog, ui.card().classes("w-full max-w-2xl").style("background: var(--primary-bg);"):
             # Header
             with ui.row().classes("w-full items-center justify-between"):
-                title = ui.label(f"Packet: {label}").classes("font-bold")
-                title.style(f"font-size: {heading_size}; color: var(--accent_color);")
+                title = ui.label(f"Packet: {label}").classes("font-bold egse-title")
+                title.style("color: var(--accent_color);")
                 close_btn = ui.button(icon="close").props("flat dense").style("color: var(--accent_color);")
                 close_btn.on_click(lambda: packet_dialog.close())
 
@@ -217,11 +206,11 @@ class PacketListController:
                 with ui.column().classes("w-full gap-2 p-2"):
                     for key, value in packet_data.items():
                         with ui.row().classes("w-full items-start gap-2"):
-                            label_widget = ui.label(str(key)).classes("font-semibold min-w-40")
-                            label_widget.style(f"font-size: {label_size}; color: var(--accent_color);")
+                            label_widget = ui.label(str(key)).classes("font-semibold min-w-40 egse-metric-label")
+                            label_widget.style("color: var(--accent_color);")
                             value_str = str(value)[:200]  # Truncate very long values
-                            val_label = ui.label(value_str).classes("break-words")
-                            val_label.style(f"font-size: {label_size}; color: var(--text-secondary);")
+                            val_label = ui.label(value_str).classes("break-words egse-metric-label")
+                            val_label.style("color: var(--text-secondary);")
 
         packet_dialog.open()
 

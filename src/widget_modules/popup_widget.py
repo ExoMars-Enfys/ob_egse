@@ -9,7 +9,7 @@ from nicegui import ui
 
 def show_message(title: str, body: str) -> None:
     with ui.dialog().props("persistent") as dialog, ui.card().classes("min-w-80"):
-        ui.label(title).classes("text-base font-bold")
+        ui.label(title).classes("font-bold egse-title")
         ui.label(body)
         ui.button("Close", on_click=dialog.close)
     dialog.open()
@@ -44,7 +44,7 @@ def show_flag_popup(
 
     with ui.dialog() as dialog:
         with ui.card().classes("w-96"):
-            ui.label(title).classes("text-base font-bold")
+            ui.label(title).classes("font-bold egse-title")
             ui.separator()
             ui.label(body).style("white-space: pre-wrap; font-family: monospace")
             ui.button("Close", on_click=dialog.close)
