@@ -155,11 +155,6 @@ class MeasurementTable:
 
         prev = start_motor_steps
 
-        if self.before_table is not None:
-            for relative_pos, abs_pos in self.before_table.scan(start_motor_steps=prev):
-                yield (relative_pos, abs_pos)
-                prev = abs_pos
-
         if end < start:
             table = self.backward
             table_pos = start
@@ -171,16 +166,32 @@ class MeasurementTable:
             table_end = end
             step = 1
 
+        check_first = False
+        if self.before_table is not None:
+            for relative_pos, abs_pos in self.before_table.scan(start_motor_steps=prev):
+                yield (relative_pos, abs_pos)
+                prev = abs_pos
+            check_first = True
+
         while True:
-            yield (table[table_pos] - prev, table[table_pos])
+            # We've got to be careful, when joining tables together,
+            # that we don't introduce duplicates. It's possible that,
+            # on the EB, this check isn't done. Not really a problem
+            # later, but for now it's convenient to avoid it.
+            if not check_first or table[table_pos] != prev:
+                yield (table[table_pos] - prev, table[table_pos])
+            check_first = False
             prev = table[table_pos]
             if table_pos == table_end:
                 break
             table_pos += step
 
         if self.after_table is not None:
+            check_first = True
             for relative_pos, abs_pos in self.after_table.scan(start_motor_steps=prev):
-                yield (relative_pos, abs_pos)
+                if not check_first or abs_pos != prev:
+                    yield (relative_pos, abs_pos)
+                check_first = False
                 prev = abs_pos
 
     def _calc_positions(self, relative_movements, direction):
@@ -409,3 +420,4 @@ if __name__ == "__main__":
         print(f"Length: {len(m.table)}")
         print(f"Positions: {m.forward}")
         print(f"Movements: {m.table}")
+        print(f"Including dt0 and dt1: {[abs_pos for rel, abs_pos in m.scan()]}")
