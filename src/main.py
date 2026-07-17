@@ -16,7 +16,7 @@ from core_modules import constants as const
 from core_modules import tmstruct as tmstruct
 
 # utilities
-from scripts_modules import abu_sequences, sequences
+from scripts_modules import sequences
 from utility_modules import comms as comms
 from utility_modules import egse_logger as egse_logger
 from utility_modules import psu as psu
@@ -71,10 +71,9 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
 
 def clean_exit(ob_port, psu_port, event_log):
     event_log.info("Running clean exit")
-    const.ACK_LOG_FH.close()
-    const.CMD_LOG_FH.close()
-    const.HK_LOG_FH.close()
-    const.SCI_LOG_FH.close()
+    for handle in (const.ACK_LOG_FH, const.CMD_LOG_FH, const.HK_LOG_FH, const.SCI_LOG_FH):
+        if handle is not None:
+            handle.close()
     if ob_port is not None:
         comms.close_comms(ob_port)
     if psu_port is not None:
@@ -87,7 +86,7 @@ def clean_exit(ob_port, psu_port, event_log):
 def main() -> None:
     parser = init_arparse()
     args = parser.parse_args()
-    startup_mode = "OB" if args.script else "EB"
+    startup_mode = const.DEFAULT_STARTUP_MODE
     startup_eb_mode = startup_mode == "EB"
     psu_mode_state = {"ebmode": startup_eb_mode}
 
@@ -177,6 +176,7 @@ def main() -> None:
         parent_window_widget.build_ui(
             default_mode=startup_mode,
             psu_port=psu_port,
+            ob_port=ob_port,
             psu_lock=psu_lock,
             port_lock=port_lock,
             stop_event=stop_event,

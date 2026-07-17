@@ -9,7 +9,7 @@ DEFAULT_COM_PORT = 3
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
-PSU_COM_PORT = 9
+PSU_COM_PORT = 4
 PSU_LOGGING_FREQ = 10  # in HZ
 
 CH1_OVP = 12.5

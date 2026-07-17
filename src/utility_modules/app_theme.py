@@ -54,6 +54,7 @@ def load_css_vars(css_path: Path, theme: str = "dark") -> dict[str, str]:
 
 def get_theme_palette(gui_vars: dict[str, str], theme: str) -> dict[str, str]:
     """Get a color palette based on the current theme and GUI variables."""
+
     def _get(name: str) -> str | None:
         return gui_vars.get(name)
 
@@ -80,6 +81,8 @@ def get_theme_palette(gui_vars: dict[str, str], theme: str) -> dict[str, str]:
         "plot_grid_alpha": _get("plot-grid-alpha"),
         "plot_grid_width": _get("plot-grid-width"),
         "plot_tick_size": _get("plot-tick-size"),
+        "plot_fig_height_h40": _get("plot-fig-height-h40"),
+        "plot_fig_height_h60": _get("plot-fig-height-h60"),
         "plot_spine": _get("plot-spine"),
         "plot_legend": _get("plot-legend"),
         # Semantic / constant colours sourced from CSS variables

@@ -68,6 +68,12 @@
   --plot-grid-alpha: 0.6;
   --plot-grid-width: 0.6;
   --plot-tick-size: 10;
+  --plot-fig-height-h40: 3.2;
+  --plot-fig-height-h60: 4.2;
+  --card-pad-x: 0.25rem;
+  --card-pad-y: 0.25rem;
+  --card-margin-x: 0.25rem;
+  --card-margin-y: 0.25rem;
 
   --limit-warn: #e67e22;
   --limit-alarm: #e74c3c;
@@ -79,6 +85,7 @@
   --log-console: 10vh;
   --drawer-content-pad: 0px;
   --drawer-card-pad: 0px;
+  --console_pad: 5px;
 }
 
 body.theme-dark {
@@ -387,9 +394,52 @@ body,
   flex-wrap: wrap;
 }
 
+/* Centre console tabs share the same configurable spacing as cards. */
+.egse-centre-console .q-tabs,
+.egse-centre-console .q-tabs__content,
+.egse-centre-console .q-tab-panels,
+.egse-centre-console .q-tab-panel {
+  padding: var(--card-pad-y) var(--card-pad-x) !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+
 /* Keep dense status chips readable without forcing container overflow. */
 .egse-centre-console .q-chip,
 .q-drawer__content.egse-left-drawer .q-chip,
 .q-drawer__content.egse-right-drawer .q-chip {
   max-width: 100%;
+}
+
+/* Plot cards should render edge-to-edge with no section padding. */
+.egse-plot-card,
+.egse-plot-card .q-card__section,
+.egse-plot-card .nicegui-pyplot {
+  padding: var(--card-pad-y) var(--card-pad-x) !important;
+  margin: var(--card-margin-y) var(--card-margin-x) !important;
+}
+
+.egse-plot-card .nicegui-pyplot {
+  padding-left: var(--card-pad-x) !important;
+  padding-right: var(--card-pad-x) !important;
+  box-sizing: border-box;
+}
+
+/* PSU and plot cards share the same spacing variables. */
+.egse-psu-card > .q-card__section {
+  padding: var(--card-pad-y) var(--card-pad-x) !important;
+  margin: var(--card-margin-y) var(--card-margin-x) !important;
+}
+
+/* Keep PSU plot section on the same shared spacing controls. */
+.egse-psu-card > .q-card__section:last-child {
+  padding: var(--card-pad-y) var(--card-pad-x) !important;
+  margin: var(--card-margin-y) var(--card-margin-x) !important;
+}
+
+/* PSU plots are embedded without egse-plot-card wrapper, so style them directly. */
+.egse-psu-card .nicegui-pyplot {
+  padding: var(--card-pad-y) var(--card-pad-x) !important;
+  margin: var(--card-margin-y) var(--card-margin-x) !important;
+  box-sizing: border-box;
 }

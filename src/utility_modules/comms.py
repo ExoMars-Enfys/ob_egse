@@ -35,9 +35,9 @@ def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
     """Open an initialised RS485 port and clear stale input/output buffers."""
     try:
         port.open()
-    except serial.SerialException:
-        info_log.error(f"No device found on COM Port {port}, try another")
-        # raise SystemExit
+    except serial.SerialException as exc:
+        info_log.error("Failed to open COM Port %s: %s", port.port, exc)
+        raise
 
     port.reset_output_buffer()  # Clear stale bytes before first transactions
     port.reset_input_buffer()

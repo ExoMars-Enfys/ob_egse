@@ -47,6 +47,7 @@ def create_plot_card(
     show_title: bool = True,
     plot_height_class: str = "h-60",
     show_legend: bool | None = None,
+    use_card_wrapper: bool = True,
 ) -> PlotCardController:
     """Create a generic plot card.
 
@@ -67,12 +68,9 @@ def create_plot_card(
     n_series = len(series)
 
     """
-    # Use a larger baseline canvas so the rendered plot fills card space.
-    _HEIGHT_SCALE = {"h-40": ("h-60", (14.0, 4.5)), "h-60": ("h-96", (14.0, 5.25))}
-    if plot_height_class in _HEIGHT_SCALE:
-        plot_height_class, _figsize = _HEIGHT_SCALE[plot_height_class]
-    else:
-        _figsize = (14.0, 5.25)
+    # Keep requested card height class unchanged; only tune figure size.
+    _DEFAULT_FIG_HEIGHT = 4.2
+    _DEFAULT_FIG_HEIGHT_H40 = 3.2
 
     n_series = len(series)
 
@@ -83,20 +81,38 @@ def create_plot_card(
     plot_font_pt = app_theme.font_size_px(palette.get("plot_font_size") if isinstance(palette, dict) else None)
     plot_tick_pt = app_theme.font_size_px(palette.get("plot_tick_size") if isinstance(palette, dict) else None)
     plot_footer_pt = app_theme.font_size_px(palette.get("plot_footer_size") if isinstance(palette, dict) else None)
+
+    def _palette_float(key: str, default: float) -> float:
+        if not isinstance(palette, dict):
+            return default
+        raw = palette.get(key)
+        try:
+            return float(raw) if raw is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    fig_height_h40 = _palette_float("plot_fig_height_h40", _DEFAULT_FIG_HEIGHT_H40)
+    fig_height_h60 = _palette_float("plot_fig_height_h60", _DEFAULT_FIG_HEIGHT)
+    _FIGSIZE_BY_HEIGHT = {
+        "h-40": (14.0, fig_height_h40),
+        "h-60": (14.0, fig_height_h60),
+    }
+    _figsize = _FIGSIZE_BY_HEIGHT.get(plot_height_class, (14.0, fig_height_h60))
     try:
-        plot_linewidth = (
-            float(palette.get("plot_linewidth"))
-            if isinstance(palette, dict) and palette.get("plot_linewidth") is not None
-            else 1.0
-        )
-    except Exception:
+        raw_linewidth = palette.get("plot_linewidth") if isinstance(palette, dict) else None
+        plot_linewidth = float(raw_linewidth) if raw_linewidth is not None else 1.0
+    except (TypeError, ValueError):
         plot_linewidth = 1.0
 
-    with ui.card().classes("w-full flex-1 min-w-0") as card:
-        title_label = ui.label(title)
-        title_label.classes("font-bold pl-3 egse-title")
-        if not show_title:
-            title_label.classes(add="hidden")
+    container_factory = ui.card if use_card_wrapper else ui.column
+    container_classes = "w-full flex-1 min-w-0"
+    if use_card_wrapper:
+        container_classes += " egse-plot-card"
+    with container_factory().classes(container_classes) as card:
+        title_label: Any | None = None
+        if show_title:
+            title_label = ui.label(title)
+            title_label.classes("font-bold pl-3 egse-title")
 
         checkboxes: list[Any] = []
         if show_toggles:
@@ -111,8 +127,8 @@ def create_plot_card(
 
         plot = (
             ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
-            .classes(f"w-full self-start {plot_height_class}")
-            .style("width: 100%; min-width: 0; max-width: 100%; padding: 0; margin-left: 0; margin-right: auto;")
+            .classes("w-full self-start")
+            .style("width: 100%; min-width: 0; max-width: 100%; height: auto;")
         )
 
     # access matplotlib axes/figure
@@ -214,8 +230,10 @@ def create_plot_card(
         frame = legend.get_frame()
         frame.set_facecolor(palette.get("plot_bg"))
         frame.set_edgecolor(palette.get("plot_spine"))
-        for text in legend.get_texts():
-            text.set_color(palette.get("plot_legend"))
+        legend_color = palette.get("plot_legend")
+        if isinstance(legend_color, str):
+            for text in legend.get_texts():
+                text.set_color(legend_color)
 
     def _refresh_legend() -> None:
         legend = ax.get_legend()
@@ -251,7 +269,7 @@ def create_plot_card(
         ax.set_ylim(*y_limits)
     top = 0.92 if show_title else 0.98
     # Keep a little bottom room for footer timestamp while maximizing plot area.
-    fig.subplots_adjust(left=0.045, right=0.995, top=top, bottom=0.19)
+    fig.subplots_adjust(left=0.01, right=0.999, top=top, bottom=0.12)
     footer_text_right = fig.text(
         0.992,
         0.02,
@@ -277,11 +295,17 @@ def create_plot_card(
             for ln in lines:
                 xd = getattr(ln, "get_xdata", None)
                 if callable(xd):
-                    data = ln.get_xdata()
-                    if len(data) > 0:
-                        xval = float(data[-1])
-                        if max_x is None or xval > max_x:
-                            max_x = xval
+                    data: Any = ln.get_xdata()
+                    try:
+                        candidate = data[-1]
+                    except Exception:
+                        continue
+                    try:
+                        xval = float(candidate)
+                    except (TypeError, ValueError):
+                        continue
+                    if max_x is None or xval > max_x:
+                        max_x = xval
 
             if max_x is None:
                 # Fall back to right axis limit
@@ -325,7 +349,8 @@ def create_plot_card(
             ax.set_ylim(ymin, ymax)
         if show_title:
             ax.set_title(f"{title} ({mode})", fontsize=(plot_font_pt or 14))
-            title_label.set_text(f"{title} [{mode}]")
+            if title_label is not None:
+                title_label.set_text(f"{title} [{mode}]")
         else:
             ax.set_title("")
         plot.update()

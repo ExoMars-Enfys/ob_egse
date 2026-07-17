@@ -22,8 +22,10 @@ from utility_modules import (
 
 # widgets
 from widget_modules import (
+    console_input_widget,
     detector_tab,
     log_terminal_widget,
+    main_ob_tab,
     mechanism_tab,
     menu_widget,
     metrics_card_widget,
@@ -42,7 +44,7 @@ _CSS_PATH = _RSRC_DIR / "guimasterconfig.css"
 
 def build_ui(
     *,
-    default_mode: str,
+    default_mode: str = const.DEFAULT_STARTUP_MODE,
     psu_port: Any = None,
     psu_lock: Any = None,
     ob_port: Any = None,
@@ -398,10 +400,14 @@ def build_ui(
             """Build OB-only mechanism/detector control tabs and return visibility sync callback."""
             with ui.column().classes("w-full") as ob_controls_container:
                 with ui.tabs().classes("w-full") as ob_tabs:
+                    main_ob_controls_tab = ui.tab("Main OB")
                     mechanism_controls_tab = ui.tab("Mechanism")
                     detector_controls_tab = ui.tab("Detector")
 
-                with ui.tab_panels(ob_tabs, value=mechanism_controls_tab).classes("w-full"):
+                with ui.tab_panels(ob_tabs, value=main_ob_controls_tab).classes("w-full"):
+                    with ui.tab_panel(main_ob_controls_tab).classes("w-full"):
+                        main_ob_tab.create_main_ob_tab(state)
+
                     with ui.tab_panel(mechanism_controls_tab).classes("w-full"):
                         mechanism_tab.create_mechanism_tab(state)
                     with ui.tab_panel(detector_controls_tab).classes("w-full"):
@@ -424,6 +430,7 @@ def build_ui(
                     toggle_btn = ui.button(icon="keyboard_arrow_down").props("flat dense round")
                 with ui.column().classes("w-full") as footer_content:
                     state["log_terminal_controller"] = log_terminal_widget.create_log_terminal(logger)
+                    state["console_terminal"] = console_input_widget.create_console_input_widget(state)
 
             def _set_footer_open(open_state: bool) -> None:
                 """Set the footer open or closed, showing or hiding its content and updating the toggle button icon."""

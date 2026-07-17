@@ -2318,7 +2318,7 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
     return set_mode
 
 
-def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> None:
+def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> Any:
     """Send an OB TC using the shared OB port lock when available."""
     ob_port = state.get("ob_port")
     if ob_port is None:
@@ -2328,7 +2328,7 @@ def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: An
     lock = state.get("port_lock")
     lock_ctx = lock if lock is not None else nullcontext()
     with lock_ctx:
-        command(ob_port, *args, **kwargs)
+        return command(ob_port, *args, **kwargs)
 
 
 # endregion

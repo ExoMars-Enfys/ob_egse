@@ -7,6 +7,7 @@ from queue import Queue
 DEBUG_LEVEL = logging.INFO
 DEFAULT_PREFIX = datetime.now().strftime("%Y%m%dT%H%M%S")
 DEFAULT_PATH = Path.cwd() / "logs" / DEFAULT_PREFIX
+DEFAULT_STARTUP_MODE = "OB"
 
 SCI_RESP_MARGIN = 0.020  # seconds
 LOG_PREFIX = DEFAULT_PREFIX

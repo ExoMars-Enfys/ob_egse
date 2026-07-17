@@ -3,6 +3,7 @@ from __future__ import annotations
 # Std library
 from collections import deque
 from dataclasses import dataclass
+import time
 from typing import Any
 
 # Added packages
@@ -45,6 +46,8 @@ def title_shows_lisn(title: str) -> bool:
 class PsuChannelController:
     channel: dict[str, Any]
     title_label: Any
+    status_dot: Any
+    status_label: Any
     value_label: Any
     plot: plot_widget.PlotCardController
     card: Any
@@ -127,12 +130,36 @@ class PsuChannelController:
         averaged_ma = sum(self.ma_buffer) / len(self.ma_buffer)
         self.plot.push([time_value], [[averaged_ma]])
 
+    def set_status_indicator(self, enabled: bool) -> None:
+        if enabled:
+            self.status_dot.style("color: var(--status-ok);")
+            self.status_label.set_text("ON")
+            self.status_label.style("color: var(--status-ok);")
+        else:
+            self.status_dot.style("color: var(--status-alarm);")
+            self.status_label.set_text("OFF")
+            self.status_label.style("color: var(--status-alarm);")
+
     def set_enabled_from_psu(self, enabled: bool) -> None:
         """Synchronize UI switch state from live PSU status without issuing commands."""
+        # After a user toggle, allow hardware/readback to settle briefly before
+        # accepting contradictory status samples that can cause UI bounce.
+        pending_target = self.channel.get("_pending_toggle_target")
+        pending_until = float(self.channel.get("_pending_toggle_until", 0.0) or 0.0)
+        now = time.monotonic()
+        if pending_target is not None and now < pending_until:
+            if bool(enabled) != bool(pending_target):
+                return
+
+        if pending_target is not None and (now >= pending_until or bool(enabled) == bool(pending_target)):
+            self.channel["_pending_toggle_target"] = None
+            self.channel["_pending_toggle_until"] = 0.0
+
         self.channel["enabled"] = enabled
+        self.set_status_indicator(bool(enabled))
         if bool(getattr(self.enabled_switch, "value", False)) == bool(enabled):
             return
-        self.channel["_suppress_next_toggle_event"] = True
+        self.channel["_suppress_toggle_events"] = int(self.channel.get("_suppress_toggle_events", 0) or 0) + 1
         self.channel["_syncing_from_psu"] = True
         self.enabled_switch.value = bool(enabled)
         self.channel["_syncing_from_psu"] = False
@@ -165,23 +192,31 @@ def create_psu_channel_card(
         "psu_ch4": "CH4_STATUS",
     }.get(key)
     channel.setdefault("_syncing_from_psu", False)
-    channel.setdefault("_suppress_next_toggle_event", False)
-    channel.setdefault("_user_toggle_intent", False)
+    channel.setdefault("_suppress_toggle_events", 0)
+    channel.setdefault("_pending_toggle_target", None)
+    channel.setdefault("_pending_toggle_until", 0.0)
+    channel.setdefault("_toggle_in_flight", False)
+    channel.setdefault("_last_requested_state", None)
 
     async def on_toggle(e: Any) -> None:
         enabled = bool(e.value)
-        channel["enabled"] = enabled
-
-        if channel.get("_suppress_next_toggle_event"):
-            channel["_suppress_next_toggle_event"] = False
+        suppress_count = int(channel.get("_suppress_toggle_events", 0) or 0)
+        if suppress_count > 0:
+            channel["_suppress_toggle_events"] = suppress_count - 1
             return
 
         if channel.get("_syncing_from_psu"):
             return
 
-        if not channel.get("_user_toggle_intent"):
+        # Defensive de-duplication: if the UI fires duplicate change events for
+        # the same target state while a command is already in flight, ignore it.
+        if channel.get("_toggle_in_flight") and channel.get("_last_requested_state") == enabled:
             return
-        channel["_user_toggle_intent"] = False
+
+        channel["enabled"] = enabled
+        channel["_pending_toggle_target"] = enabled
+        channel["_pending_toggle_until"] = time.monotonic() + 0.8
+        channel["_last_requested_state"] = enabled
 
         port = state.get("psu_port")
         psu_lock = state.get("psu_lock")
@@ -201,6 +236,7 @@ def create_psu_channel_card(
         set_component_busy(enabled_switch, True)
         mode_state = state.get("psu_mode_state") if isinstance(state.get("psu_mode_state"), dict) else state
         psu.set_psu_command_in_flight(mode_state, True)
+        channel["_toggle_in_flight"] = True
 
         def apply_toggle() -> None:
             from contextlib import nullcontext
@@ -212,6 +248,7 @@ def create_psu_channel_card(
         try:
             await run.io_bound(apply_toggle)
         finally:
+            channel["_toggle_in_flight"] = False
             psu.set_psu_command_in_flight(mode_state, False)
             set_component_busy(enabled_switch, False)
 
@@ -220,11 +257,16 @@ def create_psu_channel_card(
 
     lisn_toggle: Any | None = None
 
-    with ui.card().classes("w-full flex-1 min-w-0") as card:
+    with ui.card().classes("w-full flex-1 min-w-0 egse-psu-card") as card:
         with ui.row().classes("w-full"):
             with ui.column().style("flex: 1; justify-content: flex-left;"):
-                title_label = ui.label(title).classes("font-bold egse-title")
-                title_label.style("padding-left: 0.5rem;")
+                with ui.row().classes("items-center gap-2"):
+                    title_label = ui.label(title).classes("font-bold egse-title")
+                    title_label.style("padding-left: 0.5rem;")
+                    status_dot = ui.icon("circle").classes("text-xs")
+                    status_label = ui.label("OFF").classes("egse-metric-label")
+                    status_dot.style("color: var(--status-alarm);")
+                    status_label.style("color: var(--status-alarm);")
             with ui.column().style("flex: 1; justify-content: flex-centre;"):
                 if enabled_switch is not None:
                     enabled_switch = ui.switch(
@@ -232,7 +274,6 @@ def create_psu_channel_card(
                         value=bool(channel["enabled"]),
                         on_change=on_toggle,
                     )
-                    enabled_switch.on("click", lambda _e: channel.__setitem__("_user_toggle_intent", True))
             with ui.column().style("flex: 1; justify-content: flex-centre;"):
                 lisn_toggle = ui.switch(
                     "LISN check",
@@ -242,7 +283,7 @@ def create_psu_channel_card(
                 lisn_toggle.set_visibility(title_shows_lisn(title))
             with ui.column().style("flex: 1; justify-content: flex-end;"):
                 value_label = ui.label("mA: ---").classes("self-center text-xl text-right")
-        with ui.row().classes("w-full; justify-content: flex-start") as plot_container:
+        with ui.row().classes("w-full") as plot_container:
             plot = plot_widget.create_plot_card(
                 title,
                 series=[plot_widget.SeriesConfig(label="mA", color=color)],
@@ -251,6 +292,7 @@ def create_psu_channel_card(
                 show_title=False,
                 plot_height_class="h-40",
                 show_legend=True,
+                use_card_wrapper=False,
             )
 
         if title_hides_plot(title):
@@ -263,6 +305,8 @@ def create_psu_channel_card(
     return PsuChannelController(
         channel=channel,
         title_label=title_label,
+        status_dot=status_dot,
+        status_label=status_label,
         value_label=value_label,
         plot=plot,
         card=card,
@@ -317,7 +361,6 @@ def create_ob_master_channels_toggle(
         "cards": None
     }
     master_sync_state = {"syncing": False}
-    master_sync_state["user_intent"] = False
 
     with ui.row().classes("w-full"):
         ob_master_toggle = ui.switch(
@@ -348,9 +391,6 @@ def create_ob_master_channels_toggle(
             return
         if master_sync_state["syncing"]:
             return
-        if not master_sync_state.get("user_intent"):
-            return
-        master_sync_state["user_intent"] = False
         cards = cards_ref.get("cards")
         if cards is None:
             return
@@ -362,10 +402,14 @@ def create_ob_master_channels_toggle(
         for card in cards:
             card.channel["enabled"] = enabled
             if card.enabled_switch is not None:
-                card.channel["_suppress_next_toggle_event"] = True
-                card.channel["_syncing_from_psu"] = True
-                card.enabled_switch.value = enabled
-                card.channel["_syncing_from_psu"] = False
+                current = bool(getattr(card.enabled_switch, "value", False))
+                if current != enabled:
+                    card.channel["_suppress_toggle_events"] = (
+                        int(card.channel.get("_suppress_toggle_events", 0) or 0) + 1
+                    )
+                    card.channel["_syncing_from_psu"] = True
+                    card.enabled_switch.value = enabled
+                    card.channel["_syncing_from_psu"] = False
 
         psu_port = state.get("psu_port")
         psu_lock = state.get("psu_lock")
@@ -399,13 +443,16 @@ def create_ob_master_channels_toggle(
         for card in cards_ref["cards"]:
             card.channel["enabled"] = False
             if card.enabled_switch is not None:
-                card.channel["_suppress_next_toggle_event"] = True
-                card.channel["_syncing_from_psu"] = True
-                card.enabled_switch.value = False
-                card.channel["_syncing_from_psu"] = False
+                current = bool(getattr(card.enabled_switch, "value", False))
+                if current:
+                    card.channel["_suppress_toggle_events"] = (
+                        int(card.channel.get("_suppress_toggle_events", 0) or 0) + 1
+                    )
+                    card.channel["_syncing_from_psu"] = True
+                    card.enabled_switch.value = False
+                    card.channel["_syncing_from_psu"] = False
         sync_value()
 
-    ob_master_toggle.on("click", lambda _e: master_sync_state.__setitem__("user_intent", True))
     ob_master_toggle.on_value_change(on_change)
     set_visible(state.get("mode", "OB"))
     return set_visible, sync_value, bind_cards
