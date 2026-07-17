@@ -6,6 +6,7 @@ import logging
 from abc import abstractmethod
 from collections import namedtuple
 from datetime import datetime
+from types import SimpleNamespace
 
 import bitstruct
 import crc8
@@ -71,7 +72,9 @@ class TM:
     # TODO Be consistent with how the bytes are named when they unpacked to the flags
     def __init__(self, response: Response):
         self.raw_bytes = response.raw_bytes
-        self.get_cmd_mod_id = response.get_cmd_mod_id
+        self.mod_id = response.mod_id
+        self.cmd_id = response.cmd_id
+        self.cmd_type = response.cmd_type
 
     @abstractmethod
     def check_len(self):
@@ -87,44 +90,30 @@ class TM:
         for k, v in param.items():
             setattr(self, k, v)
 
-    def decode_error_byte(self):
-        """Read the error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
-        ## Decode bit maps
-        # Errors
-        self.ERRORS = namedtuple("ERRORS", "".join(i[0] for i in tmstruct.error_struct))
+    def decode_error_byte(self) -> None:
         error_param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.error_struct),
-            [i[0] for i in tmstruct.error_struct],
-            self.ERROR_BYTE.to_bytes(1),
+            "".join(fmt for _, fmt in tmstruct.error_struct),
+            [name for name, _ in tmstruct.error_struct],
+            self.ERROR_BYTE.to_bytes(1, byteorder="big"),
         )
-        for k, v in error_param.items():
-            setattr(self.ERRORS, str(k), v)
 
-    def decode_mtr_error_byte(self):
-        """Read the motor error byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
-        ## Decode bit maps
-        # Motor Errors
-        self.MTR_ERRORS = namedtuple("MTR_ERRORS", "".join(i[0] for i in tmstruct.mtr_error_struct))
-        mtr_error_param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.mtr_error_struct),
-            [i[0] for i in tmstruct.mtr_error_struct],
-            self.ERROR_MTR.to_bytes(1),
-        )
-        for k, v in mtr_error_param.items():
-            setattr(self.MTR_ERRORS, str(k), v)
+        self.ERRORS = SimpleNamespace(**error_param)
 
-    def decode_thrm_status_byte(self):
-        """Read the thermal status byte and decode it into the appropriate flags using the dictionary defined in tmstruct.py"""
-        ## Decode bit maps
-        # Thermal Status
-        self.THRM_STATUS = namedtuple("THRM_STATUS", "".join(i[0] for i in tmstruct.thrm_status_struct))
-        thrm_status_param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.thrm_status_struct),
-            [i[0] for i in tmstruct.thrm_status_struct],
-            self.THRM_STATUS_BYTE.to_bytes(1),
+    def decode_mtr_error_byte(self) -> None:
+        values = bitstruct.unpack_dict(
+            "".join(fmt for _, fmt in tmstruct.mtr_error_struct),
+            [name for name, _ in tmstruct.mtr_error_struct],
+            self.ERROR_MTR.to_bytes(1, byteorder="big"),
         )
-        for k, v in thrm_status_param.items():
-            setattr(self.THRM_STATUS, str(k), v)
+        self.MTR_ERRORS = SimpleNamespace(**values)
+
+    def decode_thrm_status_byte(self) -> None:
+        values = bitstruct.unpack_dict(
+            "".join(fmt for _, fmt in tmstruct.thrm_status_struct),
+            [name for name, _ in tmstruct.thrm_status_struct],
+            self.THRM_STATUS_BYTE.to_bytes(1, byteorder="big"),
+        )
+        self.THRM_STATUS = SimpleNamespace(**values)
 
     def check_errors(self):
         """Check the error byte and log any errors that are asserted"""
@@ -166,24 +155,20 @@ class HK(TM):
         self.decode_thrm_status_byte()
 
         # Motor Flags
-        self.MTR_FLAGS = namedtuple("MTR_FLAGS", "".join(i[0] for i in tmstruct.mtr_flag_struct))
-        mtr_flags_param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.mtr_flag_struct),
-            [i[0] for i in tmstruct.mtr_flag_struct],
-            self.MTR_FLAGS_BYTE.to_bytes(1),
+        mtr_flags = bitstruct.unpack_dict(
+            "".join(fmt for _, fmt in tmstruct.mtr_flag_struct),
+            [name for name, _ in tmstruct.mtr_flag_struct],
+            self.MTR_FLAGS_BYTE.to_bytes(1, byteorder="big"),
         )
-        for k, v in mtr_flags_param.items():
-            setattr(self.MTR_FLAGS, str(k), v)
+        self.MTR_FLAGS = SimpleNamespace(**mtr_flags)
 
         # Motor ERROR Masks
-        self.MTR_ERR_MSK = namedtuple("MTR_ERR_MSK", "".join(i[0] for i in tmstruct.mtr_err_msk_struct))
-        mtr_err_msk_param = bitstruct.unpack_dict(
-            "".join(i[1] for i in tmstruct.mtr_err_msk_struct),
-            [i[0] for i in tmstruct.mtr_err_msk_struct],
-            self.MTR_ERR_MSK_BYTE.to_bytes(1),
+        mtr_mask = bitstruct.unpack_dict(
+            "".join(fmt for _, fmt in tmstruct.mtr_err_msk_struct),
+            [name for name, _ in tmstruct.mtr_err_msk_struct],
+            self.MTR_ERR_MSK_BYTE.to_bytes(1, byteorder="big"),
         )
-        for k, v in mtr_err_msk_param.items():
-            setattr(self.MTR_ERR_MSK, str(k), v)
+        self.MTR_ERR_MSK = SimpleNamespace(**mtr_mask)
 
         info_log.info(f"CMD Count: {self.CMD_CNT=}")
 
@@ -212,29 +197,43 @@ class HK(TM):
 
 
 class ACK(TM):
-    """ACK Class Definition. Reads the ACK response and parses it based on the dictionary defined in tmstruct.py"""
+    """ACK Class Definition."""
 
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"TM log ACK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        const.ACK_LOG_FH.write(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        )
+        const.ACK_LOG_FH.write(
+            f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n"
+        )
+        info_log.info(
+            "TM log ACK received: %s",
+            bytes.hex(self.raw_bytes, " ", 2),
+        )
+
+        # Must happen before bitstruct.unpack_dict.
+        self.check_len()
 
         self.decode_bytes(tmstruct.ack_struct)
         self.decode_error_byte()
-        self.check_len()
         self.check_errors()
 
-        # TODO Check CRC
+    def check_len(self) -> None:
+        fmt = "".join(field_format for _, field_format in tmstruct.ack_struct)
+        expected_bits = bitstruct.calcsize(fmt)
+        expected_bytes = (expected_bits + 7) // 8
+        actual_bytes = len(self.raw_bytes)
 
-    def check_len(self):
-        """Check the length of the ACK message"""
-        expect_strct = tmstruct.ack_struct
-        expect_len = bitstruct.calcsize("".join([i[1] for i in expect_strct])) / 8
-        if len(self.raw_bytes) != expect_len:
-            info_log.error(f"ACK Len not {expect_len} bytes as expected. Got: {len(self.raw_bytes)}")
-
+        if actual_bytes != expected_bytes:
+            raise ValueError(
+                "Incomplete or invalid ACK packet: "
+                f"expected {expected_bytes} bytes "
+                f"({expected_bits} bits), got {actual_bytes} bytes "
+                f"({actual_bytes * 8} bits): "
+                f"{self.raw_bytes.hex(' ')}"
+            )
 
 class SCI(TM):
     """SCI Class Definition. Reads the SCI response and parses it based on the dictionary defined in tmstruct.py"""
@@ -297,6 +296,14 @@ def parse_tm(response):
         ack = HK(response)
         if const.hk_queue is not None:
             const.hk_queue.put(ack)
+        if hasattr(const, "hk_explorer_queue"):
+            const.hk_explorer_queue.put(ack)
+        try:
+            from utility_modules import eb_packet_utility
+
+            eb_packet_utility.set_latest_hk(ack)
+        except Exception:
+            pass
 
     elif response.cmd_type == "SCI_Request":
         ack = SCI(response)
