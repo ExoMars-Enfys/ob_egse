@@ -407,7 +407,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
 
                         ob_status = parse_psu_status(psuRead(port, "1", "OP", False))
 
-                        if on_since is not None and time.monotonic() - on_since < 3:
+                        if on_since is not None and time.monotonic() - on_since < 1:
                             continue
 
                         voltage_oob = (
