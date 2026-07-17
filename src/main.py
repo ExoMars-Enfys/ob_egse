@@ -145,7 +145,7 @@ def main() -> None:
         const.sci_queue = None
 
         psu.switch_all_psu_channels(psu_port, 1)
-        # time.sleep(10)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
+        time.sleep(10)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         psu_thread.start()
         hk_pause_event.clear()  # Resume HK polling
 
