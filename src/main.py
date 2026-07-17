@@ -139,15 +139,12 @@ def main() -> None:
     if args.script:
         info_log.info("Running Script")
         const.hk_queue = None
-        const.hk_explorer_queue = None  # Separate queue for HK parameter explorer
+        # const.hk_explorer_queue = None  # Separate queue for HK parameter explorer
         const.eb_post_queue = None
         const.psu_queue = None
         const.sci_queue = None
 
-        psu.switch_psu_channel(psu_port, channel=1, state=1)  # Switch on PSU
-        psu.switch_psu_channel(psu_port, channel=2, state=1)
-        time.sleep(2.5)
-        psu.switch_psu_channel(psu_port, channel=3, state=1)
+        psu.switch_all_psu_channels(ob_port, 1)
         time.sleep(1)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         psu_thread.start()
         hk_pause_event.clear()  # Resume HK polling
