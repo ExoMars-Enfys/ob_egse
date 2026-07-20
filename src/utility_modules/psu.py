@@ -10,6 +10,7 @@ import serial
 # Local modules
 from core_modules import config as config
 from core_modules import constants as const
+import threading
 
 info_log = logging.getLogger("info_log")
 event_log = logging.getLogger("event_log")
@@ -101,12 +102,22 @@ def open_psu_comms(port: serial.Serial, psu_not_required):
 
 
 def close_psu_comms(port: serial.Serial) -> None:
-    """Return PSU to local mode, clear buffers, and close the serial port."""
-    if port:
-        port.reset_output_buffer()  # Clear stale bytes before first transactions
+    """Return PSU to local mode, flush OS buffers, and safely close the serial port."""
+    if port and port.is_open:
+        # 1. Clear out any residual data sitting in the buffers
         port.reset_input_buffer()
-        port.write("LOCAL\r\n".encode("utf-8"))
-        time.sleep(0.5)
+        port.reset_output_buffer()
+        
+        # 2. Send the exact working local command
+        port.write("LOCAL\n".encode("utf-8"))
+        
+        # 3. CRITICAL: Force the OS to push the bytes out to the wire right now
+        port.flush()
+        
+        # 4. Give the PSU parser a split second to breathe before killing the port
+        time.sleep(0.2)
+        
+        # 5. Cleanly shut down the port
         port.close()
     return
 
@@ -608,18 +619,38 @@ def apply_voltage_mode(port, mode: str, current_mode: str):
         event_log.error(f"Error applying voltage mode: {e}")
 
 
-def emergencyShutDown(port):
-    """Perform emergency PSU shutdown and hand control back to local front panel."""
-    if port:
-        port.write("OPALL 0\r\n".encode("utf-8"))
-        port.write("OP4 0\r\n".encode("utf-8"))
-        event_log.info("Closing all channels")
-        psu_log.info("Closing all channels")
-        port.write("LOCAL\r\n".encode("utf-8"))
-        event_log.info("Setting to Local control")
-        psu_log.info("Setting to Local control")
-        port.reset_output_buffer()  # Clear stale bytes after transactions
+def emergencyShutDown(port: serial.Serial, stop_event: threading.Event = None, psu_thread: threading.Thread = None) -> None:
+    """Safely halts the background telemetry monitoring, clears channels, and releases local control."""
+    
+    # 1. Force the thread loop condition to evaluate to False immediately
+    if stop_event is not None:
+        stop_event.set()
+        
+    # 2. Wait for the background thread to safely exit its active reading block
+    if psu_thread is not None and psu_thread.is_alive():
+        psu_thread.join(timeout=1.0)
+        
+    if port and port.is_open:
+        # 3. Suppress all outputs safely
+        port.write("OPALL 0\n".encode("utf-8"))
+        port.flush()
+        time.sleep(0.1) # Give the hardware relay coils time to open
+        
+        # 4. Clear python serial device pipelines
         port.reset_input_buffer()
+        port.reset_output_buffer()
+        
+        # 5. Issue the clean Local directive
+        port.write("LOCAL\n".encode("utf-8"))
+        port.flush()
+        
+        # 6. Sleep briefly to ensure the local directive clears the physical TX line entirely
+        time.sleep(0.2)
+        
+        # 7. Safe teardown
+        port.close()
+        print("PSU Comm Link Closed & Panel Returned to Local Operating Mode.")
+    return
 
 
 # TODO: Report the link status

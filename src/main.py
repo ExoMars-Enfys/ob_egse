@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import app, ui
 
 # Local modules
 # core
@@ -69,16 +69,49 @@ def setup_logs() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     return (event_log, info_log, psu_log)
 
 
-def clean_exit(ob_port, psu_port, event_log):
-    event_log.info("Running clean exit")
+def clean_exit(ob_port, psu_port, event_log, stop_event=None, psu_thread=None):
+    """Gracefully winds down background telemetry tasks and returns PSU to Local mode."""
+    event_log.info("Running clean exit sequence...")
+
+    # 1. Stop background monitoring thread immediately to prevent trailing queries
+    if stop_event is not None:
+        stop_event.set()
+
+    # 2. Wait for the background loop to step down before touching hardware lines
+    if psu_thread is not None and psu_thread.is_alive():
+        event_log.info("Waiting for PSU monitor thread to spin down...")
+        psu_thread.join(timeout=1.0)
+
+    # 3. Safely flush and close byte logging handles
     for handle in (const.ACK_LOG_FH, const.CMD_LOG_FH, const.HK_LOG_FH, const.SCI_LOG_FH):
         if handle is not None:
             handle.close()
+
+    # 4. Release physical RS-485 link
     if ob_port is not None:
         comms.close_comms(ob_port)
-    if psu_port is not None:
-        psu.emergencyShutDown(psu_port)
-    # psu.close_psu_comms(psuport)
+
+    # 5. Handshake down the PSU link using your verified working isolation sequence
+    if psu_port is not None and psu_port.is_open:
+        try:
+            # Drop outputs
+            psu_port.write("OPALL 0\n".encode("utf-8"))
+            psu_port.flush()
+            time.sleep(0.1)
+
+            # Drop back to local panel control
+            psu_port.write("LOCAL\n".encode("utf-8"))
+            psu_port.flush()
+            time.sleep(0.1)
+
+            # Flush operating system serial caches
+            psu_port.reset_input_buffer()
+            psu_port.reset_output_buffer()
+            psu_port.close()
+            event_log.info("PSU safely unlocked and returned to local mode.")
+        except Exception as e:
+            event_log.error(f"Failed to cleanly release PSU interface: {e}")
+
 
     #! TODO add emergency shutdown to that powers off the OB
 
@@ -108,13 +141,27 @@ def main() -> None:
             info_log.warning(f"PSU initialization failed on {psu_com}; GUI will run without PSU comms")
             psu_port = None
 
+        # 1. First, declare your locks, events, and threads
     stop_event = threading.Event()
     hk_pause_event = threading.Event()
-    hk_pause_event.set()  # Start with HK polling paused until we know the PSU is on and stable
+    hk_pause_event.set() 
+    psu_lock = threading.Lock()
+    port_lock = threading.Lock()
 
+    time.sleep(1) 
+    
+    # 2. Instantiate the thread object so it exists as a valid local variable
+    psu_thread = threading.Thread(
+        target=psu.psu_monitor_thread,
+        args=(psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock),
+        daemon=True,
+    )
+
+    hk_thread = None
+
+    # 3. Configure your RS-485 serial communication links
     rs485_com = "COM" + str(args.com)
     ob_port = None
-
     info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
     try:
         ob_port = comms.initialise_comms(rs485_com)
@@ -122,8 +169,13 @@ def main() -> None:
     except Exception as exc:
         info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
         ob_port = None
-    atexit.register(stop_event.set)
-    atexit.register(clean_exit, ob_port, psu_port, event_log)
+
+    # 4. NOW register your unified clean_exit since ALL variables are fully defined
+    atexit.register(clean_exit, ob_port, psu_port, event_log, stop_event, psu_thread)
+
+    app.on_shutdown(stop_event.set)
+    app.on_shutdown(lambda: clean_exit(ob_port, psu_port, event_log, stop_event, psu_thread))
+
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
@@ -151,17 +203,20 @@ def main() -> None:
         time.sleep(1)  #! Adjust  to your needs for delay before requesting HK
 
         # First HK
-        sequences.parse_hk(ob_port)
+        #sequences.parse_hk(ob_port)
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sequences.parse_hk(ob_port)
+        #sequences.parse_hk(ob_port)
+        # tc.power_control(ob_port, 1)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        sequences.parse_hk(ob_port)
-        stop_event.set()
+        #sequences.parse_hk(ob_port)
+        
+        #! No need for stop events as atexit does it automatically
+        return
 
     else:
         info_log.info("Running GUI")
@@ -194,6 +249,8 @@ def main() -> None:
         if hk_thread.is_alive():
             event_log.info("Waiting for HK polling thread to finish")
             hk_thread.join(timeout=1.0)  # Wait for the HK polling thread to finish
+    
+    # psu.emergencyShutDown(psu_port)
 
 
 if __name__ in {"__main__", "__mp_main__"}:
