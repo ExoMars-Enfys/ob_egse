@@ -145,21 +145,22 @@ def main() -> None:
         const.sci_queue = None
 
         psu.switch_all_psu_channels(psu_port, 1)
-        time.sleep(10)  # Adding a 1 second delay for PSU to power on and stabilize before resuming HK polling
         psu_thread.start()
         hk_pause_event.clear()  # Resume HK polling
 
+        time.sleep(1)  #! Adjust  to your needs for delay before requesting HK
+
         # First HK
-        sequences.parse_hk(ob_port) 
+        sequences.parse_hk(ob_port)
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        sequences.parse_hk(ob_port) 
+        sequences.parse_hk(ob_port)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        sequences.parse_hk(ob_port) 
+        sequences.parse_hk(ob_port)
         stop_event.set()
 
     else:
