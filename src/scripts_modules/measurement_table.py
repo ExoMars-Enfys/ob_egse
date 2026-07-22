@@ -403,21 +403,49 @@ predefined = [
 ]
 
 if __name__ == "__main__":
+    import argparse
     import sys
 
-    print(f"Total predefined tables: {len(predefined)}")
-    print(f"Total points in predefined tables: {sum([len(t) for t in predefined])}")
+    parser = argparse.ArgumentParser(
+        description="Simple front end to Enfys measurement tables."
+    )
+    parser.add_argument("-dump", type=str, default=None,
+        metavar="file.csv", help="Dump all predefined tables as csv.")
+    parser.add_argument("-show", type=int, default=None,
+        metavar="table-number", help="Show info about specified table")
+    args = parser.parse_args()
 
-    # If a table number is given on the command line, dump info about it.
-    # No error checking of the argument is done - give it garbage, you'll
-    # get an exception.
-    if len(sys.argv) == 2:
-        table = int(sys.argv[1])
+    if args.dump is not None and args.show is not None:
+        print("-dump and -show are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.dump is None:
+        print(f"Total predefined tables: {len(predefined)}")
+        print(f"Total points in predefined tables: {sum([len(t) for t in predefined])}")
+    if args.show is not None:
+        if args.show < 0 or args.show >= len(predefined):
+            print("Requested table number is out of range.", file=sys.stderr)
+            sys.exit(1)
+
         m = MeasurementTable(
-            predefined[table], before_table=MeasurementTable(predefined[0]), after_table=MeasurementTable(predefined[1])
+            predefined[args.show],
+            before_table=MeasurementTable(predefined[0]),
+            after_table=MeasurementTable(predefined[1])
         )
-        print(f"Measurement table {table}")
+        print(f"Measurement table {args.show}")
         print(f"Length: {len(m.table)}")
         print(f"Positions: {m.forward}")
         print(f"Movements: {m.table}")
         print(f"Including dt0 and dt1: {[abs_pos for rel, abs_pos in m.scan()]}")
+    if args.dump is not None:
+        print(f"Dumping absolute positions to {args.dump}")
+        try:
+            f = open(args.dump, "w")
+            print("Table,Relative moves", file=f)
+            for n, table in enumerate(predefined):
+                m = MeasurementTable(table)
+                print(",".join([str(n)] + [str(x) for x in m.table]), file=f)
+            f.close()
+        except (PermissionError,IsADirectoryError,OSError) as e:
+            print(f"Failed to open {args.dump}: {str(e)}", file=sys.stderr)
+            sys.exit(1)
