@@ -29,7 +29,7 @@ class MeasurementTable:
     LOW = 1000
     HIGH = 9960
 
-    def __init__(self, relative_movements, before_table=None, after_table=None):
+    def __init__(self, relative_movements, before_table=None, after_table=None, name=None):
         """Class constructor
 
         We take a list of relative movements and construct two tables: a
@@ -44,12 +44,13 @@ class MeasurementTable:
         self.table = relative_movements.copy()
         self.before_table = before_table
         self.after_table = after_table
+        self.name = name
 
         self.forward = self._calc_positions(relative_movements, 1)
         self.backward = list(reversed(self._calc_positions(relative_movements, -1)))
 
     @classmethod
-    def from_abs_position_list(cls, abs_positions, before_table=None, after_table=None):
+    def from_abs_position_list(cls, abs_positions, before_table=None, after_table=None, name=None):
         """Alternative "constructor".
 
         For the most part, it's easier for us to give the class a set of
@@ -72,10 +73,10 @@ class MeasurementTable:
             rel_positions.append(pos - prev)
             prev = pos
 
-        return cls(rel_positions, before_table, after_table)
+        return cls(rel_positions, before_table, after_table, name=name)
 
     @classmethod
-    def regular_steps_between(cls, before_table, after_table, step_size, extra_positions=[]):
+    def regular_steps_between(cls, before_table, after_table, step_size, extra_positions=[], name = None):
         """Alternative constructor.
 
         Quite a lot of our predefined tables are of the form "between dark0
@@ -83,11 +84,15 @@ class MeasurementTable:
         implements that.
         """
 
+        if name is None:
+            name = f"Regular steps, step = {step_size}"
+
         return cls.from_abs_position_list(
             list(range(before_table.forward[-1], after_table.forward[0]+1,
                 step_size)) + extra_positions,
             before_table = before_table,
-            after_table = after_table
+            after_table = after_table,
+            name=name,
         )
 
     @classmethod
@@ -95,7 +100,8 @@ class MeasurementTable:
         before_table, after_table, nyquist_factor,
         motor_steps_to_wavelength,
         filter_bandwidth=0.01,
-        extra_positions=[]
+        extra_positions=[],
+        name=None
     ):
         """Alternative constructor.
 
@@ -119,7 +125,8 @@ class MeasurementTable:
         return cls.from_abs_position_list(
             positions + extra_positions,
             before_table=before_table,
-            after_table=after_table
+            after_table=after_table,
+            name=name,
         )
 
 
@@ -230,180 +237,182 @@ class MeasurementTable:
 # We'll give these three special names as they're used in constructing
 # other tables.
 _dark0 = MeasurementTable.from_abs_position_list(
-    range(1100, 1350, 40)        # Edge of SWIR
+    range(1040, 1321, 40),       # Edge of SWIR
+    name = "Dark table 0"
 )
 
 _dark1 = MeasurementTable.from_abs_position_list(
-    list(range(9100, 9301, 40))  # Edge of SWIR
-    + [9600]                     # SWIR BC
+    list(range(8800, 9321, 40))  # Edge of SWIR
+    + [9600],                    # SWIR BC
+    name = "Dark table 1"
 )
 
-# 21 points around the MWIR binary chop location.
-_mwir_binary_chop_check = list(range(7990, 8011, 2))
+# Force a measurement at MWIR binary chop location.
+_mwir_binary_chop_check = [ 8000 ]
 
 # Some example tables. The first two are the reserved dark "low" and
 # "high" end tables.
-#
-# N.B. These are *NOT* MeasurementTable objects. They are the lists of
-# relative steps that would be used to create tables. MeasurementTable
-# is used to construct them, but we then extract its "table" attribute
-# when building the list. This is because the lists below are actually
-# merged with the predefined dark tables inside the EGSE, and because
-# this list is the form we'd expect to give to Ben.
 predefined = [
     # Dark table 0: Fine resolution to capture the low edge in SWIR.
-    _dark0.table,
+    _dark0,
 
     # Dark table 1: Fine resolution to capture the high edge in SWIR,
     # along with a chunk at the end to capture SWIR BC.
-    _dark1.table,
+    _dark1,
 
     # Measurement table 2: End of DT0 thru start of DT1 in steps of 2
-    MeasurementTable.regular_steps_between(_dark0, _dark1, 2).table,
+    MeasurementTable.regular_steps_between(
+        _dark0, _dark1, 2, extra_positions = _mwir_binary_chop_check
+    ),
 
     # Measurement table 3: End of DT0 thru start of DT1 in steps of
     # 3, with extra resolution around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 3, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 4: End of DT0 thru start of DT1 in steps of
     # 4, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 4, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 5: End of DT0 thru start of DT1 in steps of
     # 5, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 5, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 6: End of DT0 thru start of DT1 in steps of
     # 6, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 6, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 7: End of DT0 thru start of DT1 in steps of
     # 7, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 7, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 8: End of DT0 thru start of DT1 in steps of
     # 8, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 8, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 9: End of DT0 thru start of DT1 in steps of
     # 9, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 9, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 10: End of DT0 thru start of DT1 in steps of
     # 10, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 10, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 11: End of DT0 thru start of DT1 in steps of
     # 20, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 20, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 12: End of DT0 thru start of DT1 in steps of
     # 30, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 30, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 13: End of DT0 thru start of DT1 in steps of
     # 40, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 40, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 14: End of DT0 thru start of DT1 in steps of
     # 50, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 50, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 15: End of DT0 thru start of DT1 in steps of
     # 60, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 60, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 16: End of DT0 thru start of DT1 in steps of
     # 70, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 70, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 17: End of DT0 thru start of DT1 in steps of
     # 80, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 80, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 18: End of DT0 thru start of DT1 in steps of
     # 90, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 90, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 19: End of DT0 thru start of DT1 in steps of
     # 100, with an extra bit around MWIR BC location.
     MeasurementTable.regular_steps_between(
         _dark0, _dark1, 100, extra_positions = _mwir_binary_chop_check
-    ).table,
+    ),
 
     # Measurement table 20: Nyquist spacing with bandwidth 1% and
     # factor 2.3 using SWIR wavelengths.
     MeasurementTable.nyquist_steps_between(_dark0, _dark1,
         2.3,
         motor_steps_to_wavelength = lambda ms: 0.1225*ms + 664.6,
-        extra_positions = _mwir_binary_chop_check
-    ).table,
+        extra_positions = _mwir_binary_chop_check,
+        name = "Nyquist 2.3 using SWIR wavelengths",
+    ),
 
     # Measurement table 21: Nyquist spacing with bandwidth 1% and
     # factor 2.3 using MWIR wavelengths.
     MeasurementTable.nyquist_steps_between(_dark0, _dark1,
         2.3,
         motor_steps_to_wavelength = lambda ms: 0.2228*ms + 1174.8,
-        extra_positions = _mwir_binary_chop_check
-    ).table,
+        extra_positions = _mwir_binary_chop_check,
+        name = "Nyquist 2.3 using MWIR wavelengths",
+    ),
 
     # Measurement table 22: Nyquist spacing as determined by Matt
     # (email 2026-07-13)
     #
-    # Starting point of 1922 equates to 900nm in SWIR.
-    MeasurementTable.from_abs_position_list([x + 1922 for x in [
-            0, 37, 74, 111, 149, 186, 223, 261, 298, 336, 373, 411, 448, 486,
-            523, 561, 598, 636, 674, 711, 749, 787, 825, 863, 900, 938, 976,
-            1014, 1052, 1090, 1128, 1167, 1205, 1243, 1281, 1320, 1358, 1396,
-            1435, 1473, 1512, 1550, 1589, 1628, 1666, 1705, 1744, 1783, 1822,
-            1861, 1900, 1939, 1978, 2017, 2056, 2096, 2135, 2174, 2214, 2253,
-            2293, 2333, 2373, 2412, 2452, 2492, 2532, 2573, 2613, 2653, 2693,
-            2734, 2774, 2815, 2856, 2896, 2937, 2978, 3019, 3060, 3102, 3143,
-            3184, 3226, 3267, 3309, 3351, 3393, 3435, 3477, 3519, 3562, 3604,
-            3647, 3689, 3732, 3775, 3818, 3861, 3905, 3948, 3992, 4035, 4079,
-            4123, 4167, 4212, 4256, 4301, 4345, 4390, 4435, 4480, 4526, 4571,
-            4617, 4663, 4709, 4755, 4801, 4848, 4894, 4941, 4988, 5036, 5083,
-            5131, 5178, 5227, 5275, 5323, 5372, 5421, 5470, 5519, 5569, 5618,
-            5667, 5717, 5766, 5816, 5865, 5915, 5965, 6015, 6066, 6116, 6167,
-            6217, 6268, 6319, 6370, 6422, 6473,
-        ]
-    ]).table,
+    # Starting point of 1832 equates to 900nm in SWIR.
+    MeasurementTable.from_abs_position_list([x + 1832 for x in [
+                0, 37, 74, 111, 149, 186, 223, 261, 298, 336, 373, 411, 448, 486,
+                523, 561, 598, 636, 674, 711, 749, 787, 825, 863, 900, 938, 976,
+                1014, 1052, 1090, 1128, 1167, 1205, 1243, 1281, 1320, 1358, 1396,
+                1435, 1473, 1512, 1550, 1589, 1628, 1666, 1705, 1744, 1783, 1822,
+                1861, 1900, 1939, 1978, 2017, 2056, 2096, 2135, 2174, 2214, 2253,
+                2293, 2333, 2373, 2412, 2452, 2492, 2532, 2573, 2613, 2653, 2693,
+                2734, 2774, 2815, 2856, 2896, 2937, 2978, 3019, 3060, 3102, 3143,
+                3184, 3226, 3267, 3309, 3351, 3393, 3435, 3477, 3519, 3562, 3604,
+                3647, 3689, 3732, 3775, 3818, 3861, 3905, 3948, 3992, 4035, 4079,
+                4123, 4167, 4212, 4256, 4301, 4345, 4390, 4435, 4480, 4526, 4571,
+                4617, 4663, 4709, 4755, 4801, 4848, 4894, 4941, 4988, 5036, 5083,
+                5131, 5178, 5227, 5275, 5323, 5372, 5421, 5470, 5519, 5569, 5618,
+                5667, 5717, 5766, 5816, 5865, 5915, 5965, 6015, 6066, 6116, 6167,
+                6217, 6268, 6319, 6370, 6422, 6473,
+            ]
+        ] + _mwir_binary_chop_check,
+        name = "Nyquist spacing from mmg",
+    ),
 ]
 
 if __name__ == "__main__":
     import argparse
+    import csv
     import sys
 
     parser = argparse.ArgumentParser(
@@ -421,30 +430,35 @@ if __name__ == "__main__":
 
     if args.dump is None:
         print(f"Total predefined tables: {len(predefined)}")
-        print(f"Total points in predefined tables: {sum([len(t) for t in predefined])}")
+        print(f"Total points in predefined tables: {sum([len(t.table) for t in predefined])}")
     if args.show is not None:
         if args.show < 0 or args.show >= len(predefined):
             print("Requested table number is out of range.", file=sys.stderr)
             sys.exit(1)
 
         m = MeasurementTable(
-            predefined[args.show],
-            before_table=MeasurementTable(predefined[0]),
-            after_table=MeasurementTable(predefined[1])
+            predefined[args.show].table,
+            before_table=predefined[0],
+            after_table=predefined[1],
+            name=predefined[args.show].name
         )
-        print(f"Measurement table {args.show}")
+        print(f"Measurement table {args.show}: {m.name}")
         print(f"Length: {len(m.table)}")
         print(f"Positions: {m.forward}")
         print(f"Movements: {m.table}")
         print(f"Including dt0 and dt1: {[abs_pos for rel, abs_pos in m.scan()]}")
     if args.dump is not None:
-        print(f"Dumping absolute positions to {args.dump}")
+        print(f"Dumping table info to {args.dump}")
         try:
             f = open(args.dump, "w")
-            print("Table,Relative moves", file=f)
-            for n, table in enumerate(predefined):
-                m = MeasurementTable(table)
-                print(",".join([str(n)] + [str(x) for x in m.table]), file=f)
+            writer = csv.writer(f)
+            writer.writerow(["Table", "Name", "Relative moves"])
+            for n, t in enumerate(predefined):
+                writer.writerow([n, t.name] + t.table)
+            writer.writerow([])
+            writer.writerow(["Table", "Name", "Absolute Positions"])
+            for n, t in enumerate(predefined):
+                writer.writerow([n, t.name] + t.forward)
             f.close()
         except (PermissionError,IsADirectoryError,OSError) as e:
             print(f"Failed to open {args.dump}: {str(e)}", file=sys.stderr)
