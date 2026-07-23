@@ -144,7 +144,7 @@ def create_menu(
                     app.state.current_model = state["model"]
 
                 # --- Unified two-column button layout ---
-                with ui.row().classes("gap-2 w-full no-wrap"):
+                with ui.row().classes("gap-2 w-full no-wrap") as eb_only_buttons_row:
                     with ui.column().classes("gap-2 w-full"):
                         ui.button(
                             "Start",
@@ -233,12 +233,11 @@ def create_menu(
                 ).classes("w-full whitespace-nowrap rounded-full w-36 h-12")
 
     def _sync_egse_tools_buttons(mode: str) -> None:
-        eb_mode = mode == "EB"
-        bool(state.get("egse_tools_started", False))
-        bool(getattr(app.state.eb_interface, "rs422_log_path", None))
-        if eb_mode:
-            # Dynamic show/hide logic removed (undefined variables)
-            pass
+        """Show EB-only tool buttons in EB mode and hide them in OB mode."""
+        if str(mode).upper() == "EB":
+            eb_only_buttons_row.classes(remove="hidden")
+        else:
+            eb_only_buttons_row.classes(add="hidden")
 
     if isinstance(state.get("plot_refreshers"), list):
         state["plot_refreshers"].append(_sync_egse_tools_buttons)
@@ -306,6 +305,7 @@ def _set_hk_display_mode(state: dict[str, Any], mode: str) -> None:
         if plot_controller is None:
             continue
         try:
+            plot_controller.set_display_mode(mode_upper)
             plot_controller.set_stream_enabled(False)
             plot_controller.set_stream_enabled(True)
         except Exception:
