@@ -49,7 +49,7 @@ class LogElementHandler(logging.Handler):
                 msg = self.format(record)
             except Exception:
                 try:
-                    msg = f"{record.levelname}: {record.getMessage()}"
+                    msg = f"{record.levelname}: {record.getMessage().classes('egse-text')}"
                 except Exception:
                     msg = "<log format error>"
             try:
@@ -68,26 +68,15 @@ class LogElementHandler(logging.Handler):
             except Exception:
                 msg = "<log format error>"
 
-        color_map = {
-            logging.DEBUG: "text-grey",
-            logging.INFO: "text-blue",
-            logging.WARNING: "text-orange",
-            logging.ERROR: "text-red",
-            logging.CRITICAL: "text-red font-bold",
-        }
-        log_class = color_map.get(record.levelno, "")
-
-        # Attempt to push to the UI log element. If the NiceGUI client/slot
-        # has been deleted or UI creation is not allowed from this thread,
-        # avoid printing again to the console (other handlers already print to
-        # console) to prevent duplicate log lines. Swallow UI delivery errors
-        # silently to keep logging stable.
+        # ``ui.log.push`` accepts only the message in several NiceGUI versions.
+        # Passing a ``classes`` keyword raises TypeError; the previous handler
+        # swallowed that exception and silently lost every UI log record.
         self._in_emit = True
         try:
-            self.element.push(msg, classes=log_class)
+            self.element.push(msg)
         except Exception:
-            # Do not print to console here to avoid duplicate messages when
-            # console handlers are present; simply drop the UI push failure.
+            # Other configured handlers still retain the record. Avoid recursive
+            # logging from inside a logging handler.
             pass
         finally:
             self._in_emit = False
@@ -130,9 +119,9 @@ def create_log_terminal(
                 value=default_selection,
                 on_change=on_level_change,
             )
-            radio.props(f"inline dense size=xs color={level_colors.get(default_selection, 'blue')}")
+            radio.props(f"inline dense color={level_colors.get(default_selection, 'blue')}")
             radio.classes("egse-metric-label")
-        log = ui.log(max_lines=max_lines).classes("w-full h-56")
+        log = log = ui.log(max_lines=max_lines).classes("w-full h-45 egse-log-terminal")
 
     # Reuse an existing LogElementHandler on the logger if present (prevents
     # multiple UI handlers being attached during reloads). If found, update
