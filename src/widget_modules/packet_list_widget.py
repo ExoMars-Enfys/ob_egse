@@ -4,9 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from types import SimpleNamespace
 
 # Added packages
 from nicegui import app, ui
+
 
 # Local utilities
 @dataclass
@@ -208,8 +210,8 @@ class PacketListController:
                         with ui.row().classes("w-full items-start gap-2"):
                             label_widget = ui.label(str(key)).classes("font-semibold min-w-40 egse-metric-label")
                             label_widget.style("color: var(--accent_color);")
-                            value_str = str(value)[:200]  # Truncate very long values
-                            val_label = ui.label(value_str).classes("break-words egse-metric-label")
+                            value_str = format_packet_value(value)[:200]  # Truncate very long values
+                            val_label = ui.label(value_str).classes("whitespace-pre-line break-words egse-metric-label")
                             val_label.style("color: var(--text-secondary);")
 
         packet_dialog.open()
@@ -245,3 +247,9 @@ def create_packet_list(
     btn.on_click(lambda: controller.show_popup())
 
     return controller
+
+
+def format_packet_value(value: Any) -> str:
+    if isinstance(value, SimpleNamespace):
+        return "\n".join(f"{name}: {flag}" for name, flag in vars(value).items())
+    return str(value)

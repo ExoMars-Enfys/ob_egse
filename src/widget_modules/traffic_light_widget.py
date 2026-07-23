@@ -8,6 +8,51 @@ from typing import Any, Mapping
 from nicegui import app, ui
 
 
+_ALARM_LIGHT_CSS_INSTALLED = False
+
+
+def _ensure_alarm_light_css() -> None:
+    global _ALARM_LIGHT_CSS_INSTALLED
+    if _ALARM_LIGHT_CSS_INSTALLED:
+        return
+    ui.add_head_html(
+        """
+        <style>
+        @keyframes egse-alarm-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.18); opacity: 0.55; }
+        }
+        .egse-alarm-light {
+            display: block;
+            width: 22px;
+            height: 22px;
+            min-width: 22px;
+            min-height: 22px;
+            border-radius: 50%;
+            border: 2px solid var(--color-neutral);
+        }
+        .egse-alarm-light.ok {
+            background: var(--color-ok);
+            box-shadow: 0 0 8px var(--color-ok);
+            animation: none;
+        }
+        .egse-alarm-light.warning {
+            background: var(--color-warning);
+            box-shadow: 0 0 12px var(--color-warning);
+            animation: egse-alarm-pulse 1.15s ease-in-out infinite;
+        }
+        .egse-alarm-light.alarm {
+            background: var(--color-error);
+            box-shadow: 0 0 14px var(--color-error);
+            animation: egse-alarm-pulse .9s ease-in-out infinite;
+        }
+        </style>
+        """,
+        shared=True,
+    )
+    _ALARM_LIGHT_CSS_INSTALLED = True
+
+
 class AlarmLight:
     def __init__(self, *, key: str, label: str) -> None:
         """Creates an alarm light with a label. The light can be set to OK or Fault state, and clicking on it will show a dialog with details."""
@@ -15,6 +60,7 @@ class AlarmLight:
         self.label = label
 
         self.is_fault: bool = False
+        self.severity: str = "ok"
         self.details: list[str] = []
         self._source_faults: dict[str, list[str]] = {}
         self._muted_signatures: set[str] = set()
@@ -27,9 +73,10 @@ class AlarmLight:
 
     def _create_fault_widget(self) -> None:
         """Creates the UI elements for the fault light and its dialog."""
+        _ensure_alarm_light_css()
         with ui.column().classes("items-center gap-1 cursor-pointer") as container:
             ui.label(self.label).classes("egse-metric-label")
-            self.light = ui.element("div").classes("status-light status-light-lg ok")
+            self.light = ui.element("div").classes("status-light status-light-lg egse-alarm-light ok")
         self.container = container
 
         container.on("click", lambda _=None: self.show_fault_dialog())
@@ -40,7 +87,7 @@ class AlarmLight:
                 ui.separator()
                 self.current_faults = ui.column().classes("w-full gap-1")
                 with ui.row().classes("gap-2"):
-                    ui.button("Clear selected", on_click=self.clear_selected_faults).props("size=sm")
+                    ui.button("Ignore selected", on_click=self.clear_selected_faults).props("size=sm")
                     ui.button("Clear all", on_click=self.clear_fault).props("size=sm")
                 with ui.expansion("History").classes("w-full"):
                     self.history_text = ui.label("None").classes("whitespace-pre-wrap egse-metric-label")
@@ -78,10 +125,20 @@ class AlarmLight:
         self._last_signature = None
         self.set_fault_state(ok=True, details=[])
 
+    @staticmethod
+    def _severity_from_details(details: list[str]) -> str:
+        """Return alarm for alarm/error details, warning for all other active details."""
+        lowered = [str(detail).lower() for detail in details]
+        if any("alarm" in detail or "error" in detail for detail in lowered):
+            return "alarm"
+        if details:
+            return "warning"
+        return "ok"
+
     def _refresh_light(self) -> None:
-        """Refreshes the fault light's appearance based on its current state."""
-        self.light.classes(remove="ok alarm")
-        self.light.classes(add="alarm" if self.is_fault else "ok")
+        """Refresh the light as green, amber, or red from the current severity."""
+        self.light.classes(remove="ok warning alarm")
+        self.light.classes(add=self.severity)
 
     def set_fault_state(
         self,
@@ -92,8 +149,10 @@ class AlarmLight:
         self.is_fault = not ok
         if self.is_fault:
             self.details = [str(item) for item in (details if details is not None else [f"{self.label} fault active"])]
+            self.severity = self._severity_from_details(self.details)
         else:
             self.details = []
+            self.severity = "ok"
         self._refresh_light()
 
     def update_from_faults(self, faults: Mapping[str, bool], *, source: str = "generic") -> None:
@@ -101,8 +160,15 @@ class AlarmLight:
         self._source_faults[source] = [name for name, active in faults.items() if bool(active)]
         self._refresh_from_sources(track_history=True)
 
+    def reset_acknowledgements(self) -> None:
+        """Forget muted alarm acknowledgements so future repeats are visible."""
+        self._muted_signatures.clear()
+        self._muted_details.clear()
+        self._checked_details.clear()
+        self._refresh_from_sources(track_history=False)
+
     def clear_selected_faults(self) -> None:
-        """Acknowledge selected details while leaving other active alarms untouched."""
+        """Ignore the selected details while leaving other active alarms visible."""
         if not self._checked_details:
             self.show_fault_dialog()
             return
@@ -113,15 +179,14 @@ class AlarmLight:
         self.show_fault_dialog()
 
     def clear_fault(self) -> None:
-        """Clears the fault state and details."""
-        if self.details:
-            signature = "|".join(sorted(self.details))
-            if signature:
-                self._muted_signatures.add(signature)
-            for detail in self.details:
-                self._muted_details.add(detail)
+        """Clear the currently displayed fault without adding it to the ignored list.
+
+        The underlying source remains untouched. If it is still active, the next
+        telemetry update will raise it again. Existing ignored selections are
+        preserved.
+        """
         self._checked_details.clear()
-        self.set_fault_state(True)
+        self.set_fault_state(True, details=[])
         self.show_fault_dialog()
 
     def show_fault_dialog(self) -> None:

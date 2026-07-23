@@ -29,6 +29,7 @@ from widget_modules import (
     mechanism_tab,
     menu_widget,
     metrics_card_widget,
+    monitoring_limits,
     packet_list_widget,
     packet_viewer_widget,
     plot_widget,
@@ -67,6 +68,10 @@ def build_ui(
     _css_vars = app_theme.load_css_vars(_CSS_PATH, theme=_theme_state["value"])
     _palette = app_theme.get_theme_palette(_css_vars, theme=_theme_state["value"])
 
+    # app_theme maps --plot-color-1 ... --plot-color-7 from CSS and
+    # validates that every value is a concrete Matplotlib-compatible colour.
+    plot_colors = app_theme.get_plot_colors(_palette, count=7)
+
     state: dict[str, Any] = {
         "mode": normalized_mode,
         "hk_display_mode": "REAL",
@@ -78,6 +83,7 @@ def build_ui(
         "refreshers": [],
         "log_search": {"enabled": False},
         "packet_counts": {"hk": 0, "post": 0, "sci": 0},
+        "last_ob_tm_time": None,
         "last_psu_readings": {
             "status": None,
             "PSU_ROV_HTR_V": None,
@@ -113,23 +119,9 @@ def build_ui(
             "tec_shutdown_requested": False,
             "ob5v_disable_requested": False,
             "last_error": None,
-            # Limit set chosen to match existing alarm semantics in this codebase.
-            "limits": {
-                "eb_12v": const.ALIM_EB_12V,
-                "eb_neg12v": const.ALIM_EB_NEG12V,
-                "eb_5v": const.ALIM_EB_5V,
-                "eb_3v3": const.ALIM_EB_3V3,
-                "eb_mcu_temp": const.ALIM_EB_MCU_INTERNAL_TEMP,
-                "eb_internal_trp_temp": const.ALIM_EB_INTERNAL_TRP_TEMP,
-                "eb_psu_trp_temp": const.ALIM_EB_PSU_BOARD_TEMP,
-                "eb_tec_rail_v": const.ALIM_EB_TEC_RAIL,
-                "ob_fpga_core_v": const.ALIM_3V3,
-                "ob_fpga_io_v": const.ALIM_1V5,
-                "ob_digital_trp": const.ALIM_TPR,
-                "ob_detector_trp": const.ALIM_TPR,
-                "ob_mechanism_trp": const.ALIM_TPR,
-                "ob_motor_trp": const.ALIM_TPR,
-            },
+            # Every safety threshold is sourced from core_modules.constants
+            # through the shared monitoring limit registry.
+            "limits": monitoring_limits.mms_alarm_limits(),
         },
         "ob_port": ob_port,
         "psu_port": psu_port,
@@ -168,11 +160,11 @@ def build_ui(
                     lbl.classes("font-bold p-2 egse-title")
                     packet_list_controller = packet_list_widget.create_packet_list(state, {})
                 with ui.tabs().classes("w-full") as packet_tabs:
-                    tab_eb_hk = ui.tab("EB HK")
-                    tab_eb_post = ui.tab("EB POST")
-                    tab_eb_sci = ui.tab("EB SCI")
-                    tab_ob_hk = ui.tab("OB HK")
-                    tab_ob_sci = ui.tab("OB SCI")
+                    tab_eb_hk = ui.tab("EB HK").classes("egse-title")
+                    tab_eb_post = ui.tab("EB POST").classes("egse-title")
+                    tab_eb_sci = ui.tab("EB SCI").classes("egse-title")
+                    tab_ob_hk = ui.tab("OB HK").classes("egse-title")
+                    tab_ob_sci = ui.tab("OB SCI").classes("egse-title")
 
                 tab_by_profile = {
                     "EB_HK": tab_eb_hk,
@@ -183,20 +175,20 @@ def build_ui(
                 }
 
                 pv_controllers: dict[str, packet_viewer_widget.PacketViewerController] = {}
-                with ui.tab_panels(packet_tabs).classes("w-full egse-left-packet-panels"):
-                    with ui.tab_panel(tab_eb_hk).classes("w-full egse-left-packet-panel") as panel_eb_hk:
+                with ui.tab_panels(packet_tabs).classes("w-full egse-left-packet-panels egse-title"):
+                    with ui.tab_panel(tab_eb_hk).classes("w-full egse-left-packet-panel egse-title") as panel_eb_hk:
                         pv_controllers["EB_HK"] = packet_viewer_widget.create_packet_viewer(state, packet_type="EB_HK")
-                    with ui.tab_panel(tab_eb_post).classes("w-full egse-left-packet-panel") as panel_eb_post:
+                    with ui.tab_panel(tab_eb_post).classes("w-full egse-left-packet-panel egse-title") as panel_eb_post:
                         pv_controllers["EB_POST"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="EB_POST"
                         )
-                    with ui.tab_panel(tab_eb_sci).classes("w-full egse-left-packet-panel") as panel_eb_sci:
+                    with ui.tab_panel(tab_eb_sci).classes("w-full egse-left-packet-panel egse-title") as panel_eb_sci:
                         pv_controllers["EB_SCI"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="EB_SCI"
                         )
-                    with ui.tab_panel(tab_ob_hk).classes("w-full egse-left-packet-panel") as panel_ob_hk:
+                    with ui.tab_panel(tab_ob_hk).classes("w-full egse-left-packet-panel egse-title ") as panel_ob_hk:
                         pv_controllers["OB_HK"] = packet_viewer_widget.create_packet_viewer(state, packet_type="OB_HK")
-                    with ui.tab_panel(tab_ob_sci).classes("w-full egse-left-packet-panel") as panel_ob_sci:
+                    with ui.tab_panel(tab_ob_sci).classes("w-full egse-left-packet-panel egse-title") as panel_ob_sci:
                         pv_controllers["OB_SCI"] = packet_viewer_widget.create_packet_viewer(
                             state, packet_type="OB_SCI"
                         )
@@ -286,34 +278,80 @@ def build_ui(
                     state["mode_change_resetters"].append(state["eb_metrics_card"].set_no_data)
                     state["mode_change_resetters"].append(state["ob_metrics_card"].set_no_data)
                     # Add right drawer content here as needed
+                trp_limits = monitoring_limits.get_limit("ob_trp")
+                ob_3v3_limits = monitoring_limits.get_limit("ob_3v3")
+                ob_1v5_limits = monitoring_limits.get_limit("ob_1v5")
+                eb_3v3_limits = monitoring_limits.get_limit("eb_3v3")
+                trp_display_limits = {
+                    "REAL": monitoring_limits.recommended_plot_limits(("ob_trp",), "REAL", minimum_padding=5.0),
+                    "ADU": monitoring_limits.recommended_plot_limits(("ob_trp",), "ADU"),
+                }
+                voltage_display_limits = {
+                    "REAL": monitoring_limits.recommended_plot_limits(
+                        ("ob_3v3", "ob_1v5", "eb_3v3"), "REAL", minimum_padding=0.25
+                    ),
+                    "ADU": monitoring_limits.recommended_plot_limits(("ob_3v3", "ob_1v5", "eb_3v3"), "ADU"),
+                }
+
                 with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
+                    # Warning/alarm lines use one shared band for all four
+                    # thermistors because their limits are identical.
                     trp_card = plot_widget.create_plot_card(
                         "Thermistors",
                         series=[
-                            plot_widget.SeriesConfig("DIG TRP", _palette["series_dig_trp"]),
-                            plot_widget.SeriesConfig("DET TRP", _palette["series_det_trp"]),
-                            plot_widget.SeriesConfig("MECH TRP", _palette["series_mech_trp"]),
-                            plot_widget.SeriesConfig("MTR TRP", _palette["series_mtr_trp"], visible=False),
+                            plot_widget.SeriesConfig("DIG TRP", plot_colors[1]),
+                            plot_widget.SeriesConfig("DET TRP", plot_colors[2]),
+                            plot_widget.SeriesConfig("MECH TRP", plot_colors[3]),
+                            plot_widget.SeriesConfig("MTR TRP", plot_colors[4]),
                         ],
                         y_label="°C",
-                        y_limits=(-30.0, 80.0),
+                        y_limits=trp_display_limits["REAL"],
+                        display_limits=trp_display_limits,
+                        limit_bands=[
+                            plot_widget.LimitBandConfig(
+                                label="TRP shared",
+                                warning_limits={"*": trp_limits.warning_by_display()},
+                                alarm_limits={"*": trp_limits.alarm_by_display()},
+                            )
+                        ],
                         show_toggles=True,
                     )
                     state["plot_refreshers"].append(trp_card.set_mode)
                     trp_card.set_mode(state["mode"])
+                    trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
                     voltage_card = plot_widget.create_plot_card(
                         "Voltages",
                         series=[
-                            plot_widget.SeriesConfig("OB 3V3", _palette["series_ob_3v3"]),
-                            plot_widget.SeriesConfig("EB 3V3", _palette["series_eb_3v3"]),
+                            plot_widget.SeriesConfig("OB 3V3", plot_colors[5]),
+                            plot_widget.SeriesConfig("OB 1V5", plot_colors[1]),
+                            plot_widget.SeriesConfig("EB 3V3", plot_colors[6], modes=("EB",)),
                         ],
                         y_label="V",
-                        y_limits=(3, 4),
+                        y_limits=voltage_display_limits["REAL"],
+                        display_limits=voltage_display_limits,
+                        limit_bands=[
+                            plot_widget.LimitBandConfig(
+                                label="OB 3V3",
+                                warning_limits={"*": ob_3v3_limits.warning_by_display()},
+                                alarm_limits={"*": ob_3v3_limits.alarm_by_display()},
+                            ),
+                            plot_widget.LimitBandConfig(
+                                label="OB 1V5",
+                                warning_limits={"*": ob_1v5_limits.warning_by_display()},
+                                alarm_limits={"*": ob_1v5_limits.alarm_by_display()},
+                            ),
+                            plot_widget.LimitBandConfig(
+                                label="EB 3V3",
+                                warning_limits={"EB": eb_3v3_limits.warning_by_display()},
+                                alarm_limits={"EB": eb_3v3_limits.alarm_by_display()},
+                            ),
+                        ],
                         show_toggles=True,
                     )
                     state["plot_refreshers"].append(voltage_card.set_mode)
                     voltage_card.set_mode(state["mode"])
+                    voltage_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
             # HK Parameter Explorer
             # hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)
@@ -336,7 +374,7 @@ def build_ui(
                         state,
                         key="psu_ch1",
                         title="CH1",
-                        color=_palette["chart_rov_htr"],
+                        color=plot_colors[7],
                         mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
                         live_voltage_key="CH1_V",
                         live_current_key="CH1_I",
@@ -347,7 +385,7 @@ def build_ui(
                         state,
                         key="psu_ch2",
                         title="CH2",
-                        color=_palette["chart_eb_current"],
+                        color=plot_colors[1],
                         mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
                         live_voltage_key="CH2_V",
                         live_current_key="CH2_I",
@@ -358,7 +396,7 @@ def build_ui(
                         state,
                         key="psu_ch3",
                         title="CH3",
-                        color=_palette["chart_rov_htr"],
+                        color=plot_colors[7],
                         mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
                         live_voltage_key="CH3_V",
                         live_current_key="CH3_I",
@@ -369,7 +407,7 @@ def build_ui(
                         state,
                         key="psu_ch4",
                         title="CH4",
-                        color=_palette["chart_eb_current"],
+                        color=plot_colors[1],
                         mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
                         live_voltage_key="CH4_V",
                         live_current_key="CH4_I",
@@ -430,7 +468,17 @@ def build_ui(
                     toggle_btn = ui.button(icon="keyboard_arrow_down").props("flat dense round")
                 with ui.column().classes("w-full") as footer_content:
                     state["log_terminal_controller"] = log_terminal_widget.create_log_terminal(logger)
-                    state["console_terminal"] = console_input_widget.create_console_input_widget(state)
+                    with ui.column().classes("w-full") as console_input_container:
+                        state["console_terminal"] = console_input_widget.create_console_input_widget(state)
+
+            def _set_console_input_visible(mode: str) -> None:
+                if mode == "OB":
+                    console_input_container.classes(remove="hidden")
+                else:
+                    console_input_container.classes(add="hidden")
+
+            state["plot_refreshers"].append(_set_console_input_visible)
+            _set_console_input_visible(state.get("mode", "OB"))
 
             def _set_footer_open(open_state: bool) -> None:
                 """Set the footer open or closed, showing or hiding its content and updating the toggle button icon."""
