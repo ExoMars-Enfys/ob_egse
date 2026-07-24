@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from widget_modules import ui_runtime_controller as urc
 
 
@@ -105,3 +107,149 @@ def test_perform_hk_check_detects_non_zero_error_and_fdir_fields() -> None:
     assert any("ERROR_FLAGS not 0" in detail for detail in result["details"])
     assert any("FDIR_ALARM_FLAGS not 0" in detail for detail in result["details"])
     assert any("FDIR_WARNING_FLAGS not 0" in detail for detail in result["details"])
+
+
+# ---------------------------------------------------------------------------
+# Additional alarm lifecycle and HK/POST validation coverage
+# ---------------------------------------------------------------------------
+
+def _valid_hk() -> SimpleNamespace:
+    return SimpleNamespace(
+        EB_MEAS_MAIN_12V=round(12.0 / 0.000400543),
+        EB_MEAS_MAIN_NEG12V=round(-12.0 / -0.00038147),
+        EB_MEAS_5V=round(5.0 / 0.000152829),
+        EB_MEAS_3V3=round(3.3 / 0.0000763),
+        EB_MEAS_TEC_RAIL=0,
+        EB_0V_ADC_READING=0,
+        EB_TEC_DRIVE_CURRENT=0,
+        TCS_REJECTED=0,
+        INSTRUMENT_STATUS_FLAGS=25604,
+        ERROR_FLAGS=0,
+        WARNING_FLAGS=0,
+        FDIR_ALARM_FLAGS=0,
+        FDIR_WARNING_FLAGS=0,
+    )
+
+
+def _valid_post(**overrides) -> SimpleNamespace:
+    values = {
+        "POST_WARNING_FLAGS": 0,
+        "POST_ERROR_FLAGS": 0,
+        "NUM_BAD_FLASH_BLOCKS": 0,
+        "NUM_BAD_SRAM_BLOCKS": 0,
+        "ASW_IMAGE_1_CRC": 0x2B22,
+        "ASW_IMAGE_2_CRC": 0xD46C,
+        "ASW_IMAGE_3_CRC": 0x8156,
+        "ASW_IMAGE_4_CRC": 0x0696,
+        "ASW_IMAGE_5_CRC": 0x6FEB,
+        "BSW_IMAGE_CRC": 0xD2D7,
+        "MEASUREMENT_TABLE_CRC": 0xF624,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_alarm_detail_helpers_handle_missing_namespaces() -> None:
+    hk = SimpleNamespace(
+        TCS_REJECTED=0,
+        WARNING_FLAGS_BITS=None,
+        FDIR_ALARM_FLAGS_BITS=None,
+        FDIR_WARNING_FLAGS_BITS=None,
+        ERRORS=None,
+        MTR_ERRORS=None,
+    )
+
+    assert urc.ob_alarm_details(hk) == []
+    assert urc.eb_alarm_details(hk) == []
+
+
+def test_alarm_detail_is_logged_again_after_clear_and_retrigger() -> None:
+    state = {}
+    logger = _DummyLogger()
+    detail = "OB FDIR Alarm: DIGITAL_BOARD_TRP"
+
+    urc.log_new_hk_alarm_details(state, logger, channel="ob", details=[detail])
+    urc.log_new_hk_alarm_details(state, logger, channel="ob", details=[])
+    urc.log_new_hk_alarm_details(state, logger, channel="ob", details=[detail])
+
+    assert sum("alarm raised" in message for message in logger.errors) == 2
+
+
+def test_perform_hk_check_reports_missing_hk() -> None:
+    result = urc.perform_hk_check(hk=None, hk_type="hk")
+
+    assert result == {"passed": False, "details": ["No HK data available."]}
+
+
+def test_perform_hk_check_accepts_valid_hk() -> None:
+    result = urc.perform_hk_check(hk=_valid_hk(), hk_type="hk")
+
+    assert result == {"passed": True, "details": []}
+
+
+def test_perform_hk_check_reports_missing_required_field() -> None:
+    hk = _valid_hk()
+    del hk.EB_MEAS_MAIN_12V
+
+    result = urc.perform_hk_check(hk=hk, hk_type="hk")
+
+    assert result["passed"] is False
+    assert any("Missing HK field" in detail for detail in result["details"])
+
+
+def test_perform_hk_check_reports_none_value_without_conversion_error() -> None:
+    hk = _valid_hk()
+    hk.EB_MEAS_3V3 = None
+
+    result = urc.perform_hk_check(hk=hk, hk_type="hk")
+
+    assert result["passed"] is False
+    assert "EB_MEAS_3V3 is None" in result["details"]
+
+
+def test_perform_post_check_reports_missing_post() -> None:
+    result = urc.perform_hk_check(post=None, hk_type="post")
+
+    assert result == {"passed": False, "details": ["No POST data available."]}
+
+
+def test_perform_post_check_accepts_valid_crc_and_status_fields() -> None:
+    result = urc.perform_hk_check(post=_valid_post(), hk_type="post")
+
+    assert result == {"passed": True, "details": []}
+
+
+def test_perform_post_check_reports_each_failed_status_or_crc() -> None:
+    post = _valid_post(
+        POST_WARNING_FLAGS=1,
+        POST_ERROR_FLAGS=2,
+        NUM_BAD_FLASH_BLOCKS=3,
+        NUM_BAD_SRAM_BLOCKS=4,
+        ASW_IMAGE_1_CRC=0,
+        MEASUREMENT_TABLE_CRC=0,
+    )
+
+    result = urc.perform_hk_check(post=post, hk_type="post")
+
+    assert result["passed"] is False
+    assert any("POST_WARNING_FLAGS: 1" in detail for detail in result["details"])
+    assert any("POST_ERROR_FLAGS: 2" in detail for detail in result["details"])
+    assert any("NUM_BAD_FLASH_BLOCKS: 3" in detail for detail in result["details"])
+    assert any("NUM_BAD_SRAM_BLOCKS: 4" in detail for detail in result["details"])
+    assert any("ASW_IMAGE_1_CRC: 0x0000" in detail for detail in result["details"])
+    assert any("MEASUREMENT_TABLE_CRC: 0x0000" in detail for detail in result["details"])
+
+
+def test_perform_post_check_reports_conversion_error() -> None:
+    post = _valid_post(TM_12V="not-numeric")
+
+    result = urc.perform_hk_check(post=post, hk_type="post")
+
+    assert result["passed"] is False
+    assert any("POST conversion error" in detail for detail in result["details"])
+
+
+def test_perform_hk_check_rejects_unknown_check_type() -> None:
+    result = urc.perform_hk_check(hk_type="unknown")
+
+    assert result == {"passed": False, "details": ["Unknown hk_type: unknown"]}

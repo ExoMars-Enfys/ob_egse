@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import math
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -38,28 +40,49 @@ class ConsoleInputController:
     command_input: Any
 
 
+_HEX_INTEGER_RE = re.compile(r"^[+-]?0[xX][0-9a-fA-F]+$")
+_DECIMAL_INTEGER_RE = re.compile(r"^[+-]?[0-9]+$")
+_DECIMAL_FLOAT_RE = re.compile(r"^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?$")
+
+
+def _parse_command_token(token: str) -> Any:
+    """Parse one console parameter using explicit operator-friendly rules.
+
+    * ``0x``/``0X`` prefixed values are hexadecimal integers.
+    * Digit-only values are decimal integers, including leading-zero forms
+      such as ``03``.
+    * Decimal-point or scientific-notation values are floats.
+    * Booleans and quoted/container literals retain the previous behaviour.
+    """
+    stripped = str(token).strip()
+    lower = stripped.lower()
+
+    if lower in {"true", "false"}:
+        return lower == "true"
+
+    if _HEX_INTEGER_RE.fullmatch(stripped):
+        return int(stripped, 16)
+
+    if _DECIMAL_INTEGER_RE.fullmatch(stripped):
+        return int(stripped, 10)
+
+    if _DECIMAL_FLOAT_RE.fullmatch(stripped) and ("." in stripped or "e" in lower):
+        value = float(stripped)
+        if math.isfinite(value):
+            return value
+
+    try:
+        return ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        return stripped
+
+
 def _parse_command_params(raw_text: str) -> list[Any]:
     text = str(raw_text or "").strip()
     if not text:
         return []
 
-    values: list[Any] = []
-    for token in [part.strip() for part in text.split(",") if part.strip()]:
-        lower = token.lower()
-        if lower in {"true", "false"}:
-            values.append(lower == "true")
-            continue
-        try:
-            values.append(int(token, 0))
-            continue
-        except ValueError:
-            pass
-        try:
-            values.append(ast.literal_eval(token))
-            continue
-        except (ValueError, SyntaxError):
-            values.append(token)
-    return values
+    return [_parse_command_token(part) for part in (item.strip() for item in text.split(",")) if part]
 
 
 def create_console_input_widget(
@@ -117,6 +140,8 @@ def create_console_input_widget(
                     logger.error("Console send callback error: %s", exc)
         try:
             result = ui_runtime_controller.dispatch_ob_tc(state, _dispatch)
+            if result != "ERROR" and selected_command == "Clear_Errors":
+                ui_runtime_controller.reset_ob_fdir_simulator(state, logger)
             if logger is not None:
                 if result == "ERROR":
                     logger.error("Console command response: ERROR")
@@ -141,7 +166,7 @@ def create_console_input_widget(
 
         command_input = ui.input(
             label="Command parameters",
-            placeholder="Comma-separated params, e.g. 1, 2 or true, false",
+            placeholder="Comma-separated: 03 = decimal 3, 0x03 = hexadecimal 3",
         ).classes("grow")
 
         command_input.on("keydown.enter", lambda _e: _send_command())

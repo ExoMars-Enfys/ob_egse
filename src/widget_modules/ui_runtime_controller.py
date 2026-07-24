@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+import math
 import statistics
 import threading
 from types import SimpleNamespace
@@ -24,6 +25,8 @@ from utility_modules.eb_packet_utility import get_latest_hk, get_latest_psu, set
 # core
 from core_modules import tmstruct, constants as const
 from core_modules.constants import HEATER_INCLUSIVE_STATES, MODEL_CONSUMPTION
+
+from widget_modules import monitoring_limits
 
 info_log = logging.getLogger("info_log")
 
@@ -143,6 +146,482 @@ def violates_limits(value: float | None, limits: tuple[float | None, float | Non
 
 
 # endregion
+
+
+# ---------------------------------------------------------------------------
+# FDIR Simulator — limit checking
+# ---------------------------------------------------------------------------
+# region FDIR Simulator — limit checking
+ObFdirParameter = monitoring_limits.ObFdirParameter
+OB_FDIR_PARAMETERS = monitoring_limits.OB_FDIR_PARAMETERS
+
+
+def _ob_fdir_display_mode(state: dict[str, Any]) -> str:
+    """Return the active HK presentation mode used by logs and dialogs."""
+    mode = str(
+        state.get("hk_display_mode")
+        or getattr(_nicegui_app.state, "hk_display_mode", "REAL")
+        or "REAL"
+    ).upper()
+    return "ADU" if mode == "ADU" else "REAL"
+
+
+def _format_ob_fdir_number(value: Any, unit: str) -> str:
+    """Format one FDIR engineering value without unnecessary trailing zeros."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if not math.isfinite(numeric):
+        return "N/A"
+    if unit == "V":
+        return f"{numeric:.3f}"
+    if unit == "°C":
+        return f"{numeric:.1f}"
+    return f"{numeric:g}"
+
+
+def _ob_fdir_real_value(parameter: ObFdirParameter, adu: int | None) -> float | None:
+    """Convert one normalised standalone-OB ADU to its engineering value."""
+    if adu is None:
+        return None
+    packet = SimpleNamespace(**{parameter.hk_field: int(adu)})
+    # decode_plot_field is defined later in this module; it is available when
+    # telemetry processing calls this helper after module initialisation.
+    return decode_plot_field(packet, parameter.hk_field, {"hk_display_mode": "REAL"})
+
+
+def _format_ob_fdir_measurement(
+    state: dict[str, Any],
+    parameter: ObFdirParameter,
+    adu: int | None,
+    severity: str,
+) -> str:
+    """Format value and limits in the operator-selected REAL/ADU mode."""
+    is_alarm = str(severity).lower() == "alarm"
+    limit_label = "alarm limits" if is_alarm else "warning limits"
+
+    if _ob_fdir_display_mode(state) == "ADU":
+        limits = parameter.alarm_limits if is_alarm else parameter.warning_limits
+        value_text = "N/A" if adu is None else str(int(adu))
+        return (
+            f"{parameter.hk_field}={value_text} ADU, "
+            f"{limit_label}=({int(limits[0])}, {int(limits[1])}) ADU"
+        )
+
+    limits_real = parameter.alarm_limits_real if is_alarm else parameter.warning_limits_real
+    real_value = _ob_fdir_real_value(parameter, adu)
+    value_text = _format_ob_fdir_number(real_value, parameter.real_unit)
+    low_text = _format_ob_fdir_number(limits_real[0], parameter.real_unit)
+    high_text = _format_ob_fdir_number(limits_real[1], parameter.real_unit)
+    return (
+        f"{parameter.hk_field}={value_text} {parameter.real_unit}, "
+        f"{limit_label}=({low_text}, {high_text}) {parameter.real_unit}"
+    )
+
+
+def _ob_fdir_simulator_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Return persistent standalone-OB FDIR simulator state.
+
+    Warning and alarm flags are independently latched, matching the two FDIR
+    bitmaps reported by EB telemetry. They remain asserted after the analogue
+    value returns in range and are cleared only by reset_ob_fdir_simulator().
+    """
+    simulator = state.setdefault("ob_fdir_simulator", {})
+    simulator.setdefault("enabled", True)
+    simulator.setdefault("warning_latched", set())
+    simulator.setdefault("alarm_latched", set())
+    simulator.setdefault("current_warning", set())
+    simulator.setdefault("current_alarm", set())
+    simulator.setdefault("latest_adu", {})
+
+    # Be tolerant of state restored from JSON-like storage.
+    for key in ("warning_latched", "alarm_latched", "current_warning", "current_alarm"):
+        if not isinstance(simulator.get(key), set):
+            simulator[key] = set(simulator.get(key) or [])
+    if not isinstance(simulator.get("latest_adu"), dict):
+        simulator["latest_adu"] = {}
+    return simulator
+
+
+def _ob_fdir_bitmask(flag_names: set[str]) -> int:
+    """Build the aggregate bitmap using tmstruct.eb_fdir_flags ordering."""
+    mask = 0
+    for bit_index, flag_name in enumerate(_FDIR_NAMES):
+        if flag_name in flag_names:
+            mask |= 1 << bit_index
+    return mask
+
+
+def _attach_simulated_ob_fdir_fields(
+    hk: Any,
+    warning_latched: set[str],
+    alarm_latched: set[str],
+) -> None:
+    """Expose simulated fields on standalone OB HK packets when mutable."""
+    warning_ns = SimpleNamespace(**{name: int(name in warning_latched) for name in _FDIR_NAMES})
+    alarm_ns = SimpleNamespace(**{name: int(name in alarm_latched) for name in _FDIR_NAMES})
+    try:
+        hk.FDIR_WARNING_FLAGS_BITS = warning_ns
+        hk.FDIR_ALARM_FLAGS_BITS = alarm_ns
+        hk.FDIR_WARNING_FLAGS = _ob_fdir_bitmask(warning_latched)
+        hk.FDIR_ALARM_FLAGS = _ob_fdir_bitmask(alarm_latched)
+    except (AttributeError, TypeError):
+        # Alarm-light simulation still works even for immutable packet objects.
+        pass
+
+
+_OB_VOLTAGE_FDIR_FLAGS = {"FPGA_IO_POWER_SUPPLY", "FPGA_CORE_POWER_SUPPLY"}
+_OB_THERMISTOR_FDIR_FLAGS = {
+    "DIGITAL_BOARD_TRP",
+    "DETECTOR_BOARD_TRP",
+    "MECH_BOARD_TRP",
+    "MOTOR_TRP",
+}
+
+
+def _ob_psu_protection_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Return persistent OB PSU protection/action state."""
+    protection = state.setdefault(
+        "ob_psu_protection",
+        {
+            "shutdown_in_progress": False,
+            "shutdown_latched": False,
+            "last_shutdown_reason": [],
+            "last_error": None,
+            "pending_prompt_details": set(),
+            "dialog": None,
+            "dialog_details_label": None,
+        },
+    )
+    protection.setdefault("shutdown_in_progress", False)
+    protection.setdefault("shutdown_latched", False)
+    protection.setdefault("last_shutdown_reason", [])
+    protection.setdefault("last_error", None)
+    protection.setdefault("pending_prompt_details", set())
+    protection.setdefault("dialog", None)
+    protection.setdefault("dialog_details_label", None)
+    return protection
+
+
+def _request_ob_psu_emergency_shutdown(
+    state: dict[str, Any],
+    logger: Any,
+    reasons: list[str],
+    *,
+    automatic: bool,
+) -> bool:
+    """Request a non-blocking PSU emergency shutdown once per protection latch."""
+    protection = _ob_psu_protection_state(state)
+    active_logger = logger if logger is not None else info_log
+
+    if protection.get("shutdown_latched") or protection.get("shutdown_in_progress"):
+        return False
+
+    psu_port = state.get("psu_port")
+    if psu_port is None:
+        message = "OB PSU shutdown requested, but no PSU port is available."
+        protection["last_error"] = message
+        active_logger.error(message)
+        notify(message, color="negative")
+        return False
+
+    protection["shutdown_in_progress"] = True
+    protection["last_shutdown_reason"] = list(reasons)
+    protection["last_error"] = None
+
+    dialog = protection.get("dialog")
+    if dialog is not None:
+        try:
+            dialog.close()
+        except Exception:
+            pass
+    protection["pending_prompt_details"] = set()
+
+    reason_text = "; ".join(reasons) if reasons else "OB protection trigger"
+    action_label = "automatic voltage-alarm shutdown" if automatic else "operator-confirmed shutdown"
+    active_logger.error("OB PSU %s requested: %s", action_label, reason_text)
+
+    def _shutdown_worker() -> None:
+        try:
+            lock = state.get("psu_lock")
+            lock_ctx = lock if lock is not None else nullcontext()
+            with lock_ctx:
+                psu.emergencyShutDown(psu_port)
+            protection["shutdown_latched"] = True
+            active_logger.error("OB PSU emergency shutdown executed: %s", reason_text)
+            notify("PSU emergency shutdown executed.\n" + reason_text, color="negative")
+        except Exception as exc:
+            protection["last_error"] = str(exc)
+            active_logger.exception("OB PSU emergency shutdown failed: %s", exc)
+            notify(f"PSU emergency shutdown failed: {exc}", color="negative")
+        finally:
+            protection["shutdown_in_progress"] = False
+
+    threading.Thread(target=_shutdown_worker, name="ob-psu-emergency-shutdown", daemon=True).start()
+    return True
+
+
+def _open_ob_psu_shutdown_dialog(state: dict[str, Any], logger: Any, details: list[str]) -> None:
+    """Ask the operator whether warning/error/thermistor conditions should shut down the PSU."""
+    if not details:
+        return
+
+    protection = _ob_psu_protection_state(state)
+    if protection.get("shutdown_latched") or protection.get("shutdown_in_progress"):
+        return
+
+    pending: set[str] = protection["pending_prompt_details"]
+    pending.update(str(detail) for detail in details if detail)
+    active_logger = logger if logger is not None else info_log
+
+    dialog = protection.get("dialog")
+    details_label = protection.get("dialog_details_label")
+
+    if dialog is None or details_label is None:
+        try:
+            with ui.dialog() as dialog:
+                with ui.card().classes("w-[34rem] max-w-full"):
+                    ui.label("OB protection condition").classes("font-bold egse-title warning-text")
+                    ui.label(
+                        "A thermistor condition, error, or warning has been raised. "
+                        "Shut down the PSU?"
+                    ).classes("egse-text")
+                    ui.separator()
+                    details_label = ui.label("").classes("whitespace-pre-wrap warning-text")
+                    with ui.row().classes("w-full justify-end gap-2"):
+
+                        def _keep_psu_on() -> None:
+                            retained = sorted(protection["pending_prompt_details"])
+                            protection["pending_prompt_details"] = set()
+                            active_logger.warning(
+                                "Operator kept PSU on after OB protection prompt: %s",
+                                "; ".join(retained),
+                            )
+                            dialog.close()
+
+                        def _confirm_shutdown() -> None:
+                            confirmed = sorted(protection["pending_prompt_details"])
+                            protection["pending_prompt_details"] = set()
+                            dialog.close()
+                            _request_ob_psu_emergency_shutdown(
+                                state,
+                                active_logger,
+                                confirmed,
+                                automatic=False,
+                            )
+
+                        ui.button("Keep PSU on", on_click=_keep_psu_on).props("outline")
+                        ui.button("Shut down PSU", on_click=_confirm_shutdown).classes("error-text")
+
+            protection["dialog"] = dialog
+            protection["dialog_details_label"] = details_label
+        except Exception as exc:
+            active_logger.exception("Could not open OB PSU shutdown confirmation dialog: %s", exc)
+            notify(
+                "OB protection condition requires PSU shutdown confirmation:\n"
+                + "\n".join(f"• {detail}" for detail in sorted(pending)),
+                color="warning",
+            )
+            return
+
+    details_label.set_text("\n".join(f"• {detail}" for detail in sorted(pending)))
+    active_logger.warning("OB PSU shutdown confirmation requested: %s", "; ".join(sorted(pending)))
+    try:
+        dialog.open()
+    except Exception as exc:
+        active_logger.exception("Could not open OB PSU shutdown confirmation dialog: %s", exc)
+
+
+def _reset_ob_psu_protection_actions(state: dict[str, Any]) -> None:
+    """Reset trigger de-duplication state without changing the physical PSU state."""
+    protection = _ob_psu_protection_state(state)
+    protection["shutdown_in_progress"] = False
+    protection["shutdown_latched"] = False
+    protection["last_shutdown_reason"] = []
+    protection["last_error"] = None
+    protection["pending_prompt_details"] = set()
+    dialog = protection.get("dialog")
+    if dialog is not None:
+        try:
+            dialog.close()
+        except Exception:
+            pass
+
+
+def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list[str]:
+    """Evaluate and latch standalone-OB FDIR warning/alarm conditions.
+
+    Classification is mutually exclusive for each parameter:
+
+    * inside warning limits: no new FDIR
+    * outside warning but inside alarm limits: warning
+    * outside alarm limits: alarm
+
+    Alarm severity supersedes a previously latched warning for the same
+    parameter.  Latches remain asserted until reset_ob_fdir_simulator().
+    """
+    simulator = _ob_fdir_simulator_state(state)
+    if not bool(simulator.get("enabled", True)):
+        simulator["current_warning"] = set()
+        simulator["current_alarm"] = set()
+        _attach_simulated_ob_fdir_fields(hk, set(), set())
+        return []
+
+    warning_latched: set[str] = simulator["warning_latched"]
+    alarm_latched: set[str] = simulator["alarm_latched"]
+    previous_warning = set(warning_latched)
+    previous_alarm = set(alarm_latched)
+    current_warning: set[str] = set()
+    current_alarm: set[str] = set()
+    latest_adu: dict[str, int] = {}
+
+    for parameter in OB_FDIR_PARAMETERS:
+        adu = _ob_adc12(getattr(hk, parameter.hk_field, None))
+        if adu is None:
+            continue
+        latest_adu[parameter.flag_name] = adu
+
+        outside_alarm = violates_limits(float(adu), parameter.alarm_limits)
+        outside_warning = violates_limits(float(adu), parameter.warning_limits)
+
+        if outside_alarm:
+            current_alarm.add(parameter.flag_name)
+            alarm_latched.add(parameter.flag_name)
+            # Alarm dominates the warning presentation for this parameter.
+            warning_latched.discard(parameter.flag_name)
+        elif outside_warning:
+            current_warning.add(parameter.flag_name)
+            if parameter.flag_name not in alarm_latched:
+                warning_latched.add(parameter.flag_name)
+
+    simulator["current_warning"] = current_warning
+    simulator["current_alarm"] = current_alarm
+    simulator["latest_adu"] = latest_adu
+
+    new_warning = warning_latched - previous_warning
+    new_alarm = alarm_latched - previous_alarm
+    active_logger = logger if logger is not None else info_log
+    parameter_by_flag = {parameter.flag_name: parameter for parameter in OB_FDIR_PARAMETERS}
+
+    warning_messages: list[str] = []
+    for flag_name in sorted(new_warning):
+        parameter = parameter_by_flag[flag_name]
+        measurement = _format_ob_fdir_measurement(
+            state,
+            parameter,
+            latest_adu.get(flag_name),
+            "warning",
+        )
+        message = f"{flag_name} ({measurement})"
+        warning_messages.append(message)
+        active_logger.warning("OB simulated FDIR warning latched: %s", message)
+
+    alarm_messages: list[str] = []
+    for flag_name in sorted(new_alarm):
+        parameter = parameter_by_flag[flag_name]
+        measurement = _format_ob_fdir_measurement(
+            state,
+            parameter,
+            latest_adu.get(flag_name),
+            "alarm",
+        )
+        message = f"{flag_name} ({measurement})"
+        alarm_messages.append(message)
+        active_logger.error("OB simulated FDIR alarm latched: %s", message)
+
+    if warning_messages:
+        notify(
+            "OB FDIR warning latched:\n" + "\n".join(f"• {message}" for message in warning_messages),
+            color="warning",
+        )
+    if alarm_messages:
+        notify(
+            "OB FDIR alarm latched:\n" + "\n".join(f"• {message}" for message in alarm_messages),
+            color="negative",
+        )
+
+    # PSU protection policy for standalone OB FDIR simulation:
+    #   * voltage alarms shut down immediately;
+    #   * every warning and every thermistor alarm asks the operator first.
+    voltage_alarm_flags = sorted(new_alarm & _OB_VOLTAGE_FDIR_FLAGS)
+    if voltage_alarm_flags:
+        shutdown_reasons = []
+        for flag_name in voltage_alarm_flags:
+            parameter = parameter_by_flag[flag_name]
+            measurement = _format_ob_fdir_measurement(
+                state,
+                parameter,
+                latest_adu.get(flag_name),
+                "alarm",
+            )
+            shutdown_reasons.append(f"OB voltage alarm: {flag_name} ({measurement})")
+        _request_ob_psu_emergency_shutdown(
+            state,
+            active_logger,
+            shutdown_reasons,
+            automatic=True,
+        )
+    else:
+        prompt_reasons: list[str] = []
+        for flag_name in sorted(new_warning):
+            parameter = parameter_by_flag[flag_name]
+            measurement = _format_ob_fdir_measurement(
+                state,
+                parameter,
+                latest_adu.get(flag_name),
+                "warning",
+            )
+            prompt_reasons.append(f"OB FDIR warning: {flag_name} ({measurement})")
+        for flag_name in sorted(new_alarm & _OB_THERMISTOR_FDIR_FLAGS):
+            parameter = parameter_by_flag[flag_name]
+            measurement = _format_ob_fdir_measurement(
+                state,
+                parameter,
+                latest_adu.get(flag_name),
+                "alarm",
+            )
+            prompt_reasons.append(f"OB thermistor alarm: {flag_name} ({measurement})")
+        _open_ob_psu_shutdown_dialog(state, active_logger, prompt_reasons)
+
+    _attach_simulated_ob_fdir_fields(hk, warning_latched, alarm_latched)
+    return simulated_ob_fdir_details(state)
+
+def simulated_ob_fdir_details(state: dict[str, Any]) -> list[str]:
+    """Return display strings for all latched standalone-OB FDIRs."""
+    simulator = _ob_fdir_simulator_state(state)
+    warning_latched = set(simulator.get("warning_latched") or set())
+    alarm_latched = set(simulator.get("alarm_latched") or set())
+    details = [f"OB FDIR Alarm: {name} (simulated, latched)" for name in sorted(alarm_latched)]
+    details.extend(f"OB FDIR Warning: {name} (simulated, latched)" for name in sorted(warning_latched))
+    return details
+
+
+def reset_ob_fdir_simulator(state: dict[str, Any], logger: Any = None) -> None:
+    """Clear all simulated OB FDIR latches after a successful Clear_Errors TC."""
+    simulator = _ob_fdir_simulator_state(state)
+    had_latches = bool(simulator["warning_latched"] or simulator["alarm_latched"])
+    simulator["warning_latched"].clear()
+    simulator["alarm_latched"].clear()
+    simulator["current_warning"].clear()
+    simulator["current_alarm"].clear()
+    simulator["latest_adu"].clear()
+    _reset_ob_psu_protection_actions(state)
+
+    ob_light = (state.get("alarm_lights") or {}).get("ob")
+    if ob_light is not None:
+        reset_acknowledgements = getattr(ob_light, "reset_acknowledgements", None)
+        if callable(reset_acknowledgements):
+            reset_acknowledgements()
+        update_from_faults = getattr(ob_light, "update_from_faults", None)
+        if callable(update_from_faults):
+            update_from_faults({}, source="ob_fdir_sim")
+
+    if had_latches:
+        (logger if logger is not None else info_log).info("OB simulated FDIR latches cleared.")
+        notify("OB simulated FDIR latches cleared.", color="positive")
+
+# end region
 
 
 # ---------------------------------------------------------------------------
@@ -576,8 +1055,28 @@ def create_poll_psu(*, state: dict[str, Any], const: Any, psu_cards: list[Any]) 
 # TM helpers
 
 
-_OB_TRP_FIELDS = tuple(name for name in ("OB_DIGITAL_TRP", "OB_DETECTOR_TRP", "OB_MECHANISM_TRP", "OB_MOTOR_TRP"))
-_VOLTAGE_3V3_FIELDS = tuple(name for name in ("OB_3V3_VOLTAGE", "EB_MEAS_3V3"))
+_NATIVE_OB_TRP_FIELDS = (
+    "DIGITAL_TRP",
+    "DETEC_TRP",
+    "MECH_TRP",
+    "MOTOR_TRP",
+)
+
+_NATIVE_OB_ADC12_FIELDS = {
+    "HK_V_3V3",
+    "HK_V_1V5",
+    "DIGITAL_TRP",
+    "DETEC_TRP",
+    "MECH_TRP",
+    "MOTOR_TRP",
+}
+
+_EB_OB_TRP_FIELDS = (
+    "OB_DIGITAL_TRP",
+    "OB_DETECTOR_TRP",
+    "OB_MECHANISM_TRP",
+    "OB_MOTOR_TRP",
+)
 _WARNING_NAMES = [name for name, _ in tmstruct.eb_warning_flags]
 _FDIR_NAMES = [name for name, _ in tmstruct.eb_fdir_flags]
 _OB_WARNING_FLAGS = {
@@ -1740,24 +2239,104 @@ def any_flag(flag_ns: Any) -> bool:
     return bool(flag_ns) and any(bool(value) for value in flag_ns.__dict__.values())
 
 
-def decode_tuple(packet: Any, field_names: tuple[str, ...], state: dict[str, Any] | None = None) -> list[float] | None:
+def _ob_adc12(raw: Any) -> int | None:
+    """Normalise a standalone OB ADC field to a 12-bit ADU value.
+
+    Native ``tmstruct.hk`` packets normally expose the ADC as an already
+    normalised 0..4095 value.  The fallback also accepts a 16-bit left-aligned
+    representation used by some older decoders.
+    """
+    try:
+        raw_value = int(raw)
+    except (TypeError, ValueError):
+        return None
+
+    if 0 <= raw_value <= 0x0FFF:
+        return raw_value
+    if 0 <= raw_value <= 0xFFFF:
+        return (raw_value >> 4) & 0x0FFF
+    return raw_value & 0x0FFF
+
+
+def decode_plot_field(
+    packet: Any,
+    field_name: str,
+    state: dict[str, Any] | None = None,
+) -> float | None:
+    raw = getattr(packet, field_name, None)
+    if raw is None:
+        return None
+
     display_mode = str(
         (state or {}).get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL")
     ).upper()
-    values: list[float] = []
-    for name in field_names:
-        if display_mode == "ADU":
-            value = getattr(packet, name, None)
-            if value is None:
-                return None
-        else:
-            value = hk_conversions.decode_field(packet, name)
-        if value is None:
+
+    # Native standalone OB analogue fields must be normalised before conversion.
+    if field_name in _NATIVE_OB_ADC12_FIELDS:
+        adu = _ob_adc12(raw)
+        if adu is None:
             return None
+
+        if display_mode == "ADU":
+            return float(adu)
+
         try:
-            values.append(float(value))
+            if field_name == "HK_V_3V3":
+                value = adu * 4.05 / 4095.0 * 2.0
+
+            elif field_name == "HK_V_1V5":
+                value = adu * 4.05 / 4095.0
+
+            elif field_name in {
+                "DIGITAL_TRP",
+                "DETEC_TRP",
+                "MECH_TRP",
+                "MOTOR_TRP",
+            }:
+                # Endpoint ADC values normally cannot produce a valid
+                # thermistor resistance/temperature.
+                if adu <= 0 or adu >= 4095:
+                    return None
+
+                value = float(eb_packet_utility.adu_to_temp(adu))
+
+            else:
+                return None
+
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+            return None
+
+        return float(value) if math.isfinite(float(value)) else None
+
+    # Existing EB conversion path.
+    if display_mode == "ADU":
+        try:
+            return float(raw)
         except (TypeError, ValueError):
             return None
+
+    try:
+        value = hk_conversions.decode_field(packet, field_name)
+        value = float(value)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+
+    return value if math.isfinite(value) else None
+
+
+def decode_tuple(
+    packet: Any,
+    field_names: tuple[str, ...],
+    state: dict[str, Any] | None = None,
+) -> list[float] | None:
+    values: list[float] = []
+
+    for field_name in field_names:
+        value = decode_plot_field(packet, field_name, state)
+        if value is None:
+            return None
+        values.append(value)
+
     return values
 
 
@@ -1788,8 +2367,8 @@ _MMS_FIELDS = (
     ("EB Internal TRP", "EB_INTERNAL_TRP_TEMP", "eb_internal_trp_temp", False),
     ("EB PSU TRP", "EB_PSU_BOARD_TEMP", "eb_psu_trp_temp", False),
     ("EB TEC rail", "EB_MEAS_TEC_RAIL", "eb_tec_rail_v", True),
-    ("OB FPGA Core", "OB_3V3_VOLTAGE", "ob_fpga_core_v", False),
-    ("OB FPGA IO", "OB_1V5_VOLTAGE", "ob_fpga_io_v", False),
+    ("OB FPGA I/O", "OB_3V3_VOLTAGE", "ob_fpga_io_v", False),
+    ("OB FPGA Core", "OB_1V5_VOLTAGE", "ob_fpga_core_v", False),
     ("OB DIG TRP", "OB_DIGITAL_TRP", "ob_digital_trp", False),
     ("OB DET TRP", "OB_DETECTOR_TRP", "ob_detector_trp", False),
     ("OB MECH TRP", "OB_MECHANISM_TRP", "ob_mechanism_trp", False),
@@ -1844,15 +2423,39 @@ def ob_alarm_details(hk: Any) -> list[str]:
 
 def update_hk_alarm_lights(state: dict[str, Any], hk: Any, logger: Any) -> None:
     alarm_lights = state.get("alarm_lights") or {}
+    mode = str(state.get("mode", "EB")).upper()
+
+    # In standalone OB mode, FDIR bitmaps are simulated from native OB ADCs.
+    # Keep packet-reported errors and simulated FDIR latches as separate light
+    # sources so Clear_Errors can reset only the simulator source.
     ob_details = ob_alarm_details(hk)
+    simulated_details = simulated_ob_fdir_details(state) if mode == "OB" else []
+    if mode == "OB":
+        ob_details = [detail for detail in ob_details if "OB FDIR " not in detail]
     eb_details = eb_alarm_details(hk)
 
     active_logger = logger if logger is not None else info_log
+    active_details = state.setdefault("hk_active_alarm_details", {"ob": set(), "eb": set()})
+    previous_ob_details = set(active_details.get("ob", set()))
+    newly_raised_ob_details = sorted(set(ob_details) - previous_ob_details)
+
+    # Simulated latches are logged with their raw ADU and limits when first
+    # asserted by simulate_ob_fdir(); avoid emitting a second generic log here.
     log_new_hk_alarm_details(state, active_logger, "ob", ob_details)
     log_new_hk_alarm_details(state, active_logger, "eb", eb_details)
 
+    # Native OB warnings and error flags never shut the PSU down automatically.
+    # They ask the operator once when newly asserted. Simulated FDIR warnings
+    # and thermistor alarms are handled directly by simulate_ob_fdir().
+    if mode == "OB" and newly_raised_ob_details:
+        _open_ob_psu_shutdown_dialog(state, active_logger, newly_raised_ob_details)
+
     if "ob" in alarm_lights:
         alarm_lights["ob"].update_from_faults({detail: True for detail in ob_details}, source="hk")
+        alarm_lights["ob"].update_from_faults(
+            {detail: True for detail in simulated_details},
+            source="ob_fdir_sim",
+        )
     if "eb" in alarm_lights:
         alarm_lights["eb"].update_from_faults({detail: True for detail in eb_details}, source="hk")
 
@@ -1861,16 +2464,25 @@ def update_packet_viewer(
     mode: str, packet_viewer_controllers: dict[str, Any], hk: Any, packet_list_controller: Any = None
 ) -> None:
     packet_type = "OB_HK" if mode == "OB" else "EB_HK"
-    packet_viewer_controllers[packet_type].update_from_packet(hk)
+    viewer = packet_viewer_controllers.get(packet_type)
+    if viewer is None:
+        return
+    # Route each HK packet popped from const.hk_queue directly to the active HK viewer profile.
+    viewer.update_from_packet(packet_type, hk)
 
     # Add to packet list if available
     if packet_list_controller is not None:
-        packet_data = hk.__dict__ if hasattr(hk, "__dict__") else (dict(hk) if isinstance(hk, dict) else {})
+        packet_data = hk.__dict__
         label = f"TM: {packet_type}"
         packet_list_controller.add_packet(packet_type, packet_data, label)
 
 
-def update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_card: Any) -> None:
+def update_plot_cards(
+    state: dict[str, Any],
+    hk: Any,
+    trp_card: Any,
+    voltage_card: Any,
+) -> None:
     time_value = getattr(hk, "TIME", None)
     if time_value is None:
         return
@@ -1880,21 +2492,72 @@ def update_plot_cards(state: dict[str, Any], hk: Any, trp_card: Any, voltage_car
     if replay.get("hk_anchor") is None:
         replay["hk_anchor"] = time_value
 
+    mode = str(state.get("mode", "EB")).upper()
+
+    if mode == "OB":
+        # Receiving a standalone OB HK packet proves that the OB stream is alive.
+        trp_card.set_stream_enabled(True)
+        voltage_card.set_stream_enabled(True)
+
+        trp_values = decode_tuple(hk, _NATIVE_OB_TRP_FIELDS, state)
+        if trp_values is not None:
+            trp_card.push(
+                [time_value],
+                [[value] for value in trp_values],
+            )
+
+        ob_3v3 = decode_plot_field(hk, "HK_V_3V3", state)
+        ob_1v5 = decode_plot_field(hk, "HK_V_1V5", state)
+        if ob_3v3 is not None or ob_1v5 is not None:
+            # The voltage card has three series: OB 3V3, OB 1V5 and EB 3V3.
+            # Do not update the EB series from a standalone OB packet.
+            voltage_card.push(
+                [time_value],
+                [
+                    [ob_3v3 if ob_3v3 is not None else float("nan")],
+                    [ob_1v5 if ob_1v5 is not None else float("nan")],
+                    [float("nan")],
+                ],
+            )
+
+        return
+
+    # EB mode uses the combined EB HK packet.
     instr_flags = getattr(hk, "INSTR_STATUS_FLAGS", None)
-    ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
+
+    if instr_flags is not None:
+        ob_enabled = bool(getattr(instr_flags, "OB_5V_ENABLED", 0))
+    else:
+        # Fallback for packets containing only the numeric flag field.
+        try:
+            numeric_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
+            ob_enabled = bool((numeric_flags >> 5) & 0x1)
+        except (TypeError, ValueError):
+            ob_enabled = False
+
     trp_card.set_stream_enabled(ob_enabled)
     voltage_card.set_stream_enabled(ob_enabled)
 
     if not ob_enabled:
         return
 
-    ob_trp_vals = decode_tuple(hk, _OB_TRP_FIELDS, state)
-    if ob_trp_vals is not None:
-        trp_card.push([time_value], [[v] for v in ob_trp_vals])
+    trp_values = decode_tuple(hk, _EB_OB_TRP_FIELDS, state)
+    if trp_values is not None:
+        trp_card.push(
+            [time_value],
+            [[value] for value in trp_values],
+        )
 
-    voltage_vals = decode_tuple(hk, _VOLTAGE_3V3_FIELDS, state)
-    if voltage_vals is not None:
-        voltage_card.push([time_value], [[v] for v in voltage_vals])
+    voltage_values = decode_tuple(
+        hk,
+        ("OB_3V3_VOLTAGE", "OB_1V5_VOLTAGE", "EB_MEAS_3V3"),
+        state,
+    )
+    if voltage_values is not None:
+        voltage_card.push(
+            [time_value],
+            [[value] for value in voltage_values],
+        )
 
 
 # endregion
@@ -1954,6 +2617,8 @@ def create_poll_tm(
             processed_hk = True
             hk = const.hk_queue.get()
             now = datetime.now()
+            if mode == "OB":
+                state["last_ob_tm_time"] = getattr(hk, "TIME", now)
             # Calculate time since last HK
             if last_hk_time is not None:
                 hk_delta = (now - last_hk_time).total_seconds()
@@ -1968,6 +2633,9 @@ def create_poll_tm(
 
             if not hasattr(hk, "TIME"):
                 hk.TIME = now
+
+            if mode == "OB":
+                simulate_ob_fdir(state, hk, logger)
 
             eb_metrics_card.update_from_packet(hk)
             ob_metrics_card.update_from_packet(hk)
@@ -2064,96 +2732,165 @@ def create_poll_tm(
                         label = "TM: Post"
                         packet_list_controller.add_packet("EB_POST", post_data, label)
 
-        # Process SCI packets: drain, dedupe by identity, append and increment per new unique SCI
+        # Process SCI packets from TM queues.
+        # EB SCI and OB SCI have different packet shapes, so we handle them separately.
         if not const.sci_queue.empty():
-            new_sci_packets = 0
-            required_sci_fields = (
-                "PACKET_NUMBER",
-                "SCI_POINT_COUNT",
-                "SCI_PACKET_CRITICALITY",
-            )
-            sci_packets = state.setdefault("sci_packets", [])
-            sci_packet_identities = state.setdefault("sci_packet_identities", set())
-            while not const.sci_queue.empty():
-                latest_sci = const.sci_queue.get()
-                if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
-                    logger.debug("Ignoring non-SCI packet in SCI queue")
-                    continue
-                if not hasattr(latest_sci, "TIME"):
-                    latest_sci.TIME = datetime.now()
-                # Build identity tuple (packet_number, criticality, point_count, first_abs_step, last_abs_step)
-                packet_number = getattr(latest_sci, "PACKET_NUMBER", None)
-                criticality = getattr(latest_sci, "SCI_PACKET_CRITICALITY", None)
-                point_count = int(getattr(latest_sci, "SCI_POINT_COUNT", 0) or 0)
-                first_abs_step = None
-                last_abs_step = None
-                sci_points = getattr(latest_sci, "SCI_POINTS", None)
-                if sci_points:
-                    first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
-                    last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
-                elif hasattr(latest_sci, "ABS_STEPS"):
-                    first_abs_step = getattr(latest_sci, "ABS_STEPS", None)
-                    last_abs_step = first_abs_step
-                sci_identity = (packet_number, criticality, point_count, first_abs_step, last_abs_step)
-                if sci_identity in sci_packet_identities:
-                    logger.debug("Ignoring duplicate science packet in SCI queue")
-                    continue
-                sci_packets.append(latest_sci)
-                sci_packet_identities.add(sci_identity)
-                counts["sci"] = int(counts.get("sci", 0)) + 1
-                new_sci_packets += 1
+            if mode == "OB":
+                new_ob_sci_packets = 0
+                latest_ob_sci = None
+                ob_recent_identities = state.setdefault("ob_sci_recent_identities", [])
+                ob_recent_identity_set = state.setdefault("ob_sci_recent_identity_set", set())
+                max_ob_recent_identities = int(state.get("ob_sci_dedupe_window", 128) or 128)
 
-            # Sort and trim buffer as legacy GUI
-            try:
-                sci_packets.sort(key=lambda p: int(getattr(p, "PACKET_NUMBER", 0)))
-            except Exception:
-                pass
+                while not const.sci_queue.empty():
+                    candidate = const.sci_queue.get()
+                    if not hasattr(candidate, "__dict__") and not isinstance(candidate, dict):
+                        logger.debug("Ignoring non-object packet in SCI queue")
+                        continue
 
-            max_sci_packets = 12
-            if len(sci_packets) > max_sci_packets:
-                del sci_packets[:-max_sci_packets]
+                    latest_sci = candidate
+                    if isinstance(latest_sci, dict):
+                        latest_sci.setdefault("TIME", datetime.now())
+                        state["last_ob_tm_time"] = latest_sci.get("TIME")
 
-            # Rebuild identity set from retained packets
-            state["sci_packet_identities"] = {
-                (
-                    getattr(p, "PACKET_NUMBER", None),
-                    getattr(p, "SCI_PACKET_CRITICALITY", None),
-                    int(getattr(p, "SCI_POINT_COUNT", 0) or 0),
-                    (
-                        getattr(p.SCI_POINTS[0], "ABS_STEPS", None)
-                        if getattr(p, "SCI_POINTS", None)
-                        else getattr(p, "ABS_STEPS", None)
-                    ),
-                    (
-                        getattr(p.SCI_POINTS[-1], "ABS_STEPS", None)
-                        if getattr(p, "SCI_POINTS", None)
-                        else getattr(p, "ABS_STEPS", None)
-                    ),
-                )
-                for p in sci_packets
-            }
+                        def _field(name: str) -> Any:
+                            return latest_sci.get(name)
 
-            if new_sci_packets > 0:
-                # Show latest in viewer if present
-                viewer_key = "OB_SCI" if mode == "OB" else "EB_SCI"
-                if viewer_key in packet_viewer_controllers and sci_packets:
+                    else:
+                        if not hasattr(latest_sci, "TIME"):
+                            latest_sci.TIME = datetime.now()
+                        state["last_ob_tm_time"] = getattr(latest_sci, "TIME", datetime.now())
+
+                        def _field(name: str) -> Any:
+                            return getattr(latest_sci, name, None)
+
+                    # OB SCI identity based on command counter and key measurement values.
+                    sci_identity = (
+                        "OB_SCI",
+                        _field("CMD_CNT"),
+                        _field("SWIR_HIGH"),
+                        _field("SWIR_MED"),
+                        _field("SWIR_LOW"),
+                        _field("MWIR_HIGH"),
+                        _field("MWIR_MED"),
+                        _field("MWIR_LOW"),
+                    )
+                    if sci_identity in ob_recent_identity_set:
+                        logger.debug("Ignoring duplicate OB science packet in SCI queue")
+                        continue
+
+                    ob_recent_identities.append(sci_identity)
+                    ob_recent_identity_set.add(sci_identity)
+                    if len(ob_recent_identities) > max_ob_recent_identities:
+                        expired = ob_recent_identities.pop(0)
+                        if expired not in ob_recent_identities:
+                            ob_recent_identity_set.discard(expired)
+
+                    latest_ob_sci = latest_sci
+                    counts["sci"] = int(counts.get("sci", 0)) + 1
+                    new_ob_sci_packets += 1
+
+                if new_ob_sci_packets > 0 and latest_ob_sci is not None and "OB_SCI" in packet_viewer_controllers:
                     try:
-                        latest_sci = sci_packets[-1]
-                        packet_viewer_controllers[viewer_key].update_from_packet(latest_sci)
+                        packet_viewer_controllers["OB_SCI"].update_from_packet(latest_ob_sci)
 
-                        # Add to packet list if available
                         packet_list_controller = state.get("packet_list_controller")
                         if packet_list_controller is not None:
                             sci_data = (
-                                latest_sci.__dict__
-                                if hasattr(latest_sci, "__dict__")
-                                else (dict(latest_sci) if isinstance(latest_sci, dict) else {})
+                                latest_ob_sci.__dict__
+                                if hasattr(latest_ob_sci, "__dict__")
+                                else (dict(latest_ob_sci) if isinstance(latest_ob_sci, dict) else {})
                             )
-                            packet_num = getattr(latest_sci, "PACKET_NUMBER", "")
-                            label = f"TM: Science (pkt {packet_num})" if packet_num else "TM: Science"
-                            packet_list_controller.add_packet(viewer_key, sci_data, label)
+                            packet_list_controller.add_packet("OB_SCI", sci_data, "TM: OB Science")
                     except Exception:
-                        logger.debug("Failed to update SCI packet viewer")
+                        logger.debug("Failed to update OB_SCI packet viewer")
+            else:
+                new_sci_packets = 0
+                required_sci_fields = (
+                    "PACKET_NUMBER",
+                    "SCI_POINT_COUNT",
+                    "SCI_PACKET_CRITICALITY",
+                )
+                sci_packets = state.setdefault("sci_packets", [])
+                sci_packet_identities = state.setdefault("sci_packet_identities", set())
+                while not const.sci_queue.empty():
+                    latest_sci = const.sci_queue.get()
+                    if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
+                        logger.debug("Ignoring non-SCI packet in SCI queue")
+                        continue
+                    if not hasattr(latest_sci, "TIME"):
+                        latest_sci.TIME = datetime.now()
+                    # Build identity tuple (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+                    packet_number = getattr(latest_sci, "PACKET_NUMBER", None)
+                    criticality = getattr(latest_sci, "SCI_PACKET_CRITICALITY", None)
+                    point_count = int(getattr(latest_sci, "SCI_POINT_COUNT", 0) or 0)
+                    first_abs_step = None
+                    last_abs_step = None
+                    sci_points = getattr(latest_sci, "SCI_POINTS", None)
+                    if sci_points:
+                        first_abs_step = getattr(sci_points[0], "ABS_STEPS", None)
+                        last_abs_step = getattr(sci_points[-1], "ABS_STEPS", None)
+                    elif hasattr(latest_sci, "ABS_STEPS"):
+                        first_abs_step = getattr(latest_sci, "ABS_STEPS", None)
+                        last_abs_step = first_abs_step
+                    sci_identity = (packet_number, criticality, point_count, first_abs_step, last_abs_step)
+                    if sci_identity in sci_packet_identities:
+                        logger.debug("Ignoring duplicate science packet in SCI queue")
+                        continue
+                    sci_packets.append(latest_sci)
+                    sci_packet_identities.add(sci_identity)
+                    counts["sci"] = int(counts.get("sci", 0)) + 1
+                    new_sci_packets += 1
+
+                # Sort and trim buffer as legacy GUI
+                try:
+                    sci_packets.sort(key=lambda p: int(getattr(p, "PACKET_NUMBER", 0)))
+                except Exception:
+                    pass
+
+                max_sci_packets = 12
+                if len(sci_packets) > max_sci_packets:
+                    del sci_packets[:-max_sci_packets]
+
+                # Rebuild identity set from retained packets
+                state["sci_packet_identities"] = {
+                    (
+                        getattr(p, "PACKET_NUMBER", None),
+                        getattr(p, "SCI_PACKET_CRITICALITY", None),
+                        int(getattr(p, "SCI_POINT_COUNT", 0) or 0),
+                        (
+                            getattr(p.SCI_POINTS[0], "ABS_STEPS", None)
+                            if getattr(p, "SCI_POINTS", None)
+                            else getattr(p, "ABS_STEPS", None)
+                        ),
+                        (
+                            getattr(p.SCI_POINTS[-1], "ABS_STEPS", None)
+                            if getattr(p, "SCI_POINTS", None)
+                            else getattr(p, "ABS_STEPS", None)
+                        ),
+                    )
+                    for p in sci_packets
+                }
+
+                if new_sci_packets > 0:
+                    if "EB_SCI" in packet_viewer_controllers and sci_packets:
+                        try:
+                            latest_sci = sci_packets[-1]
+                            packet_viewer_controllers["EB_SCI"].update_from_packet(latest_sci)
+
+                            # Add to packet list if available
+                            packet_list_controller = state.get("packet_list_controller")
+                            if packet_list_controller is not None:
+                                sci_data = (
+                                    latest_sci.__dict__
+                                    if hasattr(latest_sci, "__dict__")
+                                    else (dict(latest_sci) if isinstance(latest_sci, dict) else {})
+                                )
+                                packet_num = getattr(latest_sci, "PACKET_NUMBER", "")
+                                label = f"TM: Science (pkt {packet_num})" if packet_num else "TM: Science"
+                                packet_list_controller.add_packet("EB_SCI", sci_data, label)
+                        except Exception:
+                            logger.debug("Failed to update SCI packet viewer")
 
         packet_metrics_card.refresh()
 

@@ -10,15 +10,26 @@ from typing import Any
 
 
 def _extract_block_vars(text: str, selector: str) -> dict[str, str]:
-    """Return the CSS custom properties declared inside *selector* { … }."""
+    """Return all CSS custom properties declared by *selector*.
+
+    A stylesheet may contain several ``:root`` blocks for readability. All
+    matching blocks are merged in source order, so later declarations override
+    earlier declarations exactly as they do in CSS.
+    """
     pattern = re.compile(
         re.escape(selector) + r"\s*\{([^}]*)\}",
         re.DOTALL,
     )
-    match = pattern.search(text)
-    if not match:
-        return {}
-    return dict(re.findall(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+?)\s*;", match.group(1)))
+
+    variables: dict[str, str] = {}
+    for block in pattern.findall(text):
+        variables.update(
+            re.findall(
+                r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+?)\s*;",
+                block,
+            )
+        )
+    return variables
 
 
 def _resolve_vars(vars_dict: dict[str, str]) -> dict[str, str]:
@@ -39,67 +50,94 @@ def _resolve_vars(vars_dict: dict[str, str]) -> dict[str, str]:
 
 
 def load_css_vars(css_path: Path, theme: str = "dark") -> dict[str, str]:
-    """Parse *css_path* and return a flat dict of resolved CSS variable values
-    for the requested *theme* (``"dark"`` or ``"light"``).
+    """Load and resolve CSS variables for the requested theme.
 
-    The dict keys are variable names **without** the leading ``--``, e.g.
-    ``"primary-bg"``, ``"series-dig-trp"``.
+    Every ``:root`` block is merged first. The selected
+    ``body.theme-dark`` or ``body.theme-light`` block is then applied over the
+    root values.
+
+    Returned keys retain their CSS spelling without the leading ``--``.
+    For example, ``--plot-color-1`` becomes ``"plot-color-1"`` here.
     """
+    theme_name = str(theme).strip().lower()
+    if theme_name not in {"dark", "light"}:
+        raise ValueError(f"Unsupported theme {theme!r}; expected 'dark' or 'light'.")
+
     text = css_path.read_text(encoding="utf-8")
     root_vars = _extract_block_vars(text, ":root")
-    theme_vars = _extract_block_vars(text, f"body.theme-{theme}")
+    theme_vars = _extract_block_vars(text, f"body.theme-{theme_name}")
     merged = {**root_vars, **theme_vars}
     return _resolve_vars(merged)
 
 
-def get_theme_palette(gui_vars: dict[str, str], theme: str) -> dict[str, str]:
-    """Get a color palette based on the current theme and GUI variables."""
+def get_theme_palette(
+    gui_vars: dict[str, str],
+    theme: str,
+) -> dict[str, str]:
+    """Map resolved CSS variables to Python-friendly palette keys.
 
-    def _get(name: str) -> str | None:
-        return gui_vars.get(name)
+    All CSS variables are included automatically with hyphens converted to
+    underscores. Therefore ``--plot-color-1`` is available to Python as
+    ``palette["plot_color_1"]``.
 
-    # Return values directly from parsed CSS variables. No Python-side
-    # fallbacks or defaults: the CSS file is the single source of truth.
-    return {
-        "accent_color": _get("accent_color"),
-        "secondary_bg": _get("secondary-bg"),
-        "primary_bg": _get("primary-bg"),
-        "plot_bg": _get("plot-bg"),
-        "plot_text": _get("plot-axis"),
-        "plot_grid": _get("plot-grid"),
-        # Typography and sizes (read directly from CSS variables)
-        "ui_label_size": _get("ui-label-size"),
-        "metric_label_size": _get("metric-label-size"),
-        "metric_value_size": _get("metric-value-size"),
-        "heading_size": _get("heading-size"),
-        "heading_weight": _get("heading-weight"),
-        "body_font_family": _get("body-font-family"),
-        # Plot controls
-        "plot_font_size": _get("plot-font-size"),
-        "plot_footer_size": _get("plot-footer-size"),
-        "plot_linewidth": _get("plot-linewidth"),
-        "plot_grid_alpha": _get("plot-grid-alpha"),
-        "plot_grid_width": _get("plot-grid-width"),
-        "plot_tick_size": _get("plot-tick-size"),
-        "plot_fig_height_h40": _get("plot-fig-height-h40"),
-        "plot_fig_height_h60": _get("plot-fig-height-h60"),
-        "plot_spine": _get("plot-spine"),
-        "plot_legend": _get("plot-legend"),
-        # Semantic / constant colours sourced from CSS variables
-        "limit_warn": _get("limit-warn"),
-        "limit_alarm": _get("limit-alarm"),
-        "status_ok": _get("status-ok"),
-        "status_alarm": _get("status-alarm"),
-        # Chart series identity colours
-        "series_dig_trp": _get("series-dig-trp"),
-        "series_det_trp": _get("series-det-trp"),
-        "series_mech_trp": _get("series-mech-trp"),
-        "series_mtr_trp": _get("series-mtr-trp"),
-        "series_ob_3v3": _get("series-ob-3v3"),
-        "series_eb_3v3": _get("series-eb-3v3"),
-        "chart_rov_htr": _get("chart-rov-htr"),
-        "chart_eb_current": _get("chart-eb-current"),
+    A small set of compatibility aliases is also provided for plotting code
+    whose key names describe purpose rather than the exact CSS variable name.
+    """
+    _ = theme  # Retained for API compatibility with existing callers.
+
+    # Generic mapping: CSS kebab-case becomes Python snake_case.
+    palette = {css_name.replace("-", "_"): value for css_name, value in gui_vars.items()}
+
+    # Purpose-based aliases used by the Matplotlib theming helpers.
+    aliases = {
+        "primary_bg": gui_vars.get("primary-bg"),
+        "secondary_bg": gui_vars.get("secondary-bg"),
+        "accent_color": gui_vars.get("accent_color"),
+        "plot_bg": gui_vars.get("plot-bg"),
+        "plot_text": gui_vars.get("plot-axis"),
+        "plot_grid": gui_vars.get("plot-grid"),
+        "plot_spine": gui_vars.get("plot-spine"),
+        "plot_legend": gui_vars.get("plot-legend"),
+        "plot_footer": gui_vars.get("plot-tick"),
+        # The reorganised CSS uses simpler typography token names.
+        "ui_label_size": gui_vars.get("small-text"),
+        "medium-size": gui_vars.get("medium-text"),
+        "heading_size": gui_vars.get("heading"),
     }
+    palette.update({name: value for name, value in aliases.items() if value is not None})
+    return palette
+
+
+def get_plot_colors(
+    palette: dict[str, str],
+    *,
+    count: int = 7,
+) -> dict[int, str]:
+    """Return numbered plot colours from the mapped CSS palette.
+
+    CSS variables are expected to be named ``--plot-color-1`` through
+    ``--plot-color-N``. Missing or blank values raise a clear error before
+    Matplotlib receives an invalid ``None`` colour.
+    """
+    if count < 1:
+        raise ValueError("Plot colour count must be at least 1.")
+
+    colors: dict[int, str] = {}
+    missing: list[int] = []
+
+    for index in range(1, count + 1):
+        key = f"plot_color_{index}"
+        value = palette.get(key)
+        if isinstance(value, str) and value.strip():
+            colors[index] = value.strip()
+        else:
+            missing.append(index)
+
+    if missing:
+        missing_css_names = ", ".join(f"--plot-color-{index}" for index in missing)
+        raise ValueError(f"Missing or empty CSS plot colour variable(s): {missing_css_names}")
+
+    return colors
 
 
 def apply_plot_theme(ax: Any, palette: dict[str, str]) -> None:

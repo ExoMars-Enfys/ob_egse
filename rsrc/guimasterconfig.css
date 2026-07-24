@@ -1,15 +1,109 @@
+/* ==========================================================================
+   EGSE MASTER STYLESHEET
+
+   Organisation:
+   01. Global configuration
+   02. Semantic colour palette
+   03. Dark and light theme tokens
+   04. Active theme mappings
+   05. Base surfaces
+   06. Accent interactions
+   07. Typography
+   08. Semantic text classes
+   09. Packet viewer typography
+   10. Three-column layout
+   11. Drawer layout
+   12. Centre console layout
+   13. Card and plot spacing
+   ========================================================================== */
+
+/* ==========================================================================
+   01. GLOBAL CONFIGURATION
+   ========================================================================== */
+
 :root {
+  /* Application assets */
   --theme-default: dark;
   --logo-light-src: "/rsrc/Enfys_logo.png";
   --logo-dark-src: "/rsrc/Enfys_logo_-_FINAL_-_WHITE.png";
+  /* Typography */
+  --body-font-family:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 
-  /*Dark Theme Colours*/
+  --small-text: 1.1rem;
+  --medium-text: 1.25rem;
+  --heading: 1.5rem;
+  --heading-weight: 650;
 
+  /* Plot appearance */
+  --plot-footer-size: 1rem;
+  --plot-linewidth: 1;
+  --plot-grid-alpha: 0.6;
+  --plot-grid-width: 0.6;
+  --plot-tick-size: 10;
+  --plot-fig-height-h40: 3.2;
+  --plot-fig-height-h60: 4.2;
+
+  /* Shared card spacing */
+  --card-pad-x: 0.25rem;
+  --card-pad-y: 0.25rem;
+  --card-margin-x: 0.25rem;
+  --card-margin-y: 0.25rem;
+
+  /* Application layout */
+  --packet-viewer: 12vw;
+  --console: 53vw;
+  --right-drawer: 35vw;
+  --top-bar: 7.5vh;
+  --log-console: 2vh;
+
+  /*
+   * #!TODO: The three column widths total 100vw. Padding, browser scrollbars,
+   * and gaps can still cause overflow. Consider using minmax() with CSS Grid
+   * for a more responsive layout.
+   */
+}
+
+/* ==========================================================================
+   02. SEMANTIC COLOUR PALETTE
+   ========================================================================== */
+
+:root {
+  /*
+   * These are the only colours used for semantic states:
+   * errors, warnings, healthy states, neutral states, and information.
+   */
+  --color-error: #e74c3c;
+  --color-warning: #e67e22;
+  --color-ok: #2ecc71;
+  --color-neutral: #9e9e9e;
+  --color-info: #3498db;
+}
+/* ==========================================================================
+   03. PLOT COLOUR PALETTE
+   ========================================================================== */
+
+:root {
+  --plot-color-1: #e53935; /* red */
+  --plot-color-2: #fb8c00; /* orange */
+  --plot-color-3: #fdd835; /* yellow */
+  --plot-color-4: #43a047; /* green */
+  --plot-color-5: #1e88e5; /* blue */
+  --plot-color-6: #3949ab; /* indigo */
+  --plot-color-7: #8e24aa; /* violet */
+}
+
+/* ==========================================================================
+   03. DARK AND LIGHT THEME TOKENS
+   ========================================================================== */
+
+:root {
+  /* Dark theme */
   --dark-primary-bg: #2b3038;
   --dark-secondary-bg: #383f4a;
   --dark-heading-color: #ffffff;
   --dark-text-color: #ffffff;
-  --dark-accent_color: #2b6d34;
+  --dark-accent-color: #2b6d34;
   --dark-plot-bg: #2b3038;
   --dark-plot-grid: #616b79;
   --dark-plot-axis: #ffffff;
@@ -17,89 +111,41 @@
   --dark-plot-spine: #ffffff;
   --dark-plot-tick: #ffffff;
 
-  /*Light Theme Colours*/
+  /* Light theme */
   --light-primary-bg: #ffffff;
   --light-secondary-bg: #f3f4f6;
   --light-heading-color: #111827;
   --light-text-color: #111827;
-  --light-accent_color: #2b6d34;
+  --light-accent-color: #2b6d34;
   --light-plot-bg: #ffffff;
   --light-plot-grid: #d1d5db;
   --light-plot-axis: #111827;
   --light-plot-legend: #111827;
   --light-plot-spine: #111827;
   --light-plot-tick: #111827;
-  --q-primary: var(--accent_color);
-  --q-secondary: var(--secondary-bg);
-  --q-positive: var(--accent_color);
-  --q-negative: #b64545;
-
-  --status-ok: #2ecc71;
-  --status-alarm: #e74c3c;
-  --status-info: #3498db;
-  --status-neutral: #9e9e9e;
-
-  --log-debug: #9e9e9e;
-  --log-info: #3498db;
-  --log-warning: #e67e22;
-  --log-error: #e74c3c;
-  --log-critical: #e74c3c;
-
-  --series-dig-trp: #e74c3c;
-  --series-det-trp: #e67e22;
-  --series-mech-trp: #2ecc71;
-  --series-mtr-trp: #3498db;
-  --series-ob-3v3: #e74c3c;
-  --series-eb-3v3: #e67e22;
-  --chart-rov-htr: #2f80ed;
-  --chart-eb-current: #f2994a;
-
-  --ui-label-size: 0.585rem;
-  --heading-size: 1.1rem;
-  --heading-weight: 700;
-  --metric-label-size: 0.698rem;
-  --metric-value-size: 0.9rem;
-  --body-font-family:
-    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-
-  --plot-font-size: 0.875rem;
-  --plot-footer-size: 0.75rem;
-  --plot-linewidth: 1;
-  --plot-grid-alpha: 0.6;
-  --plot-grid-width: 0.6;
-  --plot-tick-size: 10;
-  --plot-fig-height-h40: 3.2;
-  --plot-fig-height-h60: 4.2;
-  --card-pad-x: 0.25rem;
-  --card-pad-y: 0.25rem;
-  --card-margin-x: 0.25rem;
-  --card-margin-y: 0.25rem;
-
-  --limit-warn: #e67e22;
-  --limit-alarm: #e74c3c;
-
-  --packet-viewer: 12vw;
-  --console: 48vw;
-  --right-drawer: 40vw;
-  --top-bar: 7.5vh;
-  --log-console: 10vh;
-  --drawer-content-pad: 0px;
-  --drawer-card-pad: 0px;
-  --console_pad: 5px;
 }
+
+/* ==========================================================================
+   04. ACTIVE THEME MAPPINGS
+   ========================================================================== */
 
 body.theme-dark {
   --primary-bg: var(--dark-primary-bg);
   --secondary-bg: var(--dark-secondary-bg);
   --heading-color: var(--dark-heading-color);
   --text-color: var(--dark-text-color);
-  --accent_color: var(--dark-accent_color);
+  --accent-color: var(--dark-accent-color);
+
   --plot-bg: var(--dark-plot-bg);
   --plot-grid: var(--dark-plot-grid);
   --plot-axis: var(--dark-plot-axis);
   --plot-legend: var(--dark-plot-legend);
   --plot-spine: var(--dark-plot-spine);
   --plot-tick: var(--dark-plot-tick);
+
+  /* Quasar brand colours only; semantic state colours use custom classes. */
+  --q-primary: var(--accent-color);
+  --q-secondary: var(--secondary-bg);
 }
 
 body.theme-light {
@@ -107,16 +153,24 @@ body.theme-light {
   --secondary-bg: var(--light-secondary-bg);
   --heading-color: var(--light-heading-color);
   --text-color: var(--light-text-color);
-  --accent_color: var(--light-accent_color);
+  --accent-color: var(--light-accent-color);
+
   --plot-bg: var(--light-plot-bg);
   --plot-grid: var(--light-plot-grid);
   --plot-axis: var(--light-plot-axis);
   --plot-legend: var(--light-plot-legend);
   --plot-spine: var(--light-plot-spine);
   --plot-tick: var(--light-plot-tick);
+
+  /* Quasar brand colours only; semantic state colours use custom classes. */
+  --q-primary: var(--accent-color);
+  --q-secondary: var(--secondary-bg);
 }
 
-/* Base surfaces */
+/* ==========================================================================
+   05. BASE SURFACES
+   ========================================================================== */
+
 body,
 .nicegui-content,
 .q-page,
@@ -146,12 +200,21 @@ body,
   color: var(--text-color);
 }
 
-/* Accent interactions */
+/*
+ * #!TODO: This section intentionally overrides several Quasar surfaces.
+ * If a component later requires its own background, add a local EGSE class
+ * rather than extending these broad selector groups.
+ */
+
+/* ==========================================================================
+   06. ACCENT INTERACTIONS
+   ========================================================================== */
+
 .q-tab--active,
 .q-tab.q-tab--active,
 .q-tab__indicator {
-  color: var(--accent_color);
-  background-color: var(--primary-bg);
+  color: var(--accent-color);
+  background-color: var(--secondary-bg);
 }
 
 .q-btn,
@@ -161,32 +224,34 @@ body,
 .bg-primary,
 .bg-accent_color {
   background-color: var(--primary-bg) !important;
-  color: #ffffff;
+  color: var(--heading-color);
 }
 
 .q-btn .q-icon {
-  color: #ffffff;
+  color: var(--heading-color);
 }
 
 .text-primary,
 .text-accent_color {
-  color: var(--accent_color) !important;
+  color: var(--accent-color) !important;
 }
 
-/* Header logo must scale down without cropping. */
-.q-img.q-img--menu .q-img__image {
-  object-fit: contain !important;
-  object-position: left center !important;
+/*
+ * #!TODO: These selectors override Quasar and Tailwind colour helpers globally.
+ * Prefer dedicated classes such as .egse-primary-button when you have finished
+ * migrating existing widgets.
+ */
+
+/* ==========================================================================
+   07. TYPOGRAPHY
+   ========================================================================== */
+
+body {
+  font-family: var(--body-font-family);
+  font-size: var(--small-text);
 }
 
-/* Typography (single source: lines 57-62 vars in :root) */
-body,
-.nicegui-content,
-.q-page,
-.q-layout,
-.q-page-container,
-.q-drawer__content,
-.q-card,
+/* Form controls and Quasar controls do not always inherit body typography. */
 .q-btn,
 .q-tab,
 .q-chip,
@@ -199,57 +264,143 @@ body,
   font-family: var(--body-font-family);
 }
 
-body,
-.nicegui-content,
+.q-btn,
+.q-tab,
 .q-item,
 .q-field__native,
 .q-field__input,
 .q-radio__label,
 .q-toggle__label,
-.q-checkbox__label,
-.q-btn,
-.q-tab {
-  font-size: var(--ui-label-size);
+.q-checkbox__label {
+  font-size: var(--small-text);
 }
 
 .q-chip {
-  font-size: var(--metric-value-size);
+  font-size: var(--medium-text);
 }
 
 .font-bold {
   font-weight: var(--heading-weight) !important;
 }
 
-/* Map common Tailwind text helpers to theme typography vars. */
+/* Tab title class: apply .egse-title to ui.tab(...). */
+.q-tab.egse-title .q-tab__label {
+  font-size: var(--heading) !important;
+  font-weight: var(--heading-weight);
+}
+
+/* EGSE typography utilities */
+.egse-title {
+  font-size: var(--heading) !important;
+  font-weight: var(--heading-weight);
+}
+
+.egse-medium-text {
+  font-size: var(--medium-text);
+}
+
+.egse-text {
+  font-size: var(--small-text) !important;
+}
+
+.egse-metric-label {
+  font-size: var(--small-text) !important;
+}
+
+.egse-metric-value {
+  font-size: var(--medium-text) !important;
+}
+
+/*
+ * Compatibility mappings for Tailwind text helpers used by current widgets.
+ * #!TODO: Replace these global overrides with EGSE classes, then remove this
+ * block so Tailwind's normal size scale remains available.
+ */
 .text-xs {
-  font-size: var(--metric-label-size) !important;
+  font-size: var(--small-text) !important;
 }
 
 .text-sm {
-  font-size: var(--ui-label-size) !important;
+  font-size: var(--small-text) !important;
 }
 
 .text-base,
 .text-lg,
 .text-xl,
 .text-xxl {
-  font-size: var(--heading-size) !important;
+  font-size: var(--heading) !important;
 }
 
-.egse-title {
-  font-size: var(--heading-size) !important;
+/* ==========================================================================
+   08. SEMANTIC TEXT CLASSES
+   ========================================================================== */
+
+/*
+ * Apply these classes directly to labels, log entries, status text, alarm
+ * messages, and limit messages.
+ *
+ * Examples:
+ *   ui.label("Connection failed").classes("error-text")
+ *   ui.label("Voltage warning").classes("warning-text")
+ *   ui.label("Nominal").classes("ok-text")
+ *
+ * No --status-*, --log-*, --limit-*, or Quasar semantic aliases are defined.
+ * Each class explicitly owns its colour and typography.
+ */
+
+.error-text {
+  color: var(--color-error) !important;
+  font-family: var(--body-font-family);
+  font-size: var(--small-text) !important;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
-.egse-text {
-  font-size: var(--ui-label-size) !important;
+.warning-text {
+  color: var(--color-warning) !important;
+  font-family: var(--body-font-family);
+  font-size: var(--small-text) !important;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
-.egse-metric-label {
-  font-size: var(--metric-label-size) !important;
+.ok-text {
+  color: var(--color-ok) !important;
+  font-family: var(--body-font-family);
+  font-size: var(--small-text) !important;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-.egse-metric-value {
-  font-size: var(--metric-value-size) !important;
+.neutral-text {
+  color: var(--color-neutral) !important;
+  font-family: var(--body-font-family);
+  font-size: var(--small-text) !important;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.info-text {
+  color: var(--color-info) !important;
+  font-family: var(--body-font-family);
+  font-size: var(--small-text) !important;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/*
+ * #!TODO: These declarations are deliberately explicit to avoid hidden
+ * inheritance. If all five classes remain typographically identical later,
+ * extract their common declarations into a shared .semantic-text class.
+ */
+
+/* ==========================================================================
+   09. HEADER IMAGE AND PACKET VIEWER TYPOGRAPHY
+   ========================================================================== */
+
+.q-img.q-img--menu .q-img__image {
+  object-fit: contain !important;
+  object-position: left center !important;
 }
 
 .egse-packet-viewer-card .egse-packet-text {
@@ -257,24 +408,37 @@ body,
 }
 
 .egse-packet-viewer-card .egse-packet-title {
-  font-size: var(--heading-size) !important;
+  font-size: var(--heading) !important;
 }
 
 .egse-packet-viewer-card .egse-packet-line-text {
-  font-size: var(--metric-label-size) !important;
+  font-size: var(--small-text) !important;
 }
 
-/* Three-column layout (single source of truth: CSS variables in :root) */
+/* ==========================================================================
+   10. THREE-COLUMN LAYOUT
+   ========================================================================== */
+
 .q-layout,
 .q-layout-container {
   --q-size-left: var(--packet-viewer);
   --q-size-right: var(--right-drawer);
 }
 
+.q-page-container {
+  padding-left: var(--packet-viewer) !important;
+  padding-right: var(--right-drawer) !important;
+  padding-bottom: calc(var(--log-console) + 0.75rem);
+}
+
+/* ==========================================================================
+   11. DRAWER LAYOUT
+   ========================================================================== */
+
 /*
-   NiceGUI attaches custom drawer classes to .q-drawer__content, but Quasar
-   controls positioning/space with the outer .q-drawer wrapper.
-*/
+ * NiceGUI attaches custom drawer classes to .q-drawer__content, while Quasar
+ * controls sizing with the outer .q-drawer wrapper.
+ */
 .q-drawer.q-drawer--left:has(> .q-drawer__content.egse-left-drawer) {
   width: var(--packet-viewer) !important;
   min-width: var(--packet-viewer) !important;
@@ -287,9 +451,15 @@ body,
   max-width: var(--right-drawer) !important;
 }
 
+/*
+ * #!TODO: :has() is supported by current major browsers, but test the minimum
+ * browser versions required by your deployment environment.
+ */
+
 .q-drawer__content.egse-left-drawer,
 .q-drawer__content.egse-right-drawer {
-  padding: var(--drawer-content-pad);
+  min-width: 0;
+  padding: var(--card-pad-x);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -321,10 +491,10 @@ body,
 
 .q-drawer__content.egse-left-drawer .q-card,
 .q-drawer__content.egse-right-drawer .q-card {
-  margin-left: 0;
   margin-right: 0;
-  padding-left: var(--drawer-card-pad);
-  padding-right: var(--drawer-card-pad);
+  margin-left: 0;
+  padding-right: var(--card-pad-x);
+  padding-left: var(--card-pad-x);
   overflow: hidden;
 }
 
@@ -336,8 +506,8 @@ body,
 }
 
 .q-drawer__content.egse-left-drawer .egse-left-packet-panel {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+  padding-right: 2px !important;
+  padding-left: 2px !important;
 }
 
 .q-drawer__content.egse-left-drawer .egse-left-packet-panels > .q-panel {
@@ -346,11 +516,9 @@ body,
   scrollbar-gutter: auto !important;
 }
 
-.q-page-container {
-  padding-left: var(--packet-viewer) !important;
-  padding-right: var(--right-drawer) !important;
-  padding-bottom: calc(var(--log-console) + 0.75rem);
-}
+/* ==========================================================================
+   12. CENTRE CONSOLE LAYOUT
+   ========================================================================== */
 
 .egse-centre-console {
   width: 100%;
@@ -360,16 +528,6 @@ body,
   );
   min-width: 0;
   margin: 0 auto;
-}
-
-/*
-   Fluid sizing guards: keep child widgets tied to parent width.
-   This avoids intrinsic min-content sizes causing chop/overflow.
-*/
-.egse-centre-console,
-.q-drawer__content.egse-left-drawer,
-.q-drawer__content.egse-right-drawer {
-  min-width: 0;
 }
 
 .egse-centre-console .nicegui-row,
@@ -389,12 +547,10 @@ body,
   box-sizing: border-box;
 }
 
-/* Allow rows in constrained widths to wrap instead of forcing overflow. */
 .egse-centre-console .nicegui-row {
   flex-wrap: wrap;
 }
 
-/* Centre console tabs share the same configurable spacing as cards. */
 .egse-centre-console .q-tabs,
 .egse-centre-console .q-tabs__content,
 .egse-centre-console .q-tab-panels,
@@ -404,14 +560,16 @@ body,
   box-sizing: border-box;
 }
 
-/* Keep dense status chips readable without forcing container overflow. */
 .egse-centre-console .q-chip,
 .q-drawer__content.egse-left-drawer .q-chip,
 .q-drawer__content.egse-right-drawer .q-chip {
   max-width: 100%;
 }
 
-/* Plot cards should render edge-to-edge with no section padding. */
+/* ==========================================================================
+   13. CARD AND PLOT SPACING
+   ========================================================================== */
+
 .egse-plot-card,
 .egse-plot-card .q-card__section,
 .egse-plot-card .nicegui-pyplot {
@@ -420,26 +578,17 @@ body,
 }
 
 .egse-plot-card .nicegui-pyplot {
-  padding-left: var(--card-pad-x) !important;
   padding-right: var(--card-pad-x) !important;
+  padding-left: var(--card-pad-x) !important;
   box-sizing: border-box;
 }
 
-/* PSU and plot cards share the same spacing variables. */
-.egse-psu-card > .q-card__section {
-  padding: var(--card-pad-y) var(--card-pad-x) !important;
-  margin: var(--card-margin-y) var(--card-margin-x) !important;
-}
-
-/* Keep PSU plot section on the same shared spacing controls. */
-.egse-psu-card > .q-card__section:last-child {
-  padding: var(--card-pad-y) var(--card-pad-x) !important;
-  margin: var(--card-margin-y) var(--card-margin-x) !important;
-}
-
-/* PSU plots are embedded without egse-plot-card wrapper, so style them directly. */
+.egse-psu-card > .q-card__section,
 .egse-psu-card .nicegui-pyplot {
   padding: var(--card-pad-y) var(--card-pad-x) !important;
   margin: var(--card-margin-y) var(--card-margin-x) !important;
+}
+
+.egse-psu-card .nicegui-pyplot {
   box-sizing: border-box;
 }
