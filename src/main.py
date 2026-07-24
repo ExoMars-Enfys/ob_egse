@@ -203,17 +203,29 @@ def main() -> None:
         time.sleep(1)  #! Adjust  to your needs for delay before requesting HK
 
         # First HK
-        #sequences.parse_hk(ob_port)
+        sequences.parse_hk(ob_port)
+
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        #sequences.parse_hk(ob_port)
+        #
+        #tc.heater_control(ob_port, htr_mech_man=True)
+        #input("Press Enter to continue with the script...")
+        # tc.power_control(ob_port, 1)
+        time.sleep(4)
+        #tc.set_mtr_param(ob_port, 64, 0, 60, 8)
+        # tc.set_errors(ob_port, ig_b = True, ig_o = True, m_cd = True, m_ab = True, m_dse = True)
+        # tc.mtr_mov_pos(ob_port, 500)
+        # tc.sci_offset(ob_port, 0xABC, 0x567, True)
+        # tc.sci_request(ob_port, sci_adc_samp = 0x1, sci_adc_skip = 0x2)
+        input("Press Enter to continue with the script...")
+        sequences.parse_hk(ob_port)
         # tc.power_control(ob_port, 1)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        #sequences.parse_hk(ob_port)
+        sequences.parse_hk(ob_port)
         
         #! No need for stop events as atexit does it automatically
         return

@@ -422,9 +422,9 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                             continue
 
                         voltage_oob = (
-                            (ch1_status and not (11.2 < float(ch1_v) < 13.2))
-                            or (ch2_status and not (11.2 < float(ch2_v) < 13.2))
-                            or (ch3_status and not (4.8 < float(ch3_v) < 5.5))
+                            (ch1_status and not (11 < float(ch1_v) < 11.4))
+                            or (ch2_status and not (11 < float(ch2_v) < 11.4))
+                            or (ch3_status and not (4.6 < float(ch3_v) < 5))
                         )
                         if voltage_oob:
                             psu_log.error(
@@ -436,8 +436,8 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                             _queue_shutdown_snapshot(active_ebmode)
 
                         current_oob = (
-                            (ch1_status and (float(ch1_i) >= 150))
-                            or (ch2_status and (float(ch2_i) >= 90))
+                            (ch1_status and (float(ch1_i) >= 50))
+                            or (ch2_status and (float(ch2_i) >= 50))
                             or (ch3_status and (float(ch3_i) >= 150))
                         )
                         if current_oob:
@@ -486,9 +486,9 @@ def setChannels(port, ebmode):
             ch4_i = config.ROV_HTR_I
 
             # Get nominal voltages from BUS_VOLTAGES
-            ch1_v = channel_voltages.get("CH1", {}).get("NOM", 12.0)
-            ch2_v = channel_voltages.get("CH2", {}).get("NOM", 12.0)
-            ch3_v = channel_voltages.get("CH3", {}).get("NOM", 5.0)
+            ch1_v = channel_voltages.get("CH1", {}).get("MIN", 11.2)
+            ch2_v = channel_voltages.get("CH2", {}).get("MIN", 11.2)
+            ch3_v = channel_voltages.get("CH3", {}).get("MIN", 4.8)
             ch4_v = 28.0  # CH4 not used in OB mode typically
 
             # Set the voltage and current limits for each channel
