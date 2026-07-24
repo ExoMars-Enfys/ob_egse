@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from widget_modules import ui_runtime_controller as urc
 
 
@@ -161,3 +163,189 @@ def test_mms_returns_early_when_latched(monkeypatch) -> None:
     )
 
     assert state["mms"] == {"latched": True}
+
+
+# ---------------------------------------------------------------------------
+# Additional MMS de-duplication, fallback, and failure-path coverage
+# ---------------------------------------------------------------------------
+
+def _app() -> SimpleNamespace:
+    return SimpleNamespace(state=SimpleNamespace(eb_interface=SimpleNamespace(rs422_log_path=None)))
+
+
+def _run_mms(state, logger, hk, *, reasons=None, tec=False, ob5v=False) -> None:
+    asyncio.run(
+        urc.mms(
+            app=_app(),
+            state=state,
+            logger=logger,
+            hk=hk,
+            reasons=list(reasons or ["test trigger"]),
+            tec_pre_action=tec,
+            ob5v_pre_action=ob5v,
+        )
+    )
+
+
+def _patch_direct_mms_runner(monkeypatch) -> None:
+    async def _io_bound(func):
+        return func()
+
+    monkeypatch.setattr(urc.run, "io_bound", _io_bound)
+    monkeypatch.setattr(urc.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(urc, "is_script_running", lambda: False)
+
+
+def test_mms_returns_early_when_already_in_progress(monkeypatch) -> None:
+    async def _unexpected_io_bound(_func):
+        raise AssertionError("io_bound must not run for an in-progress MMS")
+
+    state = {"mms": {"in_progress": True}}
+    monkeypatch.setattr(urc.run, "io_bound", _unexpected_io_bound)
+
+    _run_mms(state, _DummyLogger(), SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert state == {"mms": {"in_progress": True}}
+
+
+def test_mms_without_running_script_skips_abort_and_handles_missing_psu(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    logger = _DummyLogger()
+    state = {"mode": "OB", "mms": {}}
+
+    monkeypatch.setattr(urc, "request_abort", lambda: (_ for _ in ()).throw(AssertionError("unexpected abort")))
+    monkeypatch.setattr(urc, "clear_pause", lambda: (_ for _ in ()).throw(AssertionError("unexpected clear")))
+    monkeypatch.setattr(urc, "clear_force_pause", lambda: (_ for _ in ()).throw(AssertionError("unexpected clear")))
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: object())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "ERROR")
+
+    _run_mms(state, logger, SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert state["mms"]["latched"] is True
+    assert state["mms"]["in_progress"] is False
+    assert any("PSU emergency shutdown skipped" in message for level, message in logger.records if level == "warning")
+
+
+def test_mms_safe_command_failure_still_attempts_psu_shutdown(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    calls = {"ret": 0, "shutdown": 0}
+    state = {"mode": "OB", "psu_port": object(), "mms": {}}
+
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: object())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "ERROR")
+    monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: calls.__setitem__("ret", calls["ret"] + 1))
+    monkeypatch.setattr(
+        urc.psu,
+        "emergencyShutDown",
+        lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
+    )
+
+    _run_mms(state, _DummyLogger(), SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert calls["ret"] == 0
+    assert calls["shutdown"] == 1
+    assert state["mms"]["latched"] is True
+
+
+def test_mms_ret_command_failure_still_attempts_psu_shutdown(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    calls = {"shutdown": 0}
+    state = {"mode": "OB", "psu_port": object(), "mms": {}}
+
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: object())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "OK")
+    monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: "ERROR")
+    monkeypatch.setattr(
+        urc.psu,
+        "emergencyShutDown",
+        lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
+    )
+
+    _run_mms(state, _DummyLogger(), SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert calls["shutdown"] == 1
+    assert state["mms"]["latched"] is True
+
+
+def test_mms_safe_state_skips_ob5v_disable_pre_action(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    logger = _DummyLogger()
+    calls = {"disable": 0}
+    state = {"mode": "OB", "mms": {}}
+
+    monkeypatch.setattr(
+        urc,
+        "disable_ob5v",
+        lambda _logger: calls.__setitem__("disable", calls["disable"] + 1),
+    )
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: object())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "ERROR")
+
+    _run_mms(
+        state,
+        logger,
+        SimpleNamespace(CURRENT_OPERATING_STATE=0x02),
+        ob5v=True,
+    )
+
+    assert calls["disable"] == 0
+    assert any("OB 5V disable skipped" in message for level, message in logger.records if level == "info")
+
+
+def test_mms_unconfirmed_safe_state_still_shuts_down_psu(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    logger = _DummyLogger()
+    calls = {"shutdown": 0}
+
+    class _Interface:
+        def wait_for_safe_state(self, *_args, **_kwargs):
+            return False
+
+    state = {"mode": "OB", "psu_port": object(), "mms": {}}
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: _Interface())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "OK")
+    monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: "OK")
+    monkeypatch.setattr(
+        urc.psu,
+        "emergencyShutDown",
+        lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
+    )
+
+    _run_mms(state, logger, SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert calls["shutdown"] == 1
+    assert any("SAFE state was not confirmed" in message for level, message in logger.records if level == "warning")
+
+
+def test_mms_psu_shutdown_exception_is_logged_but_trigger_stays_latched(monkeypatch) -> None:
+    _patch_direct_mms_runner(monkeypatch)
+    logger = _DummyLogger()
+    state = {"mode": "OB", "psu_port": object(), "mms": {}}
+
+    monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: object())
+    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "ERROR")
+    monkeypatch.setattr(
+        urc.psu,
+        "emergencyShutDown",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("PSU failed")),
+    )
+
+    _run_mms(state, logger, SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert state["mms"]["latched"] is True
+    assert state["mms"]["in_progress"] is False
+    assert any("PSU failed" in message for level, message in logger.records if level == "error")
+
+
+def test_mms_io_bound_failure_records_error_and_clears_in_progress(monkeypatch) -> None:
+    async def _failing_io_bound(_func):
+        raise RuntimeError("worker failed")
+
+    state = {"mms": {}}
+    monkeypatch.setattr(urc.run, "io_bound", _failing_io_bound)
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        _run_mms(state, _DummyLogger(), SimpleNamespace(CURRENT_OPERATING_STATE=0x04))
+
+    assert state["mms"]["last_error"] == "worker failed"
+    assert state["mms"]["in_progress"] is False
