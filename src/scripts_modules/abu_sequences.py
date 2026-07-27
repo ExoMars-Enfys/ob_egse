@@ -197,13 +197,23 @@ def do_table_scan(port: serial.rs485.RS485,
     # current motor steps so it can align things where we expect them to be.
     hk_tm = hk_request(port)
 
-    for _rel_move, abs_pos in table.scan(
+    for relative_steps, absolute_position in table.scan(
                 start_motor_steps=hk_tm.MTR_ABS_STEPS,
                 start=table_start_position,
                 end=table_end_position
     ):
-        # Action the requested move (assuming a move was needed).
-        mv_abs_pos(port, abs_pos)
+        # Move the desired number of steps, if any.
+        if relative_steps != 0:
+            event_log.info(f"Moving {relative_steps} step(s) to reach absolute position {absolute_position}")
+            if relative_steps < 0:
+                repeat(port, tc.mtr_mov_neg, -steps)
+            else:
+                repeat(port, tc.mtr_mov_pos, steps)
+
+            # Wait until no longer moving
+            wait_movement_complete(port, steps)
+        else:
+            event_log.info(f"No movement needed for the next science reading")
 
         # Request a Science Measurement and log the result.
         sci = sci_request(port)
@@ -750,8 +760,8 @@ def measurement_table_scan(port: serial.rs485.RS485,
     event_log.info(f"Running ABU Measurement Table Scan using table {table_number} ({mt.predefined[table_number].name})")
 
     table = mt.MeasurementTable(
-        mt.predefined[table_number].table, 
-        before_table=mt.predefined[dark_table_0], 
+        mt.predefined[table_number].relative_table,
+        before_table=mt.predefined[dark_table_0],
         after_table=mt.predefined[dark_table_1],
         name=mt.predefined[table_number].name,
     )
