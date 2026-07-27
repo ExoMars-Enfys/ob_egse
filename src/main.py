@@ -165,9 +165,9 @@ def main() -> None:
         abu.first_power_on_cal_outer(ob_port)  # Power on inc Cal to outer
 
         ## Measure using Outer Cal and tables
-        abu.abu_measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
+        abu.measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
         time.sleep(1)  # Adding a 1 second delay
-        abu.abu_measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
+        abu.measurement_table_scan(ob_port, 12)  # Table 30step & DT0 DT1 (from Measurement_table.py)
 
         ## DAC Sweeps
         # abu.mv_abs_pos(ob_port, 8000)  # move to MWIR DAC posn
@@ -179,9 +179,9 @@ def main() -> None:
         #
         #
 
-        # abu.abu_measurement_mode2(ob_port, 8000, 2, 1800) ##location (abs posn), time between measurements (sec), total duration (sec)
+        # abu.measurement_mode2(ob_port, 8000, 2, 1800) ##location (abs posn), time between measurements (sec), total duration (sec)
 
-        # abu.abu_measurement_table_scan_no(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py) no DAC
+        # abu.measurement_table_scan_no(ob_port, 13)  # Table n & DT0 DT1 (from Measurement_table.py) no DAC
 
         # Now move back to 9960.
         # abu.mv_abs_pos(ob_port, 9960)
@@ -262,10 +262,10 @@ def main() -> None:
         # abu.mwir_binary_chop(ob_port, 1600)
 
         # Measurement scan with found (or set) values
-        # abu.abu_measurement_scan(ob_port, 30)
+        # abu.measurement_scan(ob_port, 30)
 
         # Measurement scan with found (or set) values looping
-        # abu.abu_measurement_scan_loop(ob_port)
+        # abu.measurement_scan_loop(ob_port)
 
         ############################################
         ############################################
