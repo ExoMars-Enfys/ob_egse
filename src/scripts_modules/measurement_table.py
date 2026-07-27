@@ -1,56 +1,102 @@
 """
 Measurement tables, being potentially made up of two "dark" tables
 and a "science" table, are complicated. There's the possibility for
-overlap and, since they use relative positiions, rather than absolute,
-driving the tables backwards can give completely different results
-from driving them forwards. It's possible that the combination of dark
-and measurement tables could cause overlap, and it's not completely
-clear how this would be handled - would it cause backtracking, or is
-the combined table sorted in absolute position (or reverse absolute
-position) order?
-
-The current implementation assumes that dark tables are iterated
-independently of the measurement tables, and so will generate backward
-movements when overlap happens.
+overlap (with potential reverse movements) and driving the tables
+backwards involves handling the dark tables differently. Transitions
+between the tables, and table startup, involves changing the initial
+move, since that assumes a specific starting location, which may
+not be the actual true case.
 """
+
+from itertools import accumulate
 
 class MeasurementTable:
     """An encapsulation of how the EB does measurement tables.
 
     The constructor takes a list of relative movements, in the form that Ben
-    has described (first move is relative to 1000, or 9960 if the table is
+    has described (first move is relative to 1000, or 9640 if the table is
     being run in reverse).
 
     Optionally, you can hand it two more tables, dark0 and dark1, which will
-    be (non-recursively) pasted onto the front and back of the current table
-    when scan is called.
+    be iterated as appropriate when scan() is called.
     """
 
     LOW = 1000
-    HIGH = 9960
+    HIGH = 9640
 
-    def __init__(self, relative_movements, before_table=None, after_table=None, name=None):
+    def __init__(self, relative_movements, dark0=None, dark1=None, name=None, is_dark_table=False):
         """Class constructor
 
-        We take a list of relative movements and construct two tables: a
-        forward table of absolute positions, based at 1000, and a suimilar
-        backward table based at 9960. It's easier to work in absolute
-        numbers and back-convert to relative movements during scanning.
+        We take a list of relative movements, assuming an origin of 1000,
+        since that's what a measurement table consists of. For all but the
+        most trivial operations, though, it's easier to work in terms of
+        absolute positions.
 
         Optionally, two "dark" tables can be specified and, during scanning,
         these will be merged with the current table.
         """
 
-        self.table = relative_movements.copy()
-        self.before_table = before_table
-        self.after_table = after_table
+        # No backward movements.
+        if min(relative_movements) < 0:
+            raise ValueError("Relative movements list must not contain negative moves")
+
+        # No recursion. I'm not sure this restriction is actually required,
+        # in terms of this class. But in terms of what the instrument needs,
+        # it's sensible to ban it.
+        if is_dark_table and (dark0 is not None or dark1 is not None):
+            raise ValueError("Dark tables must not themselves have dark tables")
+
+        # Save options.
+        self.dark0 = dark0
+        self.dark1 = dark1
         self.name = name
 
-        self.forward = self._calc_positions(relative_movements, 1)
-        self.backward = list(reversed(self._calc_positions(relative_movements, -1)))
+        # Dark tables are special, since they don't have "bookend" readings
+        # like normal measurement tables do. So we need to remember that
+        # we're handling a dark table.
+        self.is_dark_table = is_dark_table
+
+        # Store the list we've been given.
+        self._table = relative_movements.copy()
+
+        # Get the end positions.
+        end = self.absolute_table[-1]
+
+        # Can't go beyond the bounds in either case.
+        if end > self.HIGH:
+            raise ValueError("Relative movements exceed the full range")
+
+        # If it's not a dark table, the relative movements must
+        # exactly cover the range.
+        if not is_dark_table and self.absolute_table[-1] != self.HIGH:
+            raise ValueError("Relative movements do not span exactly the full range")
+
+    @property
+    def absolute_table(self):
+        """Return the list of absolute positions resulting from this table.
+
+        Using itertools.accumulate, we can get a list of absolute positions
+        from the relative positions in _table. itertools.accumulate, when
+        given an initial position, inserts that position into the list. This
+        is just what we want for normal tables. Dark tables need it
+        stripping off.
+        """
+        positions = list(accumulate(self._table, initial=self.LOW))
+        if self.is_dark_table:
+            return positions[1:]
+        return positions
+
+    @property
+    def relative_table(self):
+        """Return the list of relative positions.
+
+        We'll return a copy so that modifications to the relative table
+        aren't propagated back into the class.
+        """
+        return self._table.copy()
 
     @classmethod
-    def from_abs_position_list(cls, abs_positions, before_table=None, after_table=None, name=None):
+    def from_abs_position_list(cls, abs_positions, dark0=None, dark1=None, name=None, is_dark_table=False):
         """Alternative "constructor".
 
         For the most part, it's easier for us to give the class a set of
@@ -63,49 +109,77 @@ class MeasurementTable:
         this constructor. But it does make it very easy to merge pre-defined
         lists (e.g. when doing the "fine grained" bit around the chop
         point).
+
+        Also N.B. If LOW or HIGH is present explicitly these will be
+        represented as 0 step movements (only at the low end, for
+        dark tables) in the relative table. I've decided this is the
+        most sensible way of doing things for this outlier case. In
+        practise, to avoid backwards movements, we'll tend to skip the
+        first and last items in a normal table. If we actually want those
+        points for some reason, having them explicitly present is probably
+        less surprising.
         """
 
         prev = MeasurementTable.LOW
         rel_positions = []
         for pos in sorted(list(set(abs_positions))):
-            if pos > MeasurementTable.HIGH:
+            if pos < MeasurementTable.LOW or pos > MeasurementTable.HIGH:
                 raise ValueError(f"Position {pos} is out of range")
             rel_positions.append(pos - prev)
             prev = pos
 
-        return cls(rel_positions, before_table, after_table, name=name)
+        # Since self.LOW is implicitly present in a (non-dark-)table, I
+        # think it makes sense for self.HIGH to be implicitly added too.
+        if not is_dark_table:
+            rel_positions.append(MeasurementTable.HIGH-prev)
+
+        return cls(
+            rel_positions,
+            dark0 = dark0,
+            dark1 = dark1,
+            name = name,
+            is_dark_table = is_dark_table
+        )
 
     @classmethod
-    def regular_steps_between(cls, before_table, after_table, step_size, extra_positions=[], name = None):
+    def regular_steps_between(cls, dark0, dark1, step_size, extra_positions=[], name=None, is_dark_table=False):
         """Alternative constructor.
 
         Quite a lot of our predefined tables are of the form "between dark0
-        dark0 and dark1 in regular intervals". Let's have a helper function which
+        and dark1 in regular intervals". Let's have a helper function which
         implements that.
         """
 
         if name is None:
             name = f"Regular steps, step = {step_size}"
 
+        # Since dark0 contains the start point, the first entry
+        # will be step_size away from it. Similarly, we'll stop
+        # before the start of dark1, rather than running into it.
         return cls.from_abs_position_list(
-            list(range(before_table.forward[-1], after_table.forward[0]+1,
-                step_size)) + extra_positions,
-            before_table = before_table,
-            after_table = after_table,
-            name=name,
+            list(range(
+                dark0.absolute_table[-1]+step_size,
+                dark1.absolute_table[0],
+                step_size)
+            ) + extra_positions,
+            dark0 = dark0,
+            dark1 = dark1,
+            name = name,
+            is_dark_table = is_dark_table,
         )
 
     @classmethod
     def nyquist_steps_between(cls,
-        before_table, after_table, nyquist_factor,
+        dark0, dark1, nyquist_factor,
         motor_steps_to_wavelength,
         filter_bandwidth=0.01,
         extra_positions=[],
-        name=None
+        name=None,
+        is_dark_table=False,
     ):
         """Alternative constructor.
 
-        This one generates steps between before_table and after_table in
+        This one generates steps between dark0 and dark1 in
         steps that are determined by the specified LVF bandwidth, the
         over-sampling factor (nyquist_factor) and a calibrated function
         for getting from motor steps to wavelength.
@@ -113,10 +187,9 @@ class MeasurementTable:
 
         positions = []
 
-        position = before_table.forward[-1]
-        positions.append(position)
+        position = dark0.absolute_table[-1]
         next_wavelength = motor_steps_to_wavelength(position)*(1+filter_bandwidth/nyquist_factor)
-        while position <= after_table.forward[0]:
+        while position < dark1.absolute_table[0]:
             wavelength = motor_steps_to_wavelength(position)
             if wavelength >= next_wavelength:
                 positions.append(position)
@@ -124,106 +197,96 @@ class MeasurementTable:
             position += 1
         return cls.from_abs_position_list(
             positions + extra_positions,
-            before_table=before_table,
-            after_table=after_table,
-            name=name,
+            dark0 = dark0,
+            dark1 = dark1,
+            name = name,
+            is_dark_table = is_dark_table,
         )
 
 
     def scan(self, start=None, end=None, start_motor_steps=LOW):
-        """Run through the table, yielding resulting movements and positions.
+        """Run through the table, yielding movements and positions.
 
-        If dark0/dark1 are present, these will be iterated before, and after
-        the current table respectively.
+        If dark0/dark1 are present, these will be iterated as needed.
 
         If start and/or end is supplied, iteration over this table (not
-        darks) will only cover the specified range of positions.  Calculated
+        darks) will only cover the specified range of positions. Calculated
         positions will, however, be calculated from the relevant starting
         point. If end is lower than start, a reverse traversal is assumed.
 
-        Darks are always traversed in full, in a forward directiob.
+        Darks are always traversed in full, in the direction and order
+        implied by start and end.
 
         start_motor_steps, if supplied, supplies the absolute motor
         steps position at the start of traversal, for relative movement
         calculation. If not supplied, this assumes LOW, the outer endstop.
-
-        The function yields a tuple containing the relative movement and
-        resulting absolute position.
         """
 
+        # Get a copy of the table of absolute positions. Since this
+        # is a calculated property, it's better to get it once than
+        # to calculate it multiple times below.
+        abs_table = self.absolute_table
+
+        # No start point specified.
         if start is None:
             start = 0
 
+        # No end point specified.
         if end is None:
-            end = len(self.table) - 1
+            end = len(abs_table)-1
 
-        if end < 0 or end >= len(self.table) or start < 0 or start >= len(self.table):
+        # Check the start/end range.
+        if end < 0 or end >= len(abs_table) or start < 0 or start >= len(abs_table):
             raise RuntimeError("Table start/end is out of range")
 
+        # We need to keep track of the current positions, so we can
+        # calculate the relative movements that are actually needed.
+        # When iterating a single table, these will match the initialisation
+        # data, but transitions (startup and into/out of darks) need to be
+        # calculated.
         prev = start_motor_steps
 
         if end < start:
-            table = self.backward
-            table_pos = start
-            table_end = end
-            step = -1
+            # Reverse order.
+            if self.dark1 is not None:
+                for pos in reversed(self.dark1.absolute_table):
+                    yield pos - prev, pos
+                    prev = pos
+
+            for pos in reversed(abs_table[end:start+1]):
+                yield pos-prev, pos
+                prev = pos
+
+            if self.dark0 is not None:
+                for pos in reversed(self.dark0.absolute_table):
+                    yield pos - prev, pos
+                    prev = pos
         else:
-            table = self.forward
-            table_pos = start
-            table_end = end
-            step = 1
+            # Forward order.
+            if self.dark0 is not None:
+                for pos in self.dark0.absolute_table:
+                    yield pos - prev, pos
+                    prev = pos
 
-        check_first = False
-        if self.before_table is not None:
-            for relative_pos, abs_pos in self.before_table.scan(start_motor_steps=prev):
-                yield (relative_pos, abs_pos)
-                prev = abs_pos
-            check_first = True
+            for pos in abs_table[start:end+1]:
+                yield pos-prev, pos
+                prev = pos
 
-        while True:
-            # We've got to be careful, when joining tables together,
-            # that we don't introduce duplicates. It's possible that,
-            # on the EB, this check isn't done. Not really a problem
-            # later, but for now it's convenient to avoid it.
-            if not check_first or table[table_pos] != prev:
-                yield (table[table_pos] - prev, table[table_pos])
-            check_first = False
-            prev = table[table_pos]
-            if table_pos == table_end:
-                break
-            table_pos += step
-
-        if self.after_table is not None:
-            check_first = True
-            for relative_pos, abs_pos in self.after_table.scan(start_motor_steps=prev):
-                if not check_first or abs_pos != prev:
-                    yield (relative_pos, abs_pos)
-                check_first = False
-                prev = abs_pos
-
-    def _calc_positions(self, relative_movements, direction):
-        """
-        Given a set of relative movements, return a forward or backward
-        absolute position list.
-        """
-        table = []
-        if direction < 0:
-            abs_pos = self.HIGH
-            for entry in reversed(relative_movements):
-                abs_pos -= entry
-                table.append(abs_pos)
-        else:
-            abs_pos = self.LOW
-            for entry in relative_movements:
-                abs_pos += entry
-                table.append(abs_pos)
-        return table
+            if self.dark1 is not None:
+                for pos in self.dark1.absolute_table:
+                    yield pos - prev, pos
+                    prev = pos
 
     def __str__(self):
+        """Stringify the table as a list of relative movements."""
+        return str(self._table)
+
+    def __len__(self):
+        """Return the number of entries in the table.
+
+        As would be seen by the EB - i.e. the number of relative movements.
         """
-        Print the table as a list of relative movements.
-        """
-        return str(self.table)
+        return len(self._table)
 
 # The section below generates a list of predefined measurement tables that
 # we expect to be present on the instrument. If you run the module as a
@@ -234,20 +297,22 @@ class MeasurementTable:
 # When this file is imported as a module, you can access our nominal
 # measurement table list as the "predefined" list below.
 
-# We'll give these three special names as they're used in constructing
-# other tables.
+## We'll give these three special names as they're used in constructing
+## other tables.
 _dark0 = MeasurementTable.from_abs_position_list(
     range(1040, 1321, 40),       # Edge of SWIR
-    name = "Dark table 0"
+    name = "Dark table 0",
+    is_dark_table = True,
 )
 
 _dark1 = MeasurementTable.from_abs_position_list(
     list(range(8800, 9321, 40))  # Edge of SWIR
     + [9600],                    # SWIR BC
-    name = "Dark table 1"
+    name = "Dark table 1",
+    is_dark_table = True,
 )
 
-# Force a measurement at MWIR binary chop location.
+## Force a measurement at MWIR binary chop location.
 _mwir_binary_chop_check = [ 8000 ]
 
 # Some example tables. The first two are the reserved dark "low" and
@@ -430,23 +495,25 @@ if __name__ == "__main__":
 
     if args.dump is None:
         print(f"Total predefined tables: {len(predefined)}")
-        print(f"Total points in predefined tables: {sum([len(t.table) for t in predefined])}")
+        print(f"Total points in predefined tables: {sum([len(t) for t in predefined])}")
+
     if args.show is not None:
         if args.show < 0 or args.show >= len(predefined):
             print("Requested table number is out of range.", file=sys.stderr)
             sys.exit(1)
 
         m = MeasurementTable(
-            predefined[args.show].table,
-            before_table=predefined[0],
-            after_table=predefined[1],
+            predefined[args.show].relative_table,
+            dark0=predefined[0],
+            dark1=predefined[1],
             name=predefined[args.show].name
         )
         print(f"Measurement table {args.show}: {m.name}")
-        print(f"Length: {len(m.table)}")
-        print(f"Positions: {m.forward}")
-        print(f"Movements: {m.table}")
+        print(f"Length: {len(m)}")
+        print(f"Positions: {m.absolute_table}")
+        print(f"Movements: {m.relative_table}")
         print(f"Including dt0 and dt1: {[abs_pos for rel, abs_pos in m.scan()]}")
+
     if args.dump is not None:
         print(f"Dumping table info to {args.dump}")
         try:
@@ -454,11 +521,11 @@ if __name__ == "__main__":
             writer = csv.writer(f)
             writer.writerow(["Table", "Name", "Relative moves"])
             for n, t in enumerate(predefined):
-                writer.writerow([n, t.name] + t.table)
+                writer.writerow([n, t.name] + t.relative_table)
             writer.writerow([])
             writer.writerow(["Table", "Name", "Absolute Positions"])
             for n, t in enumerate(predefined):
-                writer.writerow([n, t.name] + t.forward)
+                writer.writerow([n, t.name] + t.absolute_table)
             f.close()
         except (PermissionError,IsADirectoryError,OSError) as e:
             print(f"Failed to open {args.dump}: {str(e)}", file=sys.stderr)
