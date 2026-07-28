@@ -318,11 +318,11 @@ _mwir_binary_chop_check = [ 8000 ]
 # Some example tables. The first two are the reserved dark "low" and
 # "high" end tables.
 predefined = [
-    # Dark table 0: Fine resolution to capture the low edge in SWIR.
+    # Dark table 0: Capture the low edge in SWIR.
     _dark0,
 
-    # Dark table 1: Fine resolution to capture the high edge in SWIR,
-    # along with a chunk at the end to capture SWIR BC.
+    # Dark table 1: Capture the high edge in SWIR, along with a
+    # chunk at the end to capture SWIR BC.
     _dark1,
 
     # Measurement table 2: End of DT0 thru start of DT1 in steps of 2
@@ -504,9 +504,10 @@ if __name__ == "__main__":
 
         m = MeasurementTable(
             predefined[args.show].relative_table,
-            dark0=predefined[0],
-            dark1=predefined[1],
-            name=predefined[args.show].name
+            dark0=predefined[0] if not predefined[args.show].is_dark_table else None,
+            dark1=predefined[1] if not predefined[args.show].is_dark_table else None,
+            name=predefined[args.show].name,
+            is_dark_table=predefined[args.show].is_dark_table,
         )
         print(f"Measurement table {args.show}: {m.name}")
         print(f"Length: {len(m)}")
