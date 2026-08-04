@@ -572,6 +572,7 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
         lock = state.get("psu_lock")
         lock_ctx = lock if lock is not None else nullcontext()
         with lock_ctx:
+            psu.switch_all_psu_channels(psu_port, False)
             psu.emergencyShutDown(psu_port)
 
     if stop_event is not None:
