@@ -471,10 +471,8 @@ def build_ui(
                         state["console_terminal"] = console_input_widget.create_console_input_widget(state)
 
             def _set_console_input_visible(mode: str) -> None:
-                if mode == "OB":
-                    console_input_container.classes(remove="hidden")
-                else:
-                    console_input_container.classes(add="hidden")
+                _ = mode
+                console_input_container.classes(remove="hidden")
 
             state["plot_refreshers"].append(_set_console_input_visible)
             _set_console_input_visible(state.get("mode", "OB"))
