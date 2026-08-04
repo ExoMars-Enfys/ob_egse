@@ -11,7 +11,7 @@ from nicegui import run, ui
 
 # Local modules
 # utilities
-from utility_modules import psu
+from utility_modules import eb_interface, ebtcs, psu
 
 # widgets
 from widget_modules import plot_widget
@@ -40,6 +40,30 @@ def title_shows_lisn(title: str) -> bool:
     """Return True when the PSU title indicates the +28V profile."""
     normalized = "".join(ch for ch in str(title).lower() if ch.isalnum())
     return "28v" in normalized
+
+
+def should_send_ret_tc_for_eb_enable(mode: str | None, enabled: bool, physical_channel: int | None) -> bool:
+    """Return True when an EB-mode PSU enable should trigger an immediate RET TC."""
+    return bool(mode == "EB" and enabled and physical_channel in {3, 4})
+
+
+def emit_eb_ret_tc_for_psu_toggle(state: dict[str, Any], *, enabled: bool, physical_channel: int | None) -> None:
+    """Send an immediate RET TC when enabling PSU channels in EB mode."""
+    if not should_send_ret_tc_for_eb_enable(state.get("mode"), enabled, physical_channel):
+        return
+
+    try:
+        interface = eb_interface.get_egse_interface()
+    except Exception:
+        return
+
+    if interface is None:
+        return
+
+    try:
+        ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+    except Exception:
+        return
 
 
 @dataclass
@@ -244,6 +268,7 @@ def create_psu_channel_card(
             lock_ctx = psu_lock if psu_lock is not None else nullcontext()
             with lock_ctx:
                 psu.switch_psu_channel(port, channel=physical_channel, state=enabled, mode_state=mode_state)
+                emit_eb_ret_tc_for_psu_toggle(state, enabled=enabled, physical_channel=physical_channel)
 
         try:
             await run.io_bound(apply_toggle)
