@@ -293,65 +293,64 @@ def build_ui(
                     "ADU": monitoring_limits.recommended_plot_limits(("ob_3v3", "ob_1v5", "eb_3v3"), "ADU"),
                 }
 
-                with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
-                    # Warning/alarm lines use one shared band for all four
-                    # thermistors because their limits are identical.
-                    trp_card = plot_widget.create_plot_card(
-                        "Thermistors",
-                        series=[
-                            plot_widget.SeriesConfig("DIG TRP", plot_colors[1]),
-                            plot_widget.SeriesConfig("DET TRP", plot_colors[2]),
-                            plot_widget.SeriesConfig("MECH TRP", plot_colors[3]),
-                            plot_widget.SeriesConfig("MTR TRP", plot_colors[4]),
-                        ],
-                        y_label="°C",
-                        y_limits=trp_display_limits["REAL"],
-                        display_limits=trp_display_limits,
-                        limit_bands=[
-                            plot_widget.LimitBandConfig(
-                                label="TRP shared",
-                                warning_limits={"*": trp_limits.warning_by_display()},
-                                alarm_limits={"*": trp_limits.alarm_by_display()},
-                            )
-                        ],
-                        show_toggles=True,
-                    )
-                    state["plot_refreshers"].append(trp_card.set_mode)
-                    trp_card.set_mode(state["mode"])
-                    trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
+                # Warning/alarm lines use one shared band for all four
+                # thermistors because their limits are identical.
+                trp_card = plot_widget.create_plot_card(
+                    "Thermistors",
+                    series=[
+                        plot_widget.SeriesConfig("DIG TRP", plot_colors[1]),
+                        plot_widget.SeriesConfig("DET TRP", plot_colors[2]),
+                        plot_widget.SeriesConfig("MECH TRP", plot_colors[3]),
+                        plot_widget.SeriesConfig("MTR TRP", plot_colors[4]),
+                    ],
+                    y_label="°C",
+                    y_limits=trp_display_limits["REAL"],
+                    display_limits=trp_display_limits,
+                    limit_bands=[
+                        plot_widget.LimitBandConfig(
+                            label="TRP shared",
+                            warning_limits={"*": trp_limits.warning_by_display()},
+                            alarm_limits={"*": trp_limits.alarm_by_display()},
+                        )
+                    ],
+                    show_toggles=True,
+                )
+                state["plot_refreshers"].append(trp_card.set_mode)
+                trp_card.set_mode(state["mode"])
+                trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
-                    voltage_card = plot_widget.create_plot_card(
-                        "Voltages",
-                        series=[
-                            plot_widget.SeriesConfig("OB 3V3", plot_colors[5]),
-                            plot_widget.SeriesConfig("OB 1V5", plot_colors[1]),
-                            plot_widget.SeriesConfig("EB 3V3", plot_colors[6], modes=("EB",)),
-                        ],
-                        y_label="V",
-                        y_limits=voltage_display_limits["REAL"],
-                        display_limits=voltage_display_limits,
-                        limit_bands=[
-                            plot_widget.LimitBandConfig(
-                                label="OB 3V3",
-                                warning_limits={"*": ob_3v3_limits.warning_by_display()},
-                                alarm_limits={"*": ob_3v3_limits.alarm_by_display()},
-                            ),
-                            plot_widget.LimitBandConfig(
-                                label="OB 1V5",
-                                warning_limits={"*": ob_1v5_limits.warning_by_display()},
-                                alarm_limits={"*": ob_1v5_limits.alarm_by_display()},
-                            ),
-                            plot_widget.LimitBandConfig(
-                                label="EB 3V3",
-                                warning_limits={"EB": eb_3v3_limits.warning_by_display()},
-                                alarm_limits={"EB": eb_3v3_limits.alarm_by_display()},
-                            ),
-                        ],
-                        show_toggles=True,
-                    )
-                    state["plot_refreshers"].append(voltage_card.set_mode)
-                    voltage_card.set_mode(state["mode"])
-                    voltage_card.set_display_mode(state.get("hk_display_mode", "REAL"))
+                voltage_card = plot_widget.create_plot_card(
+                    "Voltages",
+                    series=[
+                        plot_widget.SeriesConfig("OB 3V3", plot_colors[5]),
+                        plot_widget.SeriesConfig("OB 1V5", plot_colors[1]),
+                        plot_widget.SeriesConfig("EB 3V3", plot_colors[6], modes=("EB",)),
+                    ],
+                    y_label="V",
+                    y_limits=voltage_display_limits["REAL"],
+                    display_limits=voltage_display_limits,
+                    limit_bands=[
+                        plot_widget.LimitBandConfig(
+                            label="OB 3V3",
+                            warning_limits={"*": ob_3v3_limits.warning_by_display()},
+                            alarm_limits={"*": ob_3v3_limits.alarm_by_display()},
+                        ),
+                        plot_widget.LimitBandConfig(
+                            label="OB 1V5",
+                            warning_limits={"*": ob_1v5_limits.warning_by_display()},
+                            alarm_limits={"*": ob_1v5_limits.alarm_by_display()},
+                        ),
+                        plot_widget.LimitBandConfig(
+                            label="EB 3V3",
+                            warning_limits={"EB": eb_3v3_limits.warning_by_display()},
+                            alarm_limits={"EB": eb_3v3_limits.alarm_by_display()},
+                        ),
+                    ],
+                    show_toggles=True,
+                )
+                state["plot_refreshers"].append(voltage_card.set_mode)
+                voltage_card.set_mode(state["mode"])
+                voltage_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
             # HK Parameter Explorer
             # hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)

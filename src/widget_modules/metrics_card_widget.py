@@ -25,6 +25,28 @@ from widget_modules import monitoring_limits, popup_widget
 ValueGetter = Callable[[Any], Any]
 
 
+_TMSTRUCT_HK_FIELDS = {name for name, _ in tmstruct.hk}
+_TMSTRUCT_EB_HK_FIELDS = {name for name, _ in tmstruct.eb_hk}
+
+# Standalone OB HK field -> embedded OB-in-EB HK field names.
+_OB_EMBEDDED_ALIAS_OVERRIDES: dict[str, str] = {
+    "CMD_CNT": "OB_COMMAND_COUNT",
+    "PWR_STAT": "OB_POWER_STATUS",
+    "MTR_ABS_STEPS": "OB_MOTOR_ABS_STEPS",
+    "MTR_REL_STEPS": "OB_MOTOR_REL_STEPS",
+    "MTR_CURRENT": "OB_MOTOR_CURRENT",
+    "MTR_GUARD_SELECT": "OB_MOTOR_SPISPSEL",
+    "MTR_CHOP": "OB_MOTOR_PWM_DUTY",
+    "MTR_SPEED": "OB_SPEED",
+    "THRM_MECH_ON_SP": "OB_THERMAL_MECH_MIN",
+    "THRM_MECH_OFF_SP": "OB_THERMAL_MECH_MAX",
+    "THRM_DET_ON_SP": "OB_THERMAL_DET_MIN",
+    "THRM_DET_OFF_SP": "OB_THERMAL_DET_MAX",
+    "HK_SAMPLES": "HK_NUMBER_OF_SAMPLES",
+    "HK_MECH_CUR": "OB_MECH_CURRENT",
+}
+
+
 @dataclass(frozen=True)
 class MetricSpec:
     key: str
@@ -236,6 +258,99 @@ def _safe_get_value(getter: ValueGetter, packet: Any) -> Any:
         return None
 
 
+def _first_available_value(packet: Any, field_names: str | tuple[str, ...] | list[str]) -> tuple[Any, str | None]:
+    names = (field_names,) if isinstance(field_names, str) else tuple(field_names)
+    for name in names:
+        if hasattr(packet, name):
+            value = getattr(packet, name, None)
+            if value is not None:
+                return value, name
+    return None, None
+
+
+def _ob_field_aliases(*field_names: str) -> tuple[str, ...]:
+    """Return ordered OB field aliases available in tmstruct.
+
+    Names are resolved using standalone OB HK fields, known embedded OB-in-EB
+    aliases, and OB_ prefixed variants when present in ``tmstruct.eb_hk``.
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _append_if_known(name: str) -> None:
+        if name in seen:
+            return
+        if name in _TMSTRUCT_HK_FIELDS or name in _TMSTRUCT_EB_HK_FIELDS:
+            candidates.append(name)
+            seen.add(name)
+
+    def _append(name: str) -> None:
+        if name in seen:
+            return
+        candidates.append(name)
+        seen.add(name)
+
+    for field_name in field_names:
+        _append_if_known(field_name)
+
+        override = _OB_EMBEDDED_ALIAS_OVERRIDES.get(field_name)
+        if override:
+            _append_if_known(override)
+            _append(override)
+
+        prefixed = field_name if field_name.startswith("OB_") else f"OB_{field_name}"
+        _append_if_known(prefixed)
+        _append(prefixed)
+
+    # Fall back to requested names if tmstruct changes unexpectedly.
+    return tuple(candidates) if candidates else tuple(field_names)
+
+
+def _decoded_ob_value(packet: Any, field_names: str | tuple[str, ...] | list[str]) -> float | None:
+    raw, resolved_name = _first_available_value(packet, field_names)
+    if raw is None or resolved_name is None:
+        return None
+
+    display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
+    if display_mode == "ADU":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        converted = hk_conversions.decode_field(packet, resolved_name)
+    except Exception:
+        converted = None
+    if converted is not None:
+        try:
+            return float(converted)
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        raw_value = float(raw)
+        if resolved_name == "HK_V_3V3":
+            return raw_value * 4.05 / 4095.0 * 2.0
+        if resolved_name == "HK_V_1V5":
+            return raw_value * 4.05 / 4095.0
+        if resolved_name in {
+            "DIGITAL_TRP",
+            "DETEC_TRP",
+            "MECH_TRP",
+            "MOTOR_TRP",
+            "OB_DIGITAL_TRP",
+            "OB_DETECTOR_TRP",
+            "OB_MECHANISM_TRP",
+            "OB_MOTOR_TRP",
+        }:
+            return float(adu_to_temp(int(raw_value)))
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+
+    return None
+
+
 def _coerce_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return float(int(value))
@@ -331,9 +446,9 @@ def decoded(packet: Any, field_name: str) -> float | None:
     return None
 
 
-def _hex_attr(packet: Any, field_name: str, width: int = 2) -> str | None:
+def _hex_attr(packet: Any, field_name: str | tuple[str, ...] | list[str], width: int = 2) -> str | None:
     """Format an integer packet attribute as a zero-padded hexadecimal value."""
-    value = getattr(packet, field_name, None)
+    value, _ = _first_available_value(packet, field_name)
     if value is None:
         return None
     try:
@@ -368,8 +483,8 @@ def _tec_drive_current(packet: Any) -> float | None:
     return float(raw) * 0.0000162
 
 
-def _ob_thermal_setpoint(packet: Any, field_name: str) -> float | None:
-    raw = getattr(packet, field_name, None)
+def _ob_thermal_setpoint(packet: Any, field_name: str | tuple[str, ...] | list[str]) -> float | None:
+    raw, _ = _first_available_value(packet, field_name)
     if raw is None:
         return None
     display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
@@ -379,7 +494,11 @@ def _ob_thermal_setpoint(packet: Any, field_name: str) -> float | None:
         except (TypeError, ValueError):
             return None
     try:
-        return float(adu_to_temp(int(raw)))
+        raw_int = int(raw)
+        # Endpoint ADC values are not physically meaningful for these thermistors.
+        if raw_int <= 0 or raw_int >= 4095:
+            return None
+        return float(adu_to_temp(raw_int))
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
@@ -409,9 +528,6 @@ def _parked(packet: Any) -> bool | None:
 def _direction(packet: Any) -> str | None:
     namespace = getattr(packet, "MTR_FLAGS", None)
     if namespace is None or not hasattr(namespace, "DIR"):
-        return None
-    moving = _flag_true(packet, "MTR_FLAGS", "MOVING")
-    if moving is not True:
         return None
     return "TO BASE" if int(getattr(namespace, "DIR", 0)) == 0 else "TO OUTER"
 
@@ -576,53 +692,57 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="3v3",
             label="+3.3V",
-            getter=lambda hk: decoded(hk, "HK_V_3V3"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_3V3", "OB_3V3_VOLTAGE")),
             unit="V",
             **monitoring_limits.metric_limit_kwargs("ob_3v3"),
         ),
         MetricSpec(
             key="1v5",
             label="+1.5V",
-            getter=lambda hk: decoded(hk, "HK_V_1V5"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_1V5", "OB_1V5_VOLTAGE")),
             unit="V",
             **monitoring_limits.metric_limit_kwargs("ob_1v5"),
         ),
         MetricSpec(
             key="dig",
             label="DIG:",
-            getter=lambda hk: decoded(hk, "DIGITAL_TRP"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DIGITAL_TRP", "OB_DIGITAL_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="det",
             label="DET:",
-            getter=lambda hk: decoded(hk, "DETEC_TRP"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DETEC_TRP", "OB_DETECTOR_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="mech",
             label="MECH:",
-            getter=lambda hk: decoded(hk, "MECH_TRP"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MECH_TRP", "OB_MECHANISM_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="mtr",
             label="MTR",
-            getter=lambda hk: decoded(hk, "MOTOR_TRP"),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MOTOR_TRP", "OB_MOTOR_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
-        MetricSpec(key="cmd_cnt", label="CMD CNT", getter=lambda hk: getattr(hk, "CMD_CNT", None)),
-        MetricSpec(key="pwr_stat", label="PWR STAT", getter=lambda hk: _hex_attr(hk, "PWR_STAT")),
+        MetricSpec(
+            key="cmd_cnt",
+            label="CMD CNT",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("CMD_CNT"))[0],
+        ),
+        MetricSpec(key="pwr_stat", label="PWR STAT", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("PWR_STAT"))),
         MetricSpec(
             key="mech_pwr",
             label="MECH PWR",
             getter=lambda hk: _status_mask_set(
                 hk,
-                "PWR_STAT",
+                _ob_field_aliases("PWR_STAT"),
                 0x01,
             ),
             render="bool_status",
@@ -636,7 +756,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
             label="DET PWR",
             getter=lambda hk: _status_mask_set(
                 hk,
-                "PWR_STAT",
+                _ob_field_aliases("PWR_STAT"),
                 0x02,
             ),
             render="bool_status",
@@ -645,10 +765,26 @@ def _ob_hk_specs() -> list[MetricSpec]:
             true_color="green",
             false_color="grey",
         ),
-        MetricSpec(key="hk_samples", label="HK SAMPLES", getter=lambda hk: getattr(hk, "HK_SAMPLES", None)),
-        MetricSpec(key="hk_mech_cur", label="MECH CUR", getter=lambda hk: getattr(hk, "HK_MECH_CUR", None)),
-        MetricSpec(key="swir_offset", label="SWIR OFFSET", getter=lambda hk: getattr(hk, "SWIR_OFFSET", None)),
-        MetricSpec(key="mwir_offset", label="MWIR OFFSET", getter=lambda hk: getattr(hk, "MWIR_OFFSET", None)),
+        MetricSpec(
+            key="hk_samples",
+            label="HK SAMPLES",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_SAMPLES"))[0],
+        ),
+        MetricSpec(
+            key="hk_mech_cur",
+            label="MECH CUR",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_MECH_CUR"))[0],
+        ),
+        MetricSpec(
+            key="swir_offset",
+            label="SWIR OFFSET",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("SWIR_OFFSET"))[0],
+        ),
+        MetricSpec(
+            key="mwir_offset",
+            label="MWIR OFFSET",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MWIR_OFFSET"))[0],
+        ),
         # Motor status and configuration
         MetricSpec(
             key="ob_motor_moving",
@@ -672,8 +808,16 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=_stop,
             color_map={"BASE": "purple", "OUTER": "blue", "Not At Stop": "grey", "_default": "grey"},
         ),
-        MetricSpec(key="ob_steps", label="ABS STEPS", getter=lambda hk: getattr(hk, "MTR_ABS_STEPS", None)),
-        MetricSpec(key="mtr_rel_steps", label="REL STEPS", getter=lambda hk: getattr(hk, "MTR_REL_STEPS", None)),
+        MetricSpec(
+            key="ob_steps",
+            label="ABS STEPS",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_ABS_STEPS"))[0],
+        ),
+        MetricSpec(
+            key="mtr_rel_steps",
+            label="REL STEPS",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_REL_STEPS"))[0],
+        ),
         MetricSpec(
             key="ob_mech_cal",
             label="CAL",
@@ -681,10 +825,18 @@ def _ob_hk_specs() -> list[MetricSpec]:
             render="state_chip",
             chip_text="CAL",
         ),
-        MetricSpec(key="mtr_current", label="CUR", getter=lambda hk: _hex_attr(hk, "MTR_CURRENT")),
-        MetricSpec(key="guard_select", label="GUARD", getter=lambda hk: _hex_attr(hk, "MTR_GUARD_SELECT")),
-        MetricSpec(key="mtr_chop", label="CHOP", getter=lambda hk: _hex_attr(hk, "MTR_CHOP")),
-        MetricSpec(key="mtr_speed", label="SPEED", getter=lambda hk: _hex_attr(hk, "MTR_SPEED")),
+        MetricSpec(key="mtr_current", label="CUR", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CURRENT"))),
+        MetricSpec(
+            key="guard_select",
+            label="GUARD",
+            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_GUARD_SELECT", "OB_MOTOR_GUARD_TIME")),
+        ),
+        MetricSpec(key="mtr_chop", label="CHOP", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CHOP"))),
+        MetricSpec(
+            key="mtr_speed",
+            label="SPEED",
+            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_SPEED", "OB_MOTOR_PWM_RATE")),
+        ),
         # Heater state bitfield
         MetricSpec(
             key="mech_htr_status",
@@ -747,25 +899,25 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="mech_htr_min_sp",
             label="ON SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_MECH_ON_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_ON_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="mech_htr_max_sp",
             label="OFF SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_MECH_OFF_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_OFF_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="det_htr_min_sp",
             label="ON SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_DET_ON_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_ON_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="det_htr_max_sp",
             label="OFF SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_DET_OFF_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_OFF_SP")),
             unit="°C",
         ),
         # OB error bitfields
@@ -1090,10 +1242,10 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
 
 def _status_mask_set(
     packet: Any,
-    field_name: str,
+    field_name: str | tuple[str, ...] | list[str],
     mask: int,
 ) -> bool | None:
-    value = getattr(packet, field_name, None)
+    value, _ = _first_available_value(packet, field_name)
     if value is None:
         return None
 
