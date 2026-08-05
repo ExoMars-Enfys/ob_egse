@@ -206,12 +206,12 @@ def do_table_scan(port: serial.rs485.RS485,
         if relative_steps != 0:
             event_log.info(f"Moving {relative_steps} step(s) to reach absolute position {absolute_position}")
             if relative_steps < 0:
-                repeat(port, tc.mtr_mov_neg, -steps)
+                repeat(port, tc.mtr_mov_neg, -relative_steps)
             else:
-                repeat(port, tc.mtr_mov_pos, steps)
+                repeat(port, tc.mtr_mov_pos, relative_steps)
 
             # Wait until no longer moving
-            wait_movement_complete(port, steps)
+            wait_movement_complete(port, relative_steps)
         else:
             event_log.info(f"No movement needed for the next science reading")
 
@@ -761,8 +761,8 @@ def measurement_table_scan(port: serial.rs485.RS485,
 
     table = mt.MeasurementTable(
         mt.predefined[table_number].relative_table,
-        before_table=mt.predefined[dark_table_0],
-        after_table=mt.predefined[dark_table_1],
+        dark0=mt.predefined[dark_table_0],
+        dark1=mt.predefined[dark_table_1],
         name=mt.predefined[table_number].name,
     )
 
