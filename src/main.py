@@ -88,7 +88,7 @@ def clean_exit(ob_port, psu_port, event_log, stop_event=None, psu_thread=None):
             handle.close()
 
     # 4. Release physical RS-485 link
-    if ob_port is not None:
+    if ob_port is not None and ob_port.is_open:
         comms.close_comms(ob_port)
 
     # 5. Handshake down the PSU link using your verified working isolation sequence
@@ -111,7 +111,6 @@ def clean_exit(ob_port, psu_port, event_log, stop_event=None, psu_thread=None):
             event_log.info("PSU safely unlocked and returned to local mode.")
         except Exception as e:
             event_log.error(f"Failed to cleanly release PSU interface: {e}")
-
 
     #! TODO add emergency shutdown to that powers off the OB
 
@@ -144,12 +143,12 @@ def main() -> None:
         # 1. First, declare your locks, events, and threads
     stop_event = threading.Event()
     hk_pause_event = threading.Event()
-    hk_pause_event.set() 
+    hk_pause_event.set()
     psu_lock = threading.Lock()
     port_lock = threading.Lock()
 
-    time.sleep(1) 
-    
+    time.sleep(1)
+
     # 2. Instantiate the thread object so it exists as a valid local variable
     psu_thread = threading.Thread(
         target=psu.psu_monitor_thread,
@@ -175,7 +174,6 @@ def main() -> None:
 
     app.on_shutdown(stop_event.set)
     app.on_shutdown(lambda: clean_exit(ob_port, psu_port, event_log, stop_event, psu_thread))
-
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
@@ -203,30 +201,18 @@ def main() -> None:
         time.sleep(1)  #! Adjust  to your needs for delay before requesting HK
 
         # First HK
-        sequences.parse_hk(ob_port)
-
+        # sequences.parse_hk(ob_port)
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        #
-        #tc.heater_control(ob_port, htr_mech_man=True)
-        #input("Press Enter to continue with the script...")
-        # tc.power_control(ob_port, 1)
-        time.sleep(4)
-        #tc.set_mtr_param(ob_port, 64, 0, 60, 8)
-        # tc.set_errors(ob_port, ig_b = True, ig_o = True, m_cd = True, m_ab = True, m_dse = True)
-        # tc.mtr_mov_pos(ob_port, 500)
-        # tc.sci_offset(ob_port, 0xABC, 0x567, True)
-        # tc.sci_request(ob_port, sci_adc_samp = 0x1, sci_adc_skip = 0x2)
-        input("Press Enter to continue with the script...")
-        sequences.parse_hk(ob_port)
+        # sequences.parse_hk(ob_port)
         # tc.power_control(ob_port, 1)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
         # Get final HK
-        sequences.parse_hk(ob_port)
-        
+        # sequences.parse_hk(ob_port)
+
         #! No need for stop events as atexit does it automatically
         return
 
@@ -261,7 +247,7 @@ def main() -> None:
         if hk_thread.is_alive():
             event_log.info("Waiting for HK polling thread to finish")
             hk_thread.join(timeout=1.0)  # Wait for the HK polling thread to finish
-    
+
     # psu.emergencyShutDown(psu_port)
 
 
