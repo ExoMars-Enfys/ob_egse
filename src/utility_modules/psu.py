@@ -149,6 +149,24 @@ def parse_psu_reading(raw_value: str) -> float:
         return 0.0
 
 
+def _oob_bounds(ch_cfg: dict, voltage_mode: str) -> tuple[float, float]:
+    """Return (lower, upper) OOB voltage bounds centred on the selected set voltage.
+
+    The tolerance window is derived from the NOM-based envelope in BUS_VOLTAGES:
+        tol_low  = NOM - MIN
+        tol_high = MAX - NOM
+    and is then shifted to be centred on the currently set voltage (MIN/NOM/MAX),
+    so OOB detection stays proportionally tight regardless of which mode is active.
+    """
+    v_min = ch_cfg.get("MIN", 0.0)
+    v_nom = ch_cfg.get("NOM", 0.0)
+    v_max = ch_cfg.get("MAX", 0.0)
+    tol_low = v_nom - v_min
+    tol_high = v_max - v_nom
+    set_v = ch_cfg.get(voltage_mode, v_nom)
+    return (set_v - tol_low, set_v + tol_high)
+
+
 def parse_psu_status(raw_value: str) -> int:
     """Parse PSU ON/OFF status text into int with safe fallback to 0."""
     value = raw_value.strip()
@@ -312,7 +330,11 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                             continue
 
                         # CH3 (ROV HTR) checks always apply
-                        if rov_htr_status and not (26 < rov_htr_v < 30):
+                        _voltage_mode = mode_state.get("voltage_mode", "NOM") if isinstance(mode_state, dict) else "NOM"
+                        _eb_v = const.BUS_VOLTAGES.get("EB", {})
+                        ch3_min, ch3_max = _oob_bounds(_eb_v.get("CH3", {}), _voltage_mode)
+                        ch4_min, ch4_max = _oob_bounds(_eb_v.get("CH4", {}), _voltage_mode)
+                        if rov_htr_status and not (ch3_min < rov_htr_v < ch3_max):
                             psu_log.error(f"Voltage out of bounds Ch3 :  {rov_htr_v}")
                             emergencyShutDown(port)
                             _queue_shutdown_snapshot(active_ebmode)
@@ -324,7 +346,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
 
                         # CH4 (EB) checks only if LISN check is enabled
                         if lisn_check_enabled:
-                            if ebstatus and not (26 < eb_v < 30):
+                            if ebstatus and not (ch4_min < eb_v < ch4_max):
                                 psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
                                 emergencyShutDown(port)
                                 _queue_shutdown_snapshot(active_ebmode)
@@ -421,10 +443,15 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         if on_since is not None and time.monotonic() - on_since < 1:
                             continue
 
+                        _voltage_mode = mode_state.get("voltage_mode", "NOM") if isinstance(mode_state, dict) else "NOM"
+                        _ob_v = const.BUS_VOLTAGES.get("OB", {})
+                        ch1_min, ch1_max = _oob_bounds(_ob_v.get("CH1", {}), _voltage_mode)
+                        ch2_min, ch2_max = _oob_bounds(_ob_v.get("CH2", {}), _voltage_mode)
+                        ch3_min, ch3_max = _oob_bounds(_ob_v.get("CH3", {}), _voltage_mode)
                         voltage_oob = (
-                            (ch1_status and not (11 < float(ch1_v) < 11.4))
-                            or (ch2_status and not (11 < float(ch2_v) < 11.4))
-                            or (ch3_status and not (4.6 < float(ch3_v) < 5))
+                            (ch1_status and not (ch1_min < float(ch1_v) < ch1_max))
+                            or (ch2_status and not (ch2_min < float(ch2_v) < ch2_max))
+                            or (ch3_status and not (ch3_min < float(ch3_v) < ch3_max))
                         )
                         if voltage_oob:
                             psu_log.error(
@@ -462,7 +489,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
         stop_event.wait(1 / freq)
 
 
-def setChannels(port, ebmode):
+def setChannels(port, ebmode, voltage_mode: str = "NOM"):
     """Configure PSU channel voltage/current/OVP limits for OB or EB mode."""
     if port:
         # Force a known safe state at startup/mode switch: all outputs OFF.
@@ -485,10 +512,10 @@ def setChannels(port, ebmode):
             ch4_ovp = config.ROV_HTR_OVP
             ch4_i = config.ROV_HTR_I
 
-            # Get nominal voltages from BUS_VOLTAGES
-            ch1_v = channel_voltages.get("CH1", {}).get("MIN", 11.2)
-            ch2_v = channel_voltages.get("CH2", {}).get("MIN", 11.2)
-            ch3_v = channel_voltages.get("CH3", {}).get("MIN", 4.8)
+            # Get voltages from BUS_VOLTAGES using the selected voltage mode
+            ch1_v = channel_voltages.get("CH1", {}).get(voltage_mode, channel_voltages.get("CH1", {}).get("NOM", 12.0))
+            ch2_v = channel_voltages.get("CH2", {}).get(voltage_mode, channel_voltages.get("CH2", {}).get("NOM", 12.0))
+            ch3_v = channel_voltages.get("CH3", {}).get(voltage_mode, channel_voltages.get("CH3", {}).get("NOM", 5.0))
             ch4_v = 28.0  # CH4 not used in OB mode typically
 
             # Set the voltage and current limits for each channel
@@ -525,9 +552,9 @@ def setChannels(port, ebmode):
             ch4_ovp = config.EB_OVP
             ch4_i = config.EB_I
 
-            # Get nominal voltages from BUS_VOLTAGES for EB mode
-            ch3_v = channel_voltages.get("CH3", {}).get("NOM", 28.0)
-            ch4_v = channel_voltages.get("CH4", {}).get("NOM", 28.0)
+            # Get voltages from BUS_VOLTAGES for EB mode using the selected voltage mode
+            ch3_v = channel_voltages.get("CH3", {}).get(voltage_mode, channel_voltages.get("CH3", {}).get("NOM", 28.0))
+            ch4_v = channel_voltages.get("CH4", {}).get(voltage_mode, channel_voltages.get("CH4", {}).get("NOM", 28.0))
 
             # Set the voltage and current limits for each channel
             psu_log.info("EB Mode: Setting PSU Channels")

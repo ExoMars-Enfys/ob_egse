@@ -120,7 +120,7 @@ def main() -> None:
     args = parser.parse_args()
     startup_mode = const.DEFAULT_STARTUP_MODE
     startup_eb_mode = startup_mode == "EB"
-    psu_mode_state = {"ebmode": startup_eb_mode}
+    psu_mode_state = {"ebmode": startup_eb_mode, "voltage_mode": "NOM"}
 
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")

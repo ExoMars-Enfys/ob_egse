@@ -327,6 +327,9 @@ def create_voltage_mode_selector(
         """Handle voltage mode change and apply to PSU."""
         new_mode = e.value
         state["voltage_mode"] = new_mode
+        psu_mode_state = state.get("psu_mode_state")
+        if isinstance(psu_mode_state, dict):
+            psu_mode_state["voltage_mode"] = new_mode
 
         port = state.get("psu_port")
         psu_lock = state.get("psu_lock")

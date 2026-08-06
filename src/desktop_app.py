@@ -107,7 +107,7 @@ if __name__ == "__main__":
     startup_mode = args.mode
     startup_eb_mode = startup_mode == "EB"
     psu_lock = threading.Lock()
-    psu_mode_state = {"value": startup_eb_mode}
+    psu_mode_state = {"value": startup_eb_mode, "ebmode": startup_eb_mode, "voltage_mode": "NOM"}
 
     psu_port = None
     if not args.nopsu:

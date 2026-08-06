@@ -3044,7 +3044,7 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
                 ebmode = mode == "EB"
                 lock_ctx = psu_lock if psu_lock is not None else nullcontext()
                 with lock_ctx:
-                    psu.setChannels(psu_port, ebmode)
+                    psu.setChannels(psu_port, ebmode, state.get("voltage_mode", "NOM"))
             # Run mode change resetters
             for reset in state.get("mode_change_resetters", []):
                 reset()

@@ -263,6 +263,9 @@ def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
 
     new_mode = e.value
     state["voltage_mode"] = new_mode
+    psu_mode_state = state.get("psu_mode_state")
+    if isinstance(psu_mode_state, dict):
+        psu_mode_state["voltage_mode"] = new_mode
 
     port = state.get("psu_port")
     psu_lock = state.get("psu_lock")
