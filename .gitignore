@@ -3,3 +3,6 @@ logs/
 loggers/
 examples/
 .gitignore
+src/desktop_app.py
+src/widget_modules/hk_history_card_widget.py
+src/utility_modules/desktop_launcher.py
