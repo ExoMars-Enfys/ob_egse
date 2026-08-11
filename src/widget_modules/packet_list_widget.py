@@ -210,7 +210,7 @@ class PacketListController:
                         with ui.row().classes("w-full items-start gap-2"):
                             label_widget = ui.label(str(key)).classes("font-semibold min-w-40 egse-metric-label")
                             label_widget.style("color: var(--accent_color);")
-                            value_str = format_packet_value(value)
+                            value_str = format_packet_value(value)[:200]  # Truncate very long values
                             val_label = ui.label(value_str).classes("whitespace-pre-line break-words egse-metric-label")
                             val_label.style("color: var(--text-secondary);")
 

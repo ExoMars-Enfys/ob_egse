@@ -12,7 +12,7 @@ from nicegui import run, ui
 
 # Local modules
 # utilities
-from utility_modules import eb_interface, ebtcs, psu
+from utility_modules import psu
 
 # widgets
 from widget_modules import plot_widget
@@ -273,6 +273,14 @@ def create_psu_channel_card(
         if mode == "EB" and physical_channel in (1, 2):
             return
 
+        # Block re-enabling channels while the MMS/protection latch is active.
+        if enabled and state.get("ob_psu_protection", {}).get("shutdown_latched", False):
+            ui.notify("PSU is latched after a protection trip — reset the latch first.", type="warning")
+            channel["_suppress_toggle_events"] = int(channel.get("_suppress_toggle_events", 0) or 0) + 1
+            if enabled_switch is not None:
+                enabled_switch.value = False
+            return
+
         set_component_busy(enabled_switch, True)
         mode_state = state.get("psu_mode_state") if isinstance(state.get("psu_mode_state"), dict) else state
         psu.set_psu_command_in_flight(mode_state, True)
@@ -284,7 +292,6 @@ def create_psu_channel_card(
             lock_ctx = psu_lock if psu_lock is not None else nullcontext()
             with lock_ctx:
                 psu.switch_psu_channel(port, channel=physical_channel, state=enabled, mode_state=mode_state)
-                emit_eb_ret_tc_for_psu_toggle(state, enabled=enabled, physical_channel=physical_channel)
 
         try:
             await run.io_bound(apply_toggle)
@@ -368,6 +375,9 @@ def create_voltage_mode_selector(
         """Handle voltage mode change and apply to PSU."""
         new_mode = e.value
         state["voltage_mode"] = new_mode
+        psu_mode_state = state.get("psu_mode_state")
+        if isinstance(psu_mode_state, dict):
+            psu_mode_state["voltage_mode"] = new_mode
 
         port = state.get("psu_port")
         psu_lock = state.get("psu_lock")
@@ -457,7 +467,11 @@ def create_ob_master_channels_toggle(
         if not psu_port:
             return
 
-        set_component_busy(ob_master_toggle, True)
+        # Block re-enabling channels while the MMS/protection latch is active.
+        if enabled and state.get("ob_psu_protection", {}).get("shutdown_latched", False):
+            ui.notify("PSU is latched after a protection trip — reset the latch first.", type="warning")
+            ob_master_toggle.value = False
+            return
         mode_state = state.get("psu_mode_state") if isinstance(state.get("psu_mode_state"), dict) else state
         psu.set_psu_command_in_flight(mode_state, True)
 

@@ -262,6 +262,20 @@ def build_ui(
                         logo_images.append(logo)
                     with ui.row().classes("items-center gap-4"):
                         state["alarm_lights"] = traffic_light_widget.create_traffic_lights([("ob", "OB"), ("eb", "EB")])
+                        ob_light = state["alarm_lights"]["ob"]
+                        ob_light.on_clear = lambda: ui_runtime_controller.reset_ob_fdir_simulator(state)
+
+                        def _on_ob_ignore(muted_details: set) -> None:
+                            ignored: set = state.setdefault("ob_fdir_ignored_flags", set())
+                            for detail in muted_details:
+                                # Detail strings look like "OB FDIR Alarm: FLAG_NAME (simulated, latched)"
+                                try:
+                                    flag = detail.split(": ", 1)[1].split(" (")[0]
+                                    ignored.add(flag)
+                                except Exception:
+                                    pass
+
+                        ob_light.on_ignore = _on_ob_ignore
 
         def build_centre_console() -> tuple[Any, Any]:
             """Placeholder method for centre console content"""
@@ -293,64 +307,65 @@ def build_ui(
                     "ADU": monitoring_limits.recommended_plot_limits(("ob_3v3", "ob_1v5", "eb_3v3"), "ADU"),
                 }
 
-                # Warning/alarm lines use one shared band for all four
-                # thermistors because their limits are identical.
-                trp_card = plot_widget.create_plot_card(
-                    "Thermistors",
-                    series=[
-                        plot_widget.SeriesConfig("DIG TRP", plot_colors[1]),
-                        plot_widget.SeriesConfig("DET TRP", plot_colors[2]),
-                        plot_widget.SeriesConfig("MECH TRP", plot_colors[3]),
-                        plot_widget.SeriesConfig("MTR TRP", plot_colors[4]),
-                    ],
-                    y_label="°C",
-                    y_limits=trp_display_limits["REAL"],
-                    display_limits=trp_display_limits,
-                    limit_bands=[
-                        plot_widget.LimitBandConfig(
-                            label="TRP shared",
-                            warning_limits={"*": trp_limits.warning_by_display()},
-                            alarm_limits={"*": trp_limits.alarm_by_display()},
-                        )
-                    ],
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(trp_card.set_mode)
-                trp_card.set_mode(state["mode"])
-                trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
+                with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
+                    # Warning/alarm lines use one shared band for all four
+                    # thermistors because their limits are identical.
+                    trp_card = plot_widget.create_plot_card(
+                        "Thermistors",
+                        series=[
+                            plot_widget.SeriesConfig("DIG TRP", plot_colors[1]),
+                            plot_widget.SeriesConfig("DET TRP", plot_colors[2]),
+                            plot_widget.SeriesConfig("MECH TRP", plot_colors[3]),
+                            plot_widget.SeriesConfig("MTR TRP", plot_colors[4]),
+                        ],
+                        y_label="°C",
+                        y_limits=trp_display_limits["REAL"],
+                        display_limits=trp_display_limits,
+                        limit_bands=[
+                            plot_widget.LimitBandConfig(
+                                label="TRP shared",
+                                warning_limits={"*": trp_limits.warning_by_display()},
+                                alarm_limits={"*": trp_limits.alarm_by_display()},
+                            )
+                        ],
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(trp_card.set_mode)
+                    trp_card.set_mode(state["mode"])
+                    trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
-                voltage_card = plot_widget.create_plot_card(
-                    "Voltages",
-                    series=[
-                        plot_widget.SeriesConfig("OB 3V3", plot_colors[5]),
-                        plot_widget.SeriesConfig("OB 1V5", plot_colors[1]),
-                        plot_widget.SeriesConfig("EB 3V3", plot_colors[6], modes=("EB",)),
-                    ],
-                    y_label="V",
-                    y_limits=voltage_display_limits["REAL"],
-                    display_limits=voltage_display_limits,
-                    limit_bands=[
-                        plot_widget.LimitBandConfig(
-                            label="OB 3V3",
-                            warning_limits={"*": ob_3v3_limits.warning_by_display()},
-                            alarm_limits={"*": ob_3v3_limits.alarm_by_display()},
-                        ),
-                        plot_widget.LimitBandConfig(
-                            label="OB 1V5",
-                            warning_limits={"*": ob_1v5_limits.warning_by_display()},
-                            alarm_limits={"*": ob_1v5_limits.alarm_by_display()},
-                        ),
-                        plot_widget.LimitBandConfig(
-                            label="EB 3V3",
-                            warning_limits={"EB": eb_3v3_limits.warning_by_display()},
-                            alarm_limits={"EB": eb_3v3_limits.alarm_by_display()},
-                        ),
-                    ],
-                    show_toggles=True,
-                )
-                state["plot_refreshers"].append(voltage_card.set_mode)
-                voltage_card.set_mode(state["mode"])
-                voltage_card.set_display_mode(state.get("hk_display_mode", "REAL"))
+                    voltage_card = plot_widget.create_plot_card(
+                        "Voltages",
+                        series=[
+                            plot_widget.SeriesConfig("OB 3V3", plot_colors[5]),
+                            plot_widget.SeriesConfig("OB 1V5", plot_colors[1]),
+                            plot_widget.SeriesConfig("EB 3V3", plot_colors[6], modes=("EB",)),
+                        ],
+                        y_label="V",
+                        y_limits=voltage_display_limits["REAL"],
+                        display_limits=voltage_display_limits,
+                        limit_bands=[
+                            plot_widget.LimitBandConfig(
+                                label="OB 3V3",
+                                warning_limits={"*": ob_3v3_limits.warning_by_display()},
+                                alarm_limits={"*": ob_3v3_limits.alarm_by_display()},
+                            ),
+                            plot_widget.LimitBandConfig(
+                                label="OB 1V5",
+                                warning_limits={"*": ob_1v5_limits.warning_by_display()},
+                                alarm_limits={"*": ob_1v5_limits.alarm_by_display()},
+                            ),
+                            plot_widget.LimitBandConfig(
+                                label="EB 3V3",
+                                warning_limits={"EB": eb_3v3_limits.warning_by_display()},
+                                alarm_limits={"EB": eb_3v3_limits.alarm_by_display()},
+                            ),
+                        ],
+                        show_toggles=True,
+                    )
+                    state["plot_refreshers"].append(voltage_card.set_mode)
+                    voltage_card.set_mode(state["mode"])
+                    voltage_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
             # HK Parameter Explorer
             # hk_explorer_card = parameter_explorer.create_hk_parameter_explorer(state, _palette)
@@ -471,8 +486,10 @@ def build_ui(
                         state["console_terminal"] = console_input_widget.create_console_input_widget(state)
 
             def _set_console_input_visible(mode: str) -> None:
-                _ = mode
-                console_input_container.classes(remove="hidden")
+                if mode == "OB":
+                    console_input_container.classes(remove="hidden")
+                else:
+                    console_input_container.classes(add="hidden")
 
             state["plot_refreshers"].append(_set_console_input_visible)
             _set_console_input_visible(state.get("mode", "OB"))

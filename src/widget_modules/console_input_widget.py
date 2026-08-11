@@ -6,16 +6,16 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from nicegui import app, ui
+from nicegui import ui
 
 from core_modules import cmd_ids
-from utility_modules import eb_interface, ebtcs, tc
+from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat
 from widget_modules import ui_runtime_controller
 
 
-OB_DEFAULT_COMMANDS = list(cmd_ids.cmd_ids.values())
-OB_COMMAND_TO_TC_FUNC = {
+DEFAULT_COMMANDS = list(cmd_ids.cmd_ids.values())
+COMMAND_TO_TC_FUNC = {
     "HK_Request": tc.hk_request,
     "Clear_Errors": tc.clear_errors,
     "Set_Errors": tc.set_errors,
@@ -31,39 +31,6 @@ OB_COMMAND_TO_TC_FUNC = {
     "Set_HK_Samples": tc.set_hk_samples,
     "SCI_Offset": tc.sci_offset,
     "SCI_Request": tc.sci_request,
-}
-
-EB_DEFAULT_COMMANDS = list(cmd_ids.enfys_tc_defs.keys())
-EB_COMMAND_TO_TC_FUNC = {
-    "RET": ebtcs.ret,
-    "REQUEST_HK": ebtcs.hk_request,
-    "PATCH": ebtcs.patch,
-    "DUMP": ebtcs.dump,
-    "SET_HK_RATE": ebtcs.set_hk_rate,
-    "MONITOR_ADDR": ebtcs.monitor_addr,
-    "ABORT": ebtcs.abort,
-    "GENERIC_TC": ebtcs.generic_tc,
-    "SAFE": ebtcs.safe,
-    "STANDBY": ebtcs.standby,
-    "ACQUISITION": ebtcs.acquisition,
-    "SET_MOTOR_CONFIGS": ebtcs.set_motor_configs,
-    "SET_HEATER_CONFIGS": ebtcs.set_heater_configs,
-    "SET_ACQ_CONFIGS": ebtcs.set_acq_configs,
-    "SET_TEC_SETPOINT": ebtcs.set_tec_setpoint,
-    "SET_FDIR": ebtcs.set_fdir,
-    "EN_MECH_BOARD": ebtcs.en_mech_board,
-    "EN_DET_BOARD": ebtcs.en_det_board,
-    "EN_MECH_HEATER": ebtcs.en_mech_heater,
-    "EN_DET_HEATER": ebtcs.en_det_heater,
-    "EN_OB5V": ebtcs.en_ob5v,
-    "OB_PARK": ebtcs.ob_park,
-    "OB_HOMING": ebtcs.ob_homing,
-    "OB_HK": ebtcs.ob_hk,
-    "CHECK_MEMORY": ebtcs.check_memory,
-    "GOTO": ebtcs.goto,
-    "COPY_MEMORY": ebtcs.copy_memory,
-    "SWITCH_RS422": ebtcs.switch_rs422,
-    "SET_TEC_CURRENT": ebtcs.set_tec_current,
 }
 
 
@@ -182,71 +149,39 @@ def create_console_input_widget(
         commands: Optional command list for selector choices.
         on_send: Optional callback invoked with command text when sent.
     """
+    command_list = list(commands or state.get("console_commands") or DEFAULT_COMMANDS)
     logger = state.get("logger")
-    mode_cache = {"value": str(state.get("mode", "OB")).upper()}
-
-    def _mode_to_backend(mode: str) -> str:
-        return "EB" if str(mode).upper() == "EB" else "OB"
-
-    def _commands_for_mode(mode: str) -> list[str]:
-        if commands:
-            return list(commands)
-        if mode == "EB":
-            return list(state.get("console_commands_eb") or EB_DEFAULT_COMMANDS)
-        return list(state.get("console_commands") or OB_DEFAULT_COMMANDS)
-
-    def _command_map_for_mode(mode: str) -> dict[str, Callable[..., Any]]:
-        return EB_COMMAND_TO_TC_FUNC if mode == "EB" else OB_COMMAND_TO_TC_FUNC
-
-    mode_key = _mode_to_backend(mode_cache["value"])
-    command_list = _commands_for_mode(mode_key)
-    mode_command_state = state.setdefault("console_selected_command_by_mode", {})
 
     def _add_command_id(e: Any) -> None:
         selected = getattr(e, "value", None)
         if selected:
-            mode = _mode_to_backend(mode_cache["value"])
-            mode_command_state[mode] = str(selected)
             state["cmd"] = str(selected)
             command_input.value = ""
 
-    def _sync_for_mode(mode: str) -> None:
-        backend_mode = _mode_to_backend(mode)
-        mode_cache["value"] = backend_mode
-        options = _commands_for_mode(backend_mode)
-        previous = str(command_selector.value or "").strip()
-        remembered = str(mode_command_state.get(backend_mode, "") or "").strip()
-
-        selected = remembered or previous
-        if selected not in options:
-            selected = options[0] if options else None
-
-        command_selector.options = options
-        command_selector.value = selected
-        if selected:
-            mode_command_state[backend_mode] = str(selected)
-            state["cmd"] = str(selected)
-        command_input.value = ""
-        command_selector.update()
-        command_input.update()
-
     async def _send_command() -> None:
-        mode = _mode_to_backend(mode_cache["value"])
         selected_command = str(command_selector.value or state.get("cmd") or "").strip()
         if not selected_command:
             if logger is not None:
                 logger.error("Console send error: no command selected")
             return
 
-        tc_func = _command_map_for_mode(mode).get(selected_command)
+        tc_func = COMMAND_TO_TC_FUNC.get(selected_command)
         if tc_func is None:
             if logger is not None:
-                logger.error("Console send error: unsupported %s command %s", mode, selected_command)
+                logger.error("Console send error: unsupported command %s", selected_command)
             return
 
         params = _parse_command_params(command_input.value or "")
         if logger is not None:
-            logger.info("Console command [%s]: %s(%s)", mode, selected_command, ", ".join(map(str, params)))
+            logger.info("Console command: %s(%s)", selected_command, ", ".join(map(str, params)))
+
+        if state.get("ob_port") is None:
+            if logger is not None:
+                logger.error("Console send error: OB port unavailable")
+            return
+
+        def _dispatch(port: Any) -> Any:
+            return cmd_repeat(port, tc_func, *params)
 
         if callable(on_send):
             try:
@@ -255,25 +190,9 @@ def create_console_input_widget(
                 if logger is not None:
                     logger.error("Console send callback error: %s", exc)
         try:
-            if mode == "EB":
-                if not bool(getattr(getattr(app.state, "eb_interface", None), "egse_started", False)):
-                    if logger is not None:
-                        logger.warning("Console send warning: EB EGSE tools are not started")
-                interface = eb_interface.get_egse_interface()
-                result = tc_func(interface, *params)
-            else:
-                if state.get("ob_port") is None:
-                    if logger is not None:
-                        logger.error("Console send error: OB port unavailable")
-                    return
-
-                def _dispatch(port: Any) -> Any:
-                    return cmd_repeat(port, tc_func, *params)
-
-                result = ui_runtime_controller.dispatch_ob_tc(state, _dispatch)
-                if result != "ERROR" and selected_command == "Clear_Errors":
-                    ui_runtime_controller.reset_ob_fdir_simulator(state, logger)
-
+            result = ui_runtime_controller.dispatch_ob_tc(state, _dispatch)
+            if result != "ERROR" and selected_command == "Clear_Errors":
+                ui_runtime_controller.reset_ob_fdir_simulator(state, logger)
             if logger is not None:
                 if result == "ERROR":
                     logger.error("Console command response: ERROR")
@@ -288,7 +207,7 @@ def create_console_input_widget(
         command_selector = (
             ui.select(
                 options=command_list,
-                value=mode_command_state.get(mode_key, state.get("cmd", command_list[0] if command_list else None)),
+                value=state.get("cmd", command_list[0] if command_list else None),
                 label="Select command",
                 on_change=_add_command_id,
             )
@@ -298,7 +217,7 @@ def create_console_input_widget(
 
         command_input = ui.input(
             label="Command parameters",
-            placeholder="Space/comma separated: 03 0x03 true or 03,0x03,true",
+            placeholder="Comma-separated: 03 = decimal 3, 0x03 = hexadecimal 3",
         ).classes("grow")
 
         command_input.on("keydown.enter", lambda _e: _send_command())
@@ -308,10 +227,6 @@ def create_console_input_widget(
             icon="send",
             on_click=_send_command,
         )
-
-    if isinstance(state.get("plot_refreshers"), list):
-        state["plot_refreshers"].append(_sync_for_mode)
-    _sync_for_mode(state.get("mode", mode_key))
 
     return ConsoleInputController(
         command_selector=command_selector,

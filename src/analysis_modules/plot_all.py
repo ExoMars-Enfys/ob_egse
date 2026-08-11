@@ -40,7 +40,7 @@ if callable(_reconfigure):
 LOG_PATH = Path(
     r"C:\Users\GK\OneDrive - University College London\General - Enfys - Shared\Test\EMC\Logs\2nd Week\RS422if_2026-05-13_13-23-35.log"
 )
-RS422_TIME_OFFSET_HOURS = 0
+RS422_TIME_OFFSET_HOURS = 1.0
 
 
 def _parse_rs422_timestamp(line, offset):
@@ -1131,8 +1131,7 @@ def _draw_all_axes(
             if handles:
                 ax_err.legend(loc="best", fontsize=7)
 
-    # Give every visible panel the same height, including dynamically added
-    # parameter and replay panels. Hidden panels leave no blank vertical gaps.
+    # Reflow visible base panels so hidden panels do not leave blank vertical gaps.
     base_axes = [
         ax
         for ax, panel in (
@@ -1147,18 +1146,17 @@ def _draw_all_axes(
         if ax is not None and panel_visibility.get(panel, True)
     ]
     custom_visible_axes = [ax for _field, ax in custom_axes if ax is not None]
-    layout_axes = [*base_axes, *custom_visible_axes]
-    if layout_axes:
-        layout_top = 0.88
-        layout_bottom = 0.045
-        available_h = layout_top - layout_bottom
-        panel_count = len(layout_axes)
-        gap = 0.0 if panel_count == 1 else min(0.012, available_h / (4 * panel_count))
-        panel_h = (available_h - gap * (panel_count - 1)) / panel_count
-        y = layout_top - panel_h
-        for ax in layout_axes:
-            ax.set_position((0.08, y, 0.86, panel_h))
-            y -= panel_h + gap
+    custom_top = max((ax.get_position().y1 for ax in custom_visible_axes), default=0.0)
+    base_top = 0.88
+    base_bottom = max(0.06, custom_top + 0.03)
+    if base_axes and base_bottom < base_top:
+        gap = 0.012
+        total_h = base_top - base_bottom
+        h = max(0.05, (total_h - gap * (len(base_axes) - 1)) / len(base_axes))
+        y = base_top - h
+        for ax in base_axes:
+            ax.set_position((0.08, y, 0.86, h))
+            y -= h + gap
 
     def _plot_psu_axis(ax_psu, panel_key, channel, title):
         if ax_psu is None or not ax_psu.get_visible():
@@ -1799,7 +1797,7 @@ def main():
         btn_row = tk.Frame(win)
         btn_row.pack(pady=(6, 10))
         tk.Button(btn_row, text="Apply", command=_apply).pack(side="left", padx=(0, 8))
-        tk.Button(btn_row, text="Manage Graphs", command=_open_custom_parameter_plot).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="New Graph", command=_open_custom_parameter_plot).pack(side="left", padx=(0, 8))
         tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
 
         win.lift()
@@ -1839,10 +1837,10 @@ def main():
             owns_root = True
 
         win = tk.Toplevel(root)
-        win.title("Manage Parameter Plots")
-        win.geometry("460x650")
+        win.title("Add Parameter Plot")
+        win.geometry("420x520")
 
-        tk.Label(win, text="Select an HK parameter to add as a new graph:").pack(anchor="w", padx=10, pady=(10, 4))
+        tk.Label(win, text="Select an HK parameter to plot in a new graph:").pack(anchor="w", padx=10, pady=(10, 4))
 
         search_var = tk.StringVar()
         entry = tk.Entry(win, textvariable=search_var)
@@ -1868,20 +1866,6 @@ def main():
         search_var.trace_add("write", _refresh_list)
         _refresh_list()
 
-        def _redraw_custom_plots():
-            last_result = state.get("last_result")
-            if isinstance(last_result, dict):
-                _apply_analysis(last_result)
-
-        def _refresh_added_list():
-            added_listbox.delete(0, "end")
-            custom_fields = state.get("custom_fields")
-            if not isinstance(custom_fields, list):
-                custom_fields = []
-                state["custom_fields"] = custom_fields
-            for name in custom_fields:
-                added_listbox.insert("end", name)
-
         def _plot_selected():
             sel = listbox.curselection()
             if not sel:
@@ -1898,49 +1882,19 @@ def main():
             if not isinstance(custom_fields, list):
                 custom_fields = []
                 state["custom_fields"] = custom_fields
-            if field_name in custom_fields:
-                messagebox.showinfo("Manage Parameter Plots", f"{field_name} is already plotted.")
-                return
+            if field_name not in custom_fields:
+                custom_fields.append(field_name)
 
-            custom_fields.append(field_name)
-            _redraw_custom_plots()
-            _refresh_added_list()
-            added_listbox.selection_clear(0, "end")
-            added_listbox.selection_set("end")
-            added_listbox.see("end")
-
-        added_group = tk.LabelFrame(win, text="Added parameter plots")
-        added_group.pack(fill="both", padx=10, pady=(0, 10))
-
-        added_listbox = tk.Listbox(added_group, height=7, selectmode=tk.EXTENDED, exportselection=False)
-        added_scroll = tk.Scrollbar(added_group, orient="vertical", command=added_listbox.yview)
-        added_listbox.configure(yscrollcommand=added_scroll.set)
-        added_listbox.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=6)
-        added_scroll.pack(side="right", fill="y", padx=(0, 6), pady=6)
-        _refresh_added_list()
-
-        def _remove_selected():
-            selected_indices = added_listbox.curselection()
-            if not selected_indices:
-                messagebox.showwarning("Manage Parameter Plots", "Select one or more added plots to remove.")
-                return
-
-            names_to_remove = {added_listbox.get(i) for i in selected_indices}
-            custom_fields = state.get("custom_fields")
-            if not isinstance(custom_fields, list):
-                custom_fields = []
-            state["custom_fields"] = [name for name in custom_fields if name not in names_to_remove]
-            _redraw_custom_plots()
-            _refresh_added_list()
+            _sync_custom_axes()
+            last_result = state.get("last_result")
+            if isinstance(last_result, dict):
+                _apply_analysis(last_result)
+            win.destroy()
 
         btn_row = tk.Frame(win)
         btn_row.pack(pady=(0, 10))
-        tk.Button(btn_row, text="Add Plot", command=_plot_selected).pack(side="left", padx=(0, 8))
-        tk.Button(btn_row, text="Remove Selected", command=_remove_selected).pack(side="left", padx=(0, 8))
+        tk.Button(btn_row, text="Plot", command=_plot_selected).pack(side="left", padx=(0, 8))
         tk.Button(btn_row, text="Close", command=win.destroy).pack(side="left")
-
-        listbox.bind("<Double-Button-1>", lambda _event: _plot_selected())
-        added_listbox.bind("<Double-Button-1>", lambda _event: _remove_selected())
 
         win.lift()
         win.attributes("-topmost", True)
