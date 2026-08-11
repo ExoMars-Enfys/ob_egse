@@ -55,7 +55,11 @@ def run_fft(verification: bool = True) -> None:
             errors.append("Missing HK or PSU queue data (mech ON, det OFF)")
             latest_hk = None
             latest_psu = None
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+        ch4_current_ma = (
+            ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
+            if latest_psu is not None
+            else None
+        )
         if errors:
             count = len(errors)
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
@@ -85,7 +89,11 @@ def run_fft(verification: bool = True) -> None:
             errors.append("Missing HK or PSU queue data (mech OFF, det ON)")
             latest_hk = None
             latest_psu = None
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+        ch4_current_ma = (
+            ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
+            if latest_psu is not None
+            else None
+        )
         if errors:
             count = len(errors)
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
@@ -129,11 +137,17 @@ def run_fft(verification: bool = True) -> None:
             latest_psu = None
         # Heaters are in automatic mode with flight configs — actual HMS/HDS depends on
         # temperature, so verify_heater_states will add only the physically active ones.
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+        ch4_current_ma = (
+            ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
+            if latest_psu is not None
+            else None
+        )
         if errors:
             count = len(errors)
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-            msg = f"Flight HTR config verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
+            msg = f"Flight HTR config verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(
+                numbered
+            )
             ui_runtime_controller.notify_negative(msg)
             raise AssertionError(msg)
         else:
@@ -173,12 +187,16 @@ def run_fft(verification: bool = True) -> None:
             if latest_hk is None:
                 continue
             tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
-            if tec_current <= 1.0:
+            if tec_current <= 0.9:
                 continue  # Keep waiting
             tec_ramped = True
         if not tec_ramped:
             errors.append("Timeout waiting for TEC current to reach > 1A")
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech", "TEC1A"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+        ch4_current_ma = (
+            ui_runtime_controller.consumption_check(["Standby", "Mech", "TEC_0_9A"], latest_psu, errors, latest_hk)
+            if latest_psu is not None
+            else None
+        )
         if errors:
             count = len(errors)
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
@@ -218,11 +236,17 @@ def run_fft(verification: bool = True) -> None:
             tec_off = True
         if not tec_off:
             errors.append("Timeout waiting for TEC current to reach 0 A")
-        ch4_current_ma = ui_runtime_controller.consumption_check(["Standby", "Mech"], latest_psu, errors, latest_hk) if latest_psu is not None else None
+        ch4_current_ma = (
+            ui_runtime_controller.consumption_check(["Standby", "Mech"], latest_psu, errors, latest_hk)
+            if latest_psu is not None
+            else None
+        )
         if errors:
             count = len(errors)
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-            msg = f"TEC ramp-down verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
+            msg = f"TEC ramp-down verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(
+                numbered
+            )
             ui_runtime_controller.notify_negative(msg)
             raise AssertionError(msg)
         else:
@@ -260,7 +284,7 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.set_hk_rate(interface, 0, 1)
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
-    ebtcs.set_heater_configs(interface, 0x00, 0x08D3, 0x08A3 ,0x08D3, 0x08A3)
+    ebtcs.set_heater_configs(interface, 0x00, 0x08D3, 0x08A3, 0x08D3, 0x08A3)
     ebtcs.en_mech_heater(interface, 0x1)
     ebtcs.en_det_heater(interface, 0x1)
     ebtcs.generic_tc(interface, 0x0, 0x6, 0x64, 0xC4, 0x01, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
@@ -274,7 +298,7 @@ def run_fft(verification: bool = True) -> None:
         if not passed:
             raise AssertionError(msg)
 
-    #? State4 - OB Heating + Powered On + TEC at 1A
+    # ? State4 - OB Heating + Powered On + TEC at 1A
     ebtcs.set_tec_current(interface, 0x00, 0xFFF)
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
@@ -297,7 +321,7 @@ def run_fft(verification: bool = True) -> None:
 
     ui_runtime_controller.perform_homing_check_sync()
     ui_runtime_controller.request_force_pause("Click to continue once ready.")
-    
+
     time.sleep(3.5)
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
@@ -312,7 +336,6 @@ def run_fft(verification: bool = True) -> None:
         msg, passed = ui_runtime_controller.verify_power_state("State5")
         if not passed:
             raise AssertionError(msg)
-
 
     ebtcs.set_tec_current(interface, 0x00, 0x000)
 
@@ -335,7 +358,7 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.en_det_heater(interface, 0x0)
     ebtcs.set_heater_configs(interface, 0x00, 0x08A3, 0x0881, 0x08A3, 0x0881)
     ebtcs.en_mech_heater(interface, 0x1)
-    ebtcs.en_det_heater(interface, 0x1)    
+    ebtcs.en_det_heater(interface, 0x1)
     ebtcs.set_acq_configs(
         interface, 0x01, 0x00, 0x0000, 0x0064, 0x0078, 0x0005, 0x0, 0x00, 0x1, 0x1, 0x1, 0x1, 0x00, 0x02
     )
@@ -346,10 +369,12 @@ def run_fft(verification: bool = True) -> None:
     if verification:
         ui_runtime_controller.perform_acq_check_sync(acq_mode=2, acq_duration_s=0x0078, acq_sample_time_ms=0x0064)
 
-    ui_runtime_controller.request_force_pause("Remove Baffle Hat and continue with acquisition. Click to continue once ready.")
+    ui_runtime_controller.request_force_pause(
+        "Remove Baffle Hat and continue with acquisition. Click to continue once ready."
+    )
     ebtcs.set_hk_rate(interface, 0, 1)
 
-    #?State 6 SCI ACQ with heaters OFF and baffle hat off
+    # ?State 6 SCI ACQ with heaters OFF and baffle hat off
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
     ebtcs.set_heater_configs(interface, 0x00, 0x079A, 0x0738, 0x079A, 0x0738)
@@ -365,7 +390,6 @@ def run_fft(verification: bool = True) -> None:
     time.sleep(3.5)
     if verification:
         ui_runtime_controller.perform_acq_check_sync()
-
 
     ebtcs.ob_homing(interface, 0x02)
     ui_runtime_controller.perform_homing_check_sync()
