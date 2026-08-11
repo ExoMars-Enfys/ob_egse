@@ -113,6 +113,12 @@ def create_menu(
                     enabled = bool(e.value)
                     mms_cfg = state.setdefault("mms", {})
                     mms_cfg["enabled"] = enabled
+                    if not enabled:
+                        # Clear all latches so no pending protection actions fire while disabled.
+                        mms_cfg["latched"] = False
+                        mms_cfg["in_progress"] = False
+                        mms_cfg["pending"] = False
+                        ui_runtime_controller.reset_ob_fdir_simulator(state)
                     ui.notify(f"MMS {'enabled' if enabled else 'disabled'}", type="warning" if enabled else "info")
 
                 with ui.row().classes("items-center justify-start gap-2 w-full"):
@@ -123,6 +129,14 @@ def create_menu(
                     )
                     lbl_mms_state = ui.label("Enabled" if state.get("mms", {}).get("enabled", True) else "Disabled")
                     lbl_mms_state.classes("egse-metric-label")
+                    ui.button(
+                        "Reset Latch",
+                        on_click=lambda: (
+                            ui_runtime_controller.reset_ob_fdir_simulator(state),
+                            ui.notify("Protection latch cleared — PSU can be reopened", type="info"),
+                        ),
+                        color="orange",
+                    ).props("unelevated").classes("whitespace-nowrap px-3")
 
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.select(
@@ -567,8 +581,9 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
 
     from utility_modules import psu
 
-    # Reuse the same method as the Stop EB EGSE Tools button
-    _stop_egse_tools(state, sync_visibility_fn=None)
+    # Only run EB-specific stop tools in EB mode
+    if str(state.get("mode", "EB")).upper() == "EB":
+        _stop_egse_tools(state, sync_visibility_fn=None)
 
     psu_port = state.get("psu_port")
     if psu_port is not None:

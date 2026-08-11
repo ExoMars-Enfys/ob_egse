@@ -262,6 +262,20 @@ def build_ui(
                         logo_images.append(logo)
                     with ui.row().classes("items-center gap-4"):
                         state["alarm_lights"] = traffic_light_widget.create_traffic_lights([("ob", "OB"), ("eb", "EB")])
+                        ob_light = state["alarm_lights"]["ob"]
+                        ob_light.on_clear = lambda: ui_runtime_controller.reset_ob_fdir_simulator(state)
+
+                        def _on_ob_ignore(muted_details: set) -> None:
+                            ignored: set = state.setdefault("ob_fdir_ignored_flags", set())
+                            for detail in muted_details:
+                                # Detail strings look like "OB FDIR Alarm: FLAG_NAME (simulated, latched)"
+                                try:
+                                    flag = detail.split(": ", 1)[1].split(" (")[0]
+                                    ignored.add(flag)
+                                except Exception:
+                                    pass
+
+                        ob_light.on_ignore = _on_ob_ignore
 
         def build_centre_console() -> tuple[Any, Any]:
             """Placeholder method for centre console content"""

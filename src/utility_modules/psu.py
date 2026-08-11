@@ -336,24 +336,24 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         ch4_min, ch4_max = _oob_bounds(_eb_v.get("CH4", {}), _voltage_mode)
                         if rov_htr_status and not (ch3_min < rov_htr_v < ch3_max):
                             psu_log.error(f"Voltage out of bounds Ch3 :  {rov_htr_v}")
-                            emergencyShutDown(port)
+                            shutdown_psu_outputs(port)
                             _queue_shutdown_snapshot(active_ebmode)
 
                         if rov_htr_status and (rov_htr_i >= 150):
                             psu_log.error(f"Current out of bounds Ch3 :  {rov_htr_i}")
-                            emergencyShutDown(port)
+                            shutdown_psu_outputs(port)
                             _queue_shutdown_snapshot(active_ebmode)
 
                         # CH4 (EB) checks only if LISN check is enabled
                         if lisn_check_enabled:
                             if ebstatus and not (ch4_min < eb_v < ch4_max):
                                 psu_log.error(f"Voltage out of bounds Ch4 :  {eb_v}")
-                                emergencyShutDown(port)
+                                shutdown_psu_outputs(port)
                                 _queue_shutdown_snapshot(active_ebmode)
 
                             if ebstatus and (eb_i >= 500):
                                 psu_log.error(f"Current out of bounds Ch4 :  {eb_i}")
-                                emergencyShutDown(port)
+                                shutdown_psu_outputs(port)
                                 _queue_shutdown_snapshot(active_ebmode)
 
                     else:
@@ -459,7 +459,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                                 f"Ch2(status={ch2_status}) : {ch2_v}\t"
                                 f"Ch3(status={ch3_status}) : {ch3_v}"
                             )
-                            emergencyShutDown(port)
+                            shutdown_psu_outputs(port)
                             _queue_shutdown_snapshot(active_ebmode)
 
                         current_oob = (
@@ -473,7 +473,7 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                                 f"Ch2(status={ch2_status}) : {ch2_i}\t"
                                 f"Ch3(status={ch3_status}) : {ch3_i}"
                             )
-                            emergencyShutDown(port)
+                            shutdown_psu_outputs(port)
                             _queue_shutdown_snapshot(active_ebmode)
             finally:
                 if acquired_port_lock:
@@ -646,6 +646,24 @@ def apply_voltage_mode(port, mode: str, current_mode: str):
         event_log.error(f"Error applying voltage mode: {e}")
 
 
+def shutdown_psu_outputs(port: serial.Serial) -> None:
+    """Cut all PSU outputs and return to local mode, but keep the serial port open.
+
+    Use this for protection trips (OOB / MMS) where the operator may want to
+    recover without reconnecting.  Call emergencyShutDown (or close_psu_comms)
+    only when the EGSE itself is closing.
+    """
+    if port and port.is_open:
+        port.write("OPALL 0\n".encode("utf-8"))
+        port.flush()
+        time.sleep(0.1)
+        port.reset_input_buffer()
+        port.reset_output_buffer()
+        port.write("LOCAL\n".encode("utf-8"))
+        port.flush()
+        psu_log.warning("PSU outputs shut down (port kept open for recovery).")
+
+
 def emergencyShutDown(port: serial.Serial, stop_event: threading.Event = None, psu_thread: threading.Thread = None) -> None:
     """Safely halts the background telemetry monitoring, clears channels, and releases local control."""
     
@@ -678,6 +696,28 @@ def emergencyShutDown(port: serial.Serial, stop_event: threading.Event = None, p
         port.close()
         print("PSU Comm Link Closed & Panel Returned to Local Operating Mode.")
     return
+
+
+def reconnect_psu(port: serial.Serial, ebmode: bool, voltage_mode: str = "NOM") -> bool:
+    """Reopen a previously closed PSU serial port and reconfigure channels.
+
+    Returns True on success, False if the port could not be reopened.
+    Does not perform an IDN check — the PSU is assumed to be the same device.
+    """
+    if port is None:
+        psu_log.error("reconnect_psu: no port object available")
+        return False
+    try:
+        if not port.is_open:
+            port.open()
+        port.reset_output_buffer()
+        port.reset_input_buffer()
+        psu_log.info(f"PSU port reopened: {port.port}")
+        setChannels(port, ebmode, voltage_mode)
+        return True
+    except Exception as exc:
+        psu_log.error(f"PSU reconnect failed: {exc}")
+        return False
 
 
 # TODO: Report the link status

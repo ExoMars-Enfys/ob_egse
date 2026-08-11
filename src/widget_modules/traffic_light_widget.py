@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # Std library
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 # Added packages
 from nicegui import app, ui
@@ -58,6 +58,8 @@ class AlarmLight:
         """Creates an alarm light with a label. The light can be set to OK or Fault state, and clicking on it will show a dialog with details."""
         self.key = key
         self.label = label
+        self.on_clear: Callable[[], None] | None = None
+        self.on_ignore: Callable[[set[str]], None] | None = None
 
         self.is_fault: bool = False
         self.severity: str = "ok"
@@ -167,15 +169,24 @@ class AlarmLight:
         self._checked_details.clear()
         self._refresh_from_sources(track_history=False)
 
+    def reset_latches(self) -> None:
+        """Reset transient latch state while preserving the ignored-details list."""
+        self._muted_signatures.clear()
+        self._checked_details.clear()
+        self._refresh_from_sources(track_history=False)
+
     def clear_selected_faults(self) -> None:
         """Ignore the selected details while leaving other active alarms visible."""
         if not self._checked_details:
             self.show_fault_dialog()
             return
-        for detail in self._checked_details:
+        newly_muted = set(self._checked_details)
+        for detail in newly_muted:
             self._muted_details.add(detail)
         self._checked_details.clear()
         self._refresh_from_sources(track_history=False)
+        if callable(self.on_ignore):
+            self.on_ignore(newly_muted)
         self.show_fault_dialog()
 
     def clear_fault(self) -> None:
@@ -187,6 +198,8 @@ class AlarmLight:
         """
         self._checked_details.clear()
         self.set_fault_state(True, details=[])
+        if callable(self.on_clear):
+            self.on_clear()
         self.show_fault_dialog()
 
     def show_fault_dialog(self) -> None:

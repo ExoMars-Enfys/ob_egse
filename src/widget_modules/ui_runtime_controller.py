@@ -347,7 +347,7 @@ def _request_ob_psu_emergency_shutdown(
             lock = state.get("psu_lock")
             lock_ctx = lock if lock is not None else nullcontext()
             with lock_ctx:
-                psu.emergencyShutDown(psu_port)
+                psu.shutdown_psu_outputs(psu_port)
             protection["shutdown_latched"] = True
             active_logger.error("OB PSU emergency shutdown executed: %s", reason_text)
             notify("PSU emergency shutdown executed.\n" + reason_text, color="negative")
@@ -448,6 +448,12 @@ def _reset_ob_psu_protection_actions(state: dict[str, Any]) -> None:
         except Exception:
             pass
 
+    # Also clear the MMS latch so a new trigger can fire after recovery.
+    mms_cfg = state.get("mms")
+    if isinstance(mms_cfg, dict):
+        mms_cfg["latched"] = False
+        mms_cfg["in_progress"] = False
+
 
 def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list[str]:
     """Evaluate and latch standalone-OB FDIR warning/alarm conditions.
@@ -544,7 +550,14 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
     # PSU protection policy for standalone OB FDIR simulation:
     #   * voltage alarms shut down immediately;
     #   * every warning and every thermistor alarm asks the operator first.
-    voltage_alarm_flags = sorted(new_alarm & _OB_VOLTAGE_FDIR_FLAGS)
+    # Skip all protection actions when MMS is disabled.
+    if not bool(state.get("mms", {}).get("enabled", True)):
+        _attach_simulated_ob_fdir_fields(hk, warning_latched, alarm_latched)
+        return simulated_ob_fdir_details(state)
+
+    # Remove flags the operator has chosen to ignore.
+    ignored_flags: set[str] = state.get("ob_fdir_ignored_flags") or set()
+    voltage_alarm_flags = sorted((new_alarm - ignored_flags) & _OB_VOLTAGE_FDIR_FLAGS)
     if voltage_alarm_flags:
         shutdown_reasons = []
         for flag_name in voltage_alarm_flags:
@@ -564,7 +577,7 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
         )
     else:
         prompt_reasons: list[str] = []
-        for flag_name in sorted(new_warning):
+        for flag_name in sorted(new_warning - ignored_flags):
             parameter = parameter_by_flag[flag_name]
             measurement = _format_ob_fdir_measurement(
                 state,
@@ -573,7 +586,7 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
                 "warning",
             )
             prompt_reasons.append(f"OB FDIR warning: {flag_name} ({measurement})")
-        for flag_name in sorted(new_alarm & _OB_THERMISTOR_FDIR_FLAGS):
+        for flag_name in sorted((new_alarm & _OB_THERMISTOR_FDIR_FLAGS) - ignored_flags):
             parameter = parameter_by_flag[flag_name]
             measurement = _format_ob_fdir_measurement(
                 state,
@@ -610,9 +623,9 @@ def reset_ob_fdir_simulator(state: dict[str, Any], logger: Any = None) -> None:
 
     ob_light = (state.get("alarm_lights") or {}).get("ob")
     if ob_light is not None:
-        reset_acknowledgements = getattr(ob_light, "reset_acknowledgements", None)
-        if callable(reset_acknowledgements):
-            reset_acknowledgements()
+        reset_latches = getattr(ob_light, "reset_latches", None)
+        if callable(reset_latches):
+            reset_latches()
         update_from_faults = getattr(ob_light, "update_from_faults", None)
         if callable(update_from_faults):
             update_from_faults({}, source="ob_fdir_sim")
@@ -2994,7 +3007,7 @@ async def mms(
             lock_ctx = lock if lock is not None else nullcontext()
             try:
                 with lock_ctx:
-                    psu.emergencyShutDown(psu_port)
+                    psu.shutdown_psu_outputs(psu_port)
                 logger.warning(
                     "MMS action: PSU emergency shutdown executed (all channels OFF). Reasons: %s",
                     "; ".join(reasons) if reasons else "none",
