@@ -6,16 +6,17 @@ import sys
 from contextlib import nullcontext
 
 # Local modules
-#core
+# core
 from core_modules import config as config
 
-#utilities
+# utilities
 from utility_modules import comms as comms
 from utility_modules import tc as tc
 
 info_log = logging.getLogger("info_log")
 
-def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs):
+
+def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, clear_errors_fn=None, **kwargs):
     """Retry a TC once after clearing errors when the first attempt fails."""
     resp = cmd_func(port, *args)
 
@@ -28,9 +29,14 @@ def cmd_repeat(port, cmd_func, *args, repeat=True, exit_if_error=False, **kwargs
 
     if repeat:
         info_log.warning("Clearing errors")
-        tc.clear_errors(port)
+        if callable(clear_errors_fn):
+            clear_errors_fn(port)
+        else:
+            tc.clear_errors(port)
         info_log.warning(f"Repeating {cmd_func.__name__} command")
-        resp = cmd_repeat(port, cmd_func, *args, repeat=False, exit_if_error=True, **kwargs)
+        resp = cmd_repeat(
+            port, cmd_func, *args, repeat=False, exit_if_error=True, clear_errors_fn=clear_errors_fn, **kwargs
+        )
 
     return resp
 

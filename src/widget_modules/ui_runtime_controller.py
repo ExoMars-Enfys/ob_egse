@@ -158,11 +158,7 @@ OB_FDIR_PARAMETERS = monitoring_limits.OB_FDIR_PARAMETERS
 
 def _ob_fdir_display_mode(state: dict[str, Any]) -> str:
     """Return the active HK presentation mode used by logs and dialogs."""
-    mode = str(
-        state.get("hk_display_mode")
-        or getattr(_nicegui_app.state, "hk_display_mode", "REAL")
-        or "REAL"
-    ).upper()
+    mode = str(state.get("hk_display_mode") or getattr(_nicegui_app.state, "hk_display_mode", "REAL") or "REAL").upper()
     return "ADU" if mode == "ADU" else "REAL"
 
 
@@ -204,10 +200,7 @@ def _format_ob_fdir_measurement(
     if _ob_fdir_display_mode(state) == "ADU":
         limits = parameter.alarm_limits if is_alarm else parameter.warning_limits
         value_text = "N/A" if adu is None else str(int(adu))
-        return (
-            f"{parameter.hk_field}={value_text} ADU, "
-            f"{limit_label}=({int(limits[0])}, {int(limits[1])}) ADU"
-        )
+        return f"{parameter.hk_field}={value_text} ADU, {limit_label}=({int(limits[0])}, {int(limits[1])}) ADU"
 
     limits_real = parameter.alarm_limits_real if is_alarm else parameter.warning_limits_real
     real_value = _ob_fdir_real_value(parameter, adu)
@@ -383,10 +376,9 @@ def _open_ob_psu_shutdown_dialog(state: dict[str, Any], logger: Any, details: li
             with ui.dialog() as dialog:
                 with ui.card().classes("w-[34rem] max-w-full"):
                     ui.label("OB protection condition").classes("font-bold egse-title warning-text")
-                    ui.label(
-                        "A thermistor condition, error, or warning has been raised. "
-                        "Shut down the PSU?"
-                    ).classes("egse-text")
+                    ui.label("A thermistor condition, error, or warning has been raised. Shut down the PSU?").classes(
+                        "egse-text"
+                    )
                     ui.separator()
                     details_label = ui.label("").classes("whitespace-pre-wrap warning-text")
                     with ui.row().classes("w-full justify-end gap-2"):
@@ -600,6 +592,7 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
     _attach_simulated_ob_fdir_fields(hk, warning_latched, alarm_latched)
     return simulated_ob_fdir_details(state)
 
+
 def simulated_ob_fdir_details(state: dict[str, Any]) -> list[str]:
     """Return display strings for all latched standalone-OB FDIRs."""
     simulator = _ob_fdir_simulator_state(state)
@@ -633,6 +626,7 @@ def reset_ob_fdir_simulator(state: dict[str, Any], logger: Any = None) -> None:
     if had_latches:
         (logger if logger is not None else info_log).info("OB simulated FDIR latches cleared.")
         notify("OB simulated FDIR latches cleared.", color="positive")
+
 
 # end region
 
@@ -3079,6 +3073,21 @@ def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: An
     lock_ctx = lock if lock is not None else nullcontext()
     with lock_ctx:
         return command(ob_port, *args, **kwargs)
+
+
+def dispatch_eb_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> Any:
+    """Send an EB TC using the shared EB interface when available."""
+    from utility_modules import eb_interface
+
+    interface = state.get("eb_interface")
+    if interface is None:
+        interface = eb_interface.get_egse_interface()
+        state["eb_interface"] = interface
+    if interface is None:
+        ui.notify("EB interface unavailable", color="negative")
+        return
+
+    return command(interface, *args, **kwargs)
 
 
 # endregion
