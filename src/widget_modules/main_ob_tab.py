@@ -32,6 +32,6 @@ def create_main_ob_tab(state: dict[str, Any]) -> None:
     """Build OB command picker controls for the Main OB tab."""
     with ui.row().classes("w-full items-center justify-start"):
         ui.button(
-            "Move Pos",
+            "Request HK",
             on_click=lambda: ui_runtime_controller.dispatch_ob_tc(state, tc.hk_request),
         )
