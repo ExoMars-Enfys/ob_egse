@@ -136,7 +136,7 @@ def _parse_command_params(raw_text: str) -> list[Any]:
                     quote = None
                 continue
 
-            if char in {"\"", "'"}:
+            if char in {'"', "'"}:
                 quote = char
                 token.append(char)
                 continue

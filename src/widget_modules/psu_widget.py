@@ -3,6 +3,7 @@ from __future__ import annotations
 # Std library
 from collections import deque
 from dataclasses import dataclass
+import logging
 import time
 from typing import Any
 
@@ -15,6 +16,9 @@ from utility_modules import eb_interface, ebtcs, psu
 
 # widgets
 from widget_modules import plot_widget
+
+
+info_log = logging.getLogger("info_log")
 
 
 def set_component_busy(component: Any, busy: bool) -> None:
@@ -42,27 +46,39 @@ def title_shows_lisn(title: str) -> bool:
     return "28v" in normalized
 
 
+def _is_eb_mode(state: dict[str, Any]) -> bool:
+    if str(state.get("mode", "")).upper() == "EB":
+        return True
+    psu_mode_state = state.get("psu_mode_state")
+    return bool(isinstance(psu_mode_state, dict) and psu_mode_state.get("ebmode"))
+
+
 def should_send_ret_tc_for_eb_enable(mode: str | None, enabled: bool, physical_channel: int | None) -> bool:
     """Return True when an EB-mode PSU enable should trigger an immediate RET TC."""
-    return bool(mode == "EB" and enabled and physical_channel in {3, 4})
+    return bool(str(mode).upper() == "EB" and enabled and physical_channel in {3, 4})
 
 
 def emit_eb_ret_tc_for_psu_toggle(state: dict[str, Any], *, enabled: bool, physical_channel: int | None) -> None:
     """Send an immediate RET TC when enabling PSU channels in EB mode."""
-    if not should_send_ret_tc_for_eb_enable(state.get("mode"), enabled, physical_channel):
+    if not (_is_eb_mode(state) and bool(enabled) and physical_channel in {3, 4}):
         return
 
     try:
         interface = eb_interface.get_egse_interface()
-    except Exception:
+    except Exception as exc:
+        info_log.warning(f"Unable to resolve EGSE interface for EB RET after PSU enable: {exc}")
         return
 
     if interface is None:
+        info_log.warning("EGSE interface unavailable for EB RET after PSU enable")
         return
 
     try:
-        ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
-    except Exception:
+        result = ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
+        if result == "ERROR":
+            info_log.warning("EB RET TC returned ERROR after PSU enable")
+    except Exception as exc:
+        info_log.warning(f"Failed to send EB RET TC after PSU enable: {exc}")
         return
 
 

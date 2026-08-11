@@ -29,21 +29,29 @@ _TMSTRUCT_HK_FIELDS = {name for name, _ in tmstruct.hk}
 _TMSTRUCT_EB_HK_FIELDS = {name for name, _ in tmstruct.eb_hk}
 
 # Standalone OB HK field -> embedded OB-in-EB HK field names.
-_OB_EMBEDDED_ALIAS_OVERRIDES: dict[str, str] = {
-    "CMD_CNT": "OB_COMMAND_COUNT",
-    "PWR_STAT": "OB_POWER_STATUS",
-    "MTR_ABS_STEPS": "OB_MOTOR_ABS_STEPS",
-    "MTR_REL_STEPS": "OB_MOTOR_REL_STEPS",
-    "MTR_CURRENT": "OB_MOTOR_CURRENT",
-    "MTR_GUARD_SELECT": "OB_MOTOR_SPISPSEL",
-    "MTR_CHOP": "OB_MOTOR_PWM_DUTY",
-    "MTR_SPEED": "OB_SPEED",
-    "THRM_MECH_ON_SP": "OB_THERMAL_MECH_MIN",
-    "THRM_MECH_OFF_SP": "OB_THERMAL_MECH_MAX",
-    "THRM_DET_ON_SP": "OB_THERMAL_DET_MIN",
-    "THRM_DET_OFF_SP": "OB_THERMAL_DET_MAX",
-    "HK_SAMPLES": "HK_NUMBER_OF_SAMPLES",
-    "HK_MECH_CUR": "OB_MECH_CURRENT",
+_OB_EMBEDDED_ALIAS_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "CMD_CNT": ("OB_COMMAND_COUNT",),
+    "PWR_STAT": ("OB_POWER_STATUS",),
+    "HK_V_3V3": ("OB_3V3_VOLTAGE",),
+    "HK_V_1V5": ("OB_1V5_VOLTAGE",),
+    "DIGITAL_TRP": ("OB_DIGITAL_TRP",),
+    "DETEC_TRP": ("OB_DETECTOR_TRP",),
+    "MECH_TRP": ("OB_MECHANISM_TRP",),
+    "MOTOR_TRP": ("OB_MOTOR_TRP",),
+    "MTR_ABS_STEPS": ("OB_MOTOR_ABS_STEPS",),
+    "MTR_REL_STEPS": ("OB_MOTOR_REL_STEPS",),
+    "MTR_CURRENT": ("OB_MOTOR_CURRENT",),
+    "MTR_GUARD_SELECT": ("OB_MOTOR_SPISPSEL", "OB_MOTOR_GUARD_TIME"),
+    "MTR_CHOP": ("OB_MOTOR_PWM_DUTY",),
+    "MTR_SPEED": ("OB_SPEED", "OB_MOTOR_PWM_RATE"),
+    "THRM_MECH_ON_SP": ("OB_THERMAL_MECH_MIN",),
+    "THRM_MECH_OFF_SP": ("OB_THERMAL_MECH_MAX",),
+    "THRM_DET_ON_SP": ("OB_THERMAL_DET_MIN",),
+    "THRM_DET_OFF_SP": ("OB_THERMAL_DET_MAX",),
+    "HK_SAMPLES": ("HK_NUMBER_OF_SAMPLES",),
+    "HK_MECH_CUR": ("OB_MECH_CURRENT",),
+    "SWIR_OFFSET": ("OB_SWIR_OFFSET",),
+    "MWIR_OFFSET": ("OB_MWIR_OFFSET",),
 }
 
 
@@ -293,8 +301,8 @@ def _ob_field_aliases(*field_names: str) -> tuple[str, ...]:
     for field_name in field_names:
         _append_if_known(field_name)
 
-        override = _OB_EMBEDDED_ALIAS_OVERRIDES.get(field_name)
-        if override:
+        override_names = _OB_EMBEDDED_ALIAS_OVERRIDES.get(field_name, ())
+        for override in override_names:
             _append_if_known(override)
             _append(override)
 
@@ -692,42 +700,42 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="3v3",
             label="+3.3V",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_3V3", "OB_3V3_VOLTAGE")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_3V3")),
             unit="V",
             **monitoring_limits.metric_limit_kwargs("ob_3v3"),
         ),
         MetricSpec(
             key="1v5",
             label="+1.5V",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_1V5", "OB_1V5_VOLTAGE")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_V_1V5")),
             unit="V",
             **monitoring_limits.metric_limit_kwargs("ob_1v5"),
         ),
         MetricSpec(
             key="dig",
             label="DIG:",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DIGITAL_TRP", "OB_DIGITAL_TRP")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DIGITAL_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="det",
             label="DET:",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DETEC_TRP", "OB_DETECTOR_TRP")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("DETEC_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="mech",
             label="MECH:",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MECH_TRP", "OB_MECHANISM_TRP")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MECH_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
         MetricSpec(
             key="mtr",
             label="MTR",
-            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MOTOR_TRP", "OB_MOTOR_TRP")),
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("MOTOR_TRP")),
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
@@ -829,13 +837,13 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="guard_select",
             label="GUARD",
-            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_GUARD_SELECT", "OB_MOTOR_GUARD_TIME")),
+            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_GUARD_SELECT")),
         ),
         MetricSpec(key="mtr_chop", label="CHOP", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CHOP"))),
         MetricSpec(
             key="mtr_speed",
             label="SPEED",
-            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_SPEED", "OB_MOTOR_PWM_RATE")),
+            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_SPEED")),
         ),
         # Heater state bitfield
         MetricSpec(
