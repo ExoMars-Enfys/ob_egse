@@ -454,15 +454,17 @@ def decoded(packet: Any, field_name: str) -> float | None:
     return None
 
 
-def _hex_attr(packet: Any, field_name: str, width: int = 2) -> str | None:
+def _hex_attr(packet: Any, field_name: str | tuple[str, ...], width: int = 2) -> str | None:
     """Format an integer packet attribute as a zero-padded hexadecimal value."""
-    value = getattr(packet, field_name, None)
-    if value is None:
-        return None
-    try:
-        return f"0x{int(value):0{width}X}"
-    except (TypeError, ValueError):
-        return None
+    names = (field_name,) if isinstance(field_name, str) else field_name
+    for name in names:
+        value = getattr(packet, name, None)
+        if value is not None:
+            try:
+                return f"0x{int(value):0{width}X}"
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
 def _tec_temp(packet: Any) -> float | None:
@@ -738,14 +740,14 @@ def _ob_hk_specs() -> list[MetricSpec]:
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
-        MetricSpec(key="cmd_cnt", label="CMD CNT", getter=lambda hk: getattr(hk, "CMD_CNT", None)),
-        MetricSpec(key="pwr_stat", label="PWR STAT", getter=lambda hk: _hex_attr(hk, "PWR_STAT")),
+        MetricSpec(key="cmd_cnt", label="CMD CNT", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("CMD_CNT"))[0]),
+        MetricSpec(key="pwr_stat", label="PWR STAT", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("PWR_STAT"))),
         MetricSpec(
             key="mech_pwr",
             label="MECH PWR",
             getter=lambda hk: _status_mask_set(
                 hk,
-                "PWR_STAT",
+                _ob_field_aliases("PWR_STAT"),
                 0x01,
             ),
             render="bool_status",
@@ -759,7 +761,7 @@ def _ob_hk_specs() -> list[MetricSpec]:
             label="DET PWR",
             getter=lambda hk: _status_mask_set(
                 hk,
-                "PWR_STAT",
+                _ob_field_aliases("PWR_STAT"),
                 0x02,
             ),
             render="bool_status",
@@ -768,10 +770,10 @@ def _ob_hk_specs() -> list[MetricSpec]:
             true_color="green",
             false_color="grey",
         ),
-        MetricSpec(key="hk_samples", label="HK SAMPLES", getter=lambda hk: getattr(hk, "HK_SAMPLES", None)),
-        MetricSpec(key="hk_mech_cur", label="MECH CUR", getter=lambda hk: getattr(hk, "HK_MECH_CUR", None)),
-        MetricSpec(key="swir_offset", label="SWIR OFFSET", getter=lambda hk: getattr(hk, "SWIR_OFFSET", None)),
-        MetricSpec(key="mwir_offset", label="MWIR OFFSET", getter=lambda hk: getattr(hk, "MWIR_OFFSET", None)),
+        MetricSpec(key="hk_samples", label="HK SAMPLES", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_SAMPLES"))[0]),
+        MetricSpec(key="hk_mech_cur", label="MECH CUR", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_MECH_CUR"))[0]),
+        MetricSpec(key="swir_offset", label="SWIR OFFSET", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("SWIR_OFFSET"))[0]),
+        MetricSpec(key="mwir_offset", label="MWIR OFFSET", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MWIR_OFFSET"))[0]),
         # Motor status and configuration
         MetricSpec(
             key="ob_motor_moving",
@@ -795,8 +797,8 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=_stop,
             color_map={"BASE": "purple", "OUTER": "blue", "Not At Stop": "grey", "_default": "grey"},
         ),
-        MetricSpec(key="ob_steps", label="ABS STEPS", getter=lambda hk: getattr(hk, "MTR_ABS_STEPS", None)),
-        MetricSpec(key="mtr_rel_steps", label="REL STEPS", getter=lambda hk: getattr(hk, "MTR_REL_STEPS", None)),
+        MetricSpec(key="ob_steps", label="ABS STEPS", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_ABS_STEPS"))[0]),
+        MetricSpec(key="mtr_rel_steps", label="REL STEPS", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_REL_STEPS"))[0]),
         MetricSpec(
             key="ob_mech_cal",
             label="CAL",
@@ -1221,14 +1223,15 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
 
 def _status_mask_set(
     packet: Any,
-    field_name: str,
+    field_name: str | tuple[str, ...],
     mask: int,
 ) -> bool | None:
-    value = getattr(packet, field_name, None)
-    if value is None:
-        return None
-
-    try:
-        return bool(int(value) & mask)
-    except (TypeError, ValueError):
-        return None
+    names = (field_name,) if isinstance(field_name, str) else field_name
+    for name in names:
+        value = getattr(packet, name, None)
+        if value is not None:
+            try:
+                return bool(int(value) & mask)
+            except (TypeError, ValueError):
+                continue
+    return None
