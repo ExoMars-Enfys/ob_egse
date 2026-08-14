@@ -1536,13 +1536,13 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
-            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0x2B22
-            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0xD46C
-            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0x8156
-            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0x0696
-            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0x6FEB
+            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
+            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0xA0BB
+            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0xBD18
+            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0xC0F5
+            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xF0D2
             and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
-            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0xF624
+            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x4174
         )
         if not all_post_passed:
             result["passed"] = False
