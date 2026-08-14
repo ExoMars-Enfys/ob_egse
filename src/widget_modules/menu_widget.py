@@ -14,10 +14,18 @@ from typing import Any
 from nicegui import app, run, ui
 
 # Local modules
+from core_modules import config
 from core_modules import constants as const
 from utility_modules import eb_interface, ebtcs
 from utility_modules.desktop_launcher import destroy_desktop_window
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
+
+try:
+    from tek_scope_api import ScopeConnectionError, TekScope, find_scope
+
+    _SCOPE_API_AVAILABLE = True
+except ImportError:  # tek_scope_api is an optional local package
+    _SCOPE_API_AVAILABLE = False
 
 
 @dataclass
@@ -228,6 +236,11 @@ def create_menu(
                             "Send SAFE TC",
                             on_click=send_safe_tc,
                         ).classes("w-full whitespace-nowrap rounded-full")
+
+                ui.button(
+                    "Scope Settings",
+                    on_click=_open_scope_settings_dialog,
+                ).classes("w-full whitespace-nowrap rounded-full")
 
                 # --- Script selection and controls ---
                 script_options = sorted(_discover_eb_scripts().items())
@@ -459,6 +472,86 @@ def _select_psu_log(
         ui.notify("Failed to load PSU log", color="negative")
 
 
+def _open_scope_settings_dialog() -> None:
+    """Dialog to find, test, and set the scope's VISA resource string."""
+    with ui.dialog() as dialog, ui.card().classes("w-96"):
+        ui.label("Scope Connection").classes("font-bold egse-title")
+        ui.separator()
+        resource_input = ui.input("VISA Resource", value=getattr(config, "SCOPE_VISA_RESOURCE", "")).classes("w-full")
+        setup_file_input = ui.input(
+            "Scope Setup File",
+            value=getattr(app.state, "scope_setup_file", ""),
+            placeholder="C:/Users/Public/TEC_CURRENT.set",
+        ).classes("w-full")
+        status_label = ui.label("").classes("text-sm")
+
+        async def _find() -> None:
+            if not _SCOPE_API_AVAILABLE:
+                ui.notify("tek_scope_api not installed", color="negative")
+                return
+            status_label.set_text("Scanning local network...")
+            try:
+                resources = await run.io_bound(find_scope)
+            except Exception as exc:
+                status_label.set_text("")
+                ui.notify(f"Scope discovery failed: {exc}", color="negative")
+                return
+            if not resources:
+                status_label.set_text("No scope found on local subnet")
+                ui.notify("No scope found", color="warning")
+                return
+            resource_input.set_value(resources[0])
+            status_label.set_text(f"Found {len(resources)} scope(s)")
+            ui.notify(f"Found scope: {resources[0]}", type="positive")
+
+        async def _test() -> None:
+            if not _SCOPE_API_AVAILABLE:
+                ui.notify("tek_scope_api not installed", color="negative")
+                return
+            resource = resource_input.value.strip()
+            if not resource:
+                ui.notify("Enter a VISA resource string first", color="warning")
+                return
+
+            def _connect_and_idn() -> str:
+                scope = TekScope(resource).connect()
+                try:
+                    return scope.idn()
+                finally:
+                    scope.close()
+
+            status_label.set_text("Testing connection...")
+            try:
+                idn = await run.io_bound(_connect_and_idn)
+                status_label.set_text(f"Connected: {idn}")
+                ui.notify("Scope connection OK", type="positive")
+            except ScopeConnectionError as exc:
+                status_label.set_text("")
+                ui.notify(f"Connection failed: {exc}", color="negative")
+
+        def _apply() -> None:
+            resource = resource_input.value.strip()
+            setup_file = setup_file_input.value.strip()
+            if not resource:
+                ui.notify("Enter a VISA resource string first", color="warning")
+                return
+            if not setup_file:
+                ui.notify("Enter the setup file path stored on the scope", color="warning")
+                return
+            config.SCOPE_VISA_RESOURCE = resource
+            app.state.scope_setup_file = setup_file
+            ui.notify("Scope connection and setup file selected", type="positive")
+            dialog.close()
+
+        with ui.row().classes("w-full gap-2"):
+            ui.button("Find Scope", on_click=_find).classes("flex-1")
+            ui.button("Test", on_click=_test).classes("flex-1")
+        with ui.row().classes("w-full justify-end gap-2"):
+            ui.button("Cancel", on_click=dialog.close).props("flat")
+            ui.button("Apply", on_click=_apply, color="primary")
+    dialog.open()
+
+
 def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
     """Pick a .txt script file and typecast it to CmdTool."""
     file_path = file_dialog_window_widget.select_file_dialog(
@@ -496,6 +589,10 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
         ui.notify("Unsupported script selected", color="negative")
         return
     module_stem, _ = script
+
+    if key == "tec_test" and not str(getattr(app.state, "scope_setup_file", "")).strip():
+        ui.notify("Select a scope setup file in Scope Settings before running TEC_test", color="warning")
+        return
 
     script_control = ui_runtime_controller.get_script_control()
     if bool(script_control.get("running")):
@@ -536,7 +633,10 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
                 should_abort=lambda: ui_runtime_controller.is_aborted(),
             )
 
-            script_runner()
+            if key == "tec_test":
+                script_runner(scope_setup_file=str(app.state.scope_setup_file))
+            else:
+                script_runner()
 
             if ui_runtime_controller.is_aborted():
                 state["logger"].warning(f"{key} script aborted")

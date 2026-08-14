@@ -5,12 +5,15 @@ CMD_SPEED_DICT = {
 
 EXP_MODEL_ID = 0x05
 
-DEFAULT_COM_PORT = 15
+DEFAULT_COM_PORT = 10
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
 PSU_COM_PORT = 11
 PSU_LOGGING_FREQ = 10  # in HZ
+
+# Scope Config (Tektronix MSO44B, direct-cabled LAN link — see tek_scope_api)
+SCOPE_VISA_RESOURCE = "TCPIP0::169.254.9.67::INSTR"
 
 CH1_OVP = 12.5
 CH1_I = 0.150
