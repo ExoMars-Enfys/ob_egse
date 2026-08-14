@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 # Std library
+import asyncio
 import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime
+from importlib import import_module, reload
+from pathlib import Path
 from typing import Any
 
 # Added packages
@@ -11,7 +15,6 @@ from nicegui import app, run, ui
 
 # Local modules
 from core_modules import constants as const
-from scripts_modules import EMC_HE, EMC_HS, EMC_Init, EMC_ReInit, fft
 from utility_modules import eb_interface, ebtcs
 from utility_modules.desktop_launcher import destroy_desktop_window
 from widget_modules import file_dialog_window_widget, ui_runtime_controller
@@ -42,6 +45,38 @@ class MenuController:
             self.close()
         else:
             self.open()
+
+
+def _discover_eb_scripts() -> dict[str, tuple[str, Any]]:
+    """Find menu scripts exposing one callable ``run_*`` entry point."""
+    scripts: dict[str, tuple[str, Any]] = {}
+    scripts_dir = Path(__file__).resolve().parents[1] / "scripts_modules"
+
+    for script_path in sorted(scripts_dir.glob("*.py"), key=lambda path: path.stem.lower()):
+        if script_path.stem.startswith("_") or not script_path.stem.isidentifier():
+            continue
+
+        try:
+            module = import_module(f"scripts_modules.{script_path.stem}")
+        except Exception:
+            continue
+
+        entry_point_names = sorted(
+            name for name in dir(module) if name.startswith("run_") and callable(getattr(module, name))
+        )
+        if len(entry_point_names) != 1:
+            continue
+
+        scripts[script_path.stem.lower()] = (script_path.stem, getattr(module, entry_point_names[0]))
+
+    return scripts
+
+
+def _script_uses_ebtc(script_runner: Any) -> bool:
+    """Return whether a script entry point has imported the EBTC helper module."""
+    return any(
+        getattr(value, "__name__", "") == "utility_modules.ebtcs" for value in script_runner.__globals__.values()
+    )
 
 
 def create_menu(
@@ -195,45 +230,64 @@ def create_menu(
                         ).classes("w-full whitespace-nowrap rounded-full")
 
                 # --- Script selection and controls ---
-                script_options = [
-                    ("FFT", "fft"),
-                    ("EMC_Init", "emc_init"),
-                    ("EMC_HE", "emc_he"),
-                    ("EMC_HS", "emc_hs"),
-                    ("EMC_ReInit", "emc_reinit"),
-                ]
-                script_labels = [label for label, _ in script_options]
-                script_keys = {label: key for label, key in script_options}
+                script_options = sorted(_discover_eb_scripts().items())
+                script_labels = [label for _, (label, _) in script_options]
+                script_keys = {label: key for key, (label, _) in script_options}
                 selected_script = ui.select(
                     script_labels,
-                    value=script_labels[0],
+                    value=script_labels[0] if script_labels else None,
                     label="Select Script",
                 ).classes("w-full")
+
+                def _refresh_script_options() -> None:
+                    nonlocal script_labels, script_keys
+                    current_label = selected_script.value
+                    script_options = sorted(_discover_eb_scripts().items())
+                    script_labels = [label for _, (label, _) in script_options]
+                    script_keys = {label: key for key, (label, _) in script_options}
+                    next_value = (
+                        current_label
+                        if current_label in script_labels
+                        else (script_labels[0] if script_labels else None)
+                    )
+                    selected_script.set_options(script_labels, value=next_value)
+                    ui.notify(f"Scripts refreshed ({len(script_labels)} found)")
 
                 def get_selected_key():
                     val = selected_script.value
                     if val in script_keys:
                         return script_keys[val]
-                    return script_keys[script_labels[0]]
+                    return script_keys[script_labels[0]] if script_labels else ""
+
+                ui.add_css(".q-tooltip { font-size: 1.1rem !important; }")
 
                 with ui.row().classes("w-full justify-end gap-2") as script_buttons_row:
 
                     def _pause_click(e: Any = None) -> None:
                         _pause_selected_script(state, get_selected_key())
 
+                    def _resume_click(e: Any = None) -> None:
+                        _resume_selected_script(state, get_selected_key())
+
                     def _stop_click(e: Any = None) -> None:
                         _abort_selected_script(state, get_selected_key())
 
                     ui.button(
-                        icon="play_arrow",
+                        icon="arrow_forward",
                         on_click=lambda: (_run_selected_script(state, get_selected_key(), script_buttons_row)),
-                    ).props("flat round dense").classes("rounded-full w-20 h-12")
+                    ).props("flat round dense").classes("rounded-full w-16 h-12").tooltip("Run selected script")
                     ui.button(icon="pause", on_click=_pause_click).props("flat round dense").classes(
-                        "rounded-full w-20 h-12"
-                    )
-                    ui.button(icon="stop", on_click=_stop_click).props("flat round dense").classes(
-                        "rounded-full w-20 h-12"
-                    )
+                        "rounded-full w-16 h-12"
+                    ).tooltip("Pause running script")
+                    ui.button(icon="play_arrow", on_click=_resume_click).props("flat round dense").classes(
+                        "rounded-full w-16 h-12"
+                    ).tooltip("Resume paused script")
+                    ui.button(icon="stop_circle", on_click=_stop_click).props("flat round dense").classes(
+                        "rounded-full w-16 h-12"
+                    ).tooltip("Stop running script")
+                    ui.button(icon="refresh", on_click=_refresh_script_options).props("flat round dense").classes(
+                        "rounded-full w-16 h-12"
+                    ).tooltip("Refresh EB scripts")
 
                 ui.keyboard(on_key=lambda e: _handle_script_hotkeys(state, get_selected_key(), e))
 
@@ -437,51 +491,59 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
         _run_txt_script(state, buttons_row)
         return
 
-    supported_scripts = {
-        "fft": "fft",
-        "emc_init": "emc_init",
-        "emc_he": "emc_he",
-        "emc_hs": "emc_hs",
-        "emc_reinit": "emc_reinit",
-    }
-    if key not in supported_scripts:
+    script = _discover_eb_scripts().get(key)
+    if script is None:
         ui.notify("Unsupported script selected", color="negative")
         return
+    module_stem, _ = script
 
     script_control = ui_runtime_controller.get_script_control()
     if bool(script_control.get("running")):
-        ui.notify("A script is already running", color="warning")
-        return
+        if ui_runtime_controller.is_aborted():
+            ui.notify("Waiting for the previous script to stop", color="warning")
+            for _ in range(100):
+                await asyncio.sleep(0.1)
+                if not ui_runtime_controller.is_script_running():
+                    break
+            if ui_runtime_controller.is_script_running():
+                ui.notify("Previous script is still stopping; try again when it has finished", color="warning")
+                return
+        else:
+            ui.notify("A script is already running", color="warning")
+            return
+
+    if _script_uses_ebtc(script[1]):
+        interface = eb_interface.get_egse_interface()
+        connect_cmdtool = getattr(interface, "_connect_cmdtool_window", None)
+        if not callable(connect_cmdtool) or connect_cmdtool(wait_for_window=0.5) is None:
+            ui.notify("Cannot start script: CmdTool window is not available", color="negative")
+            return
 
     ui_runtime_controller.start_script(script_name=key)
 
     def _runner() -> None:
         try:
+            module = reload(import_module(f"scripts_modules.{module_stem}"))
+            entry_point_names = sorted(
+                name for name in dir(module) if name.startswith("run_") and callable(getattr(module, name))
+            )
+            if len(entry_point_names) != 1:
+                raise RuntimeError(f"Script module '{key}' must define exactly one callable run_* function")
+            script_runner = getattr(module, entry_point_names[0])
             state["logger"].info(f"Starting {key} script from menu")
             ebtcs.configure_send_flow_control(
                 should_pause=lambda: ui_runtime_controller.is_paused() or ui_runtime_controller.is_force_paused(),
                 should_abort=lambda: ui_runtime_controller.is_aborted(),
             )
 
-            # Call the correct function for each script directly
-            if key == "fft":
-                fft.run_fft()
-            elif key == "emc_init":
-                EMC_Init.run_emc_init()
-            elif key == "emc_he":
-                EMC_HE.run_emc_he()
-            elif key == "emc_hs":
-                EMC_HS.run_emc_hs()
-            elif key == "emc_reinit":
-                EMC_ReInit.run_emc_reinit()
-            else:
-                ui.notify("Script not implemented", color="negative")
-                return
+            script_runner()
 
             if ui_runtime_controller.is_aborted():
                 state["logger"].warning(f"{key} script aborted")
             else:
                 state["logger"].info(f"{key} script completed")
+        except ui_runtime_controller.ScriptAbortRequested:
+            state["logger"].warning("%s script aborted", key)
         except Exception as exc:
             state["logger"].error("%s script failed: %s", key, exc)
         finally:
@@ -533,19 +595,27 @@ def _pause_selected_script(state: dict[str, Any], script_key: str) -> None:
         ui.notify("No running script", color="warning")
         return
 
-    # If a UI-forced pause is active, clear that first (resume)
-    if ui_runtime_controller.is_force_paused():
-        ui_runtime_controller.clear_force_pause()
-        ui.notify("Script resumed")
+    if ui_runtime_controller.is_force_paused() or ui_runtime_controller.is_paused():
+        ui.notify("Script already paused", color="warning")
         return
 
-    # Toggle runtime pause event
-    if ui_runtime_controller.is_paused():
-        ui_runtime_controller.clear_pause()
-        ui.notify("Script resumed")
-    else:
-        ui_runtime_controller.request_pause()
-        ui.notify("Script paused")
+    ui_runtime_controller.request_pause()
+    ui.notify("Script paused")
+
+
+def _resume_selected_script(state: dict[str, Any], script_key: str) -> None:
+    """Resume a paused running script."""
+    if not ui_runtime_controller.is_script_running():
+        ui.notify("No running script", color="warning")
+        return
+
+    if not ui_runtime_controller.is_paused() and not ui_runtime_controller.is_force_paused():
+        ui.notify("Script is not paused", color="warning")
+        return
+
+    ui_runtime_controller.clear_force_pause()
+    ui_runtime_controller.clear_pause()
+    ui.notify("Script resumed")
 
 
 def _abort_selected_script(state: dict[str, Any], script_key: str) -> None:
@@ -559,7 +629,7 @@ def _abort_selected_script(state: dict[str, Any], script_key: str) -> None:
 
     ui_runtime_controller.request_abort()
     ui_runtime_controller.clear_pause()
-    ui.notify("Script abort requested", color="warning")
+    ui.notify("Stop requested; wait for the script to finish before starting another", color="warning")
 
 
 def _handle_script_hotkeys(state: dict[str, Any], script_key: str, event: Any) -> None:
@@ -604,11 +674,12 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
         ui.run_javascript(
             "window.open('', '_self');window.close();if (!window.closed) { window.location.href = 'about:blank'; }"
         )
-        # Shut down NiceGUI server first, then destroy the pywebview window.
-        # destroy_desktop_window() dispatches on a daemon thread so it doesn't
-        # block the event loop; the short delay lets app.shutdown() run first.
-        app.shutdown()
-        ui.timer(0.25, destroy_desktop_window, once=True)
+        # Close the desktop window first, then stop NiceGUI after the callback
+        # returns so the launcher can finish its main loop cleanly.
+        destroy_desktop_window()
+        shutdown_timer = threading.Timer(0.25, app.shutdown)
+        shutdown_timer.daemon = True
+        shutdown_timer.start()
 
     with ui.dialog() as shutdown_dialog, ui.card().classes("w-96"):
         ui.label("EGSE tools shut down.").classes("text-base")
