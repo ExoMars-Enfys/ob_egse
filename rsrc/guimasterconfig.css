@@ -200,6 +200,11 @@ body,
   color: var(--text-color);
 }
 
+.q-menu {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
 /*
  * #!TODO: This section intentionally overrides several Quasar surfaces.
  * If a component later requires its own background, add a local EGSE class
