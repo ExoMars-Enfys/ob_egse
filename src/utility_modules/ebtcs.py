@@ -115,7 +115,7 @@ def _gate_send():
         while _SEND_SHOULD_PAUSE is not None and bool(_SEND_SHOULD_PAUSE()):
             if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
                 return "ERROR"
-            # No sleep for fastest possible flow
+            time.sleep(max(_SEND_POLL_S, 0.01))
         if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
             return "ERROR"
     except Exception:

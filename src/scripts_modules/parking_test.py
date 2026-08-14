@@ -24,7 +24,7 @@ def run_parking_test(verification: bool = False) -> None:
 
     ui_runtime_controller.abortible_sleep(2)
     # Transition to Standby and use automatic ASW
-    ebtcs.standby(interface, 0, 0)
+    ebtcs.standby(interface, 5, 1)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -56,7 +56,7 @@ def run_parking_test(verification: bool = False) -> None:
             ui_runtime_controller.notify_negative(msg)
             raise AssertionError(msg)
 
-    ebtcs.ob_homing(interface, 0x03)
+    ebtcs.ob_homing(interface, 0x01)
     ui_runtime_controller.perform_homing_check_sync()
     ui_runtime_controller.request_force_pause("Click to continue once ready.")
     latest_hk = ebpu.get_latest_hk()
