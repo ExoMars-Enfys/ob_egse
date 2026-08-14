@@ -12,6 +12,7 @@ from nicegui import run, ui
 
 # Local modules
 # utilities
+from utility_modules import eb_interface, ebtcs
 from utility_modules import psu
 
 # widgets
@@ -295,6 +296,12 @@ def create_psu_channel_card(
 
         try:
             await run.io_bound(apply_toggle)
+            if should_send_ret_tc_for_eb_enable(mode, enabled, physical_channel):
+                emit_eb_ret_tc_for_psu_toggle(
+                    state,
+                    enabled=enabled,
+                    physical_channel=physical_channel,
+                )
         finally:
             channel["_toggle_in_flight"] = False
             psu.set_psu_command_in_flight(mode_state, False)

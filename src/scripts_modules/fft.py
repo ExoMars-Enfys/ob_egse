@@ -28,7 +28,7 @@ def run_fft(verification: bool = True) -> None:
 
     time.sleep(2)
     # Transition to Standby and use automatic ASW
-    ebtcs.standby(interface, 0, 0)
+    ebtcs.standby(interface, 5, 1)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
