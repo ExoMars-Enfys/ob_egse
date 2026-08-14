@@ -2071,6 +2071,23 @@ def verify_standby_ret():
 # region Script controls — pause / abort / run state
 
 
+class ScriptAbortRequested(Exception):
+    """Raised when a script wait is interrupted by the Stop control."""
+
+
+def abortible_sleep(seconds: float, poll_s: float = 0.1) -> None:
+    """Sleep while allowing the Stop control to interrupt the script promptly."""
+    deadline = time.monotonic() + max(float(seconds), 0.0)
+    interval = max(float(poll_s), 0.01)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        if is_aborted():
+            raise ScriptAbortRequested
+        time.sleep(min(interval, remaining))
+
+
 def clear_abort() -> None:
     _SCRIPT_CONTROL["abort_event"].clear()
 

@@ -258,7 +258,7 @@ def create_console_input_widget(
                 label="Select command",
                 on_change=_add_command_id,
             )
-            .props("clearable popup-content-class=console-select-popup")
+            .props("clearable")
             .classes("w-64")
         )
 
