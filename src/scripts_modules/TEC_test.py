@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from queue import Empty
-from typing import TYPE_CHECKING
 
 from core_modules import config
 from core_modules import constants as const
@@ -10,11 +9,8 @@ from utility_modules import eb_interface, ebtcs
 from utility_modules import eb_packet_utility as ebpu
 from widget_modules import ui_runtime_controller
 
-if TYPE_CHECKING:
-    from tek_scope_api import TekScope
-
 try:
-    from tek_scope_api import ScopeConnectionError, connect_scope, setup_scope
+    from tek_scope_api import ScopeConnectionError, connect_scope_with_setup_file
 
     _SCOPE_API_AVAILABLE = True
 except ImportError:  # tek_scope_api is an optional local package
@@ -22,24 +18,6 @@ except ImportError:  # tek_scope_api is an optional local package
     ScopeConnectionError = Exception  # type: ignore[assignment, misc]
 
 info_log = logging.getLogger("info_log")
-
-
-def _connect_scope(scope_setup_file: str | None) -> TekScope | None:
-    """Connect to the scope and recall its requested scope-side setup file."""
-    if not _SCOPE_API_AVAILABLE:
-        info_log.warning("TEC current report: tek_scope_api not installed, skipping scope capture")
-        return None
-    if not scope_setup_file:
-        info_log.warning("TEC current report: no scope setup file selected, skipping scope capture")
-        return None
-    try:
-        scope = connect_scope(config.SCOPE_VISA_RESOURCE)
-        setup_scope(scope, scope_setup_file)
-        info_log.info("Connected to scope for TEC current capture using %s: %s", scope_setup_file, scope.idn())
-        return scope
-    except ScopeConnectionError as exc:
-        info_log.warning("TEC current report: scope unavailable, skipping scope capture (%s)", exc)
-        return None
 
 
 def run_tec_test(verification: bool = False, scope_setup_file: str | None = None) -> None:
@@ -59,7 +37,6 @@ def run_tec_test(verification: bool = False, scope_setup_file: str | None = None
     ui_runtime_controller.abortible_sleep(2)
     # Transition to Standby and use automatic ASW
     ebtcs.standby(interface, 5, 1)
-    ebtcs.standby(interface, 5, 1)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -73,7 +50,17 @@ def run_tec_test(verification: bool = False, scope_setup_file: str | None = None
 
     ui_runtime_controller.request_force_pause("Press to continue with the test")
 
-    scope = _connect_scope(scope_setup_file)
+    scope = None
+    if not _SCOPE_API_AVAILABLE:
+        info_log.warning("TEC current report: tek_scope_api not installed, skipping scope capture")
+    elif not scope_setup_file:
+        info_log.warning("TEC current report: no scope setup file selected, skipping scope capture")
+    else:
+        try:
+            scope = connect_scope_with_setup_file(config.SCOPE_VISA_RESOURCE, scope_setup_file)
+            info_log.info("Connected to scope for TEC current capture using %s: %s", scope_setup_file, scope.idn())
+        except ScopeConnectionError as exc:
+            info_log.warning("TEC current report: scope unavailable, skipping scope capture (%s)", exc)
     scope_captures_dir = const.LOG_PATH / "scope_captures"
 
     ui_runtime_controller.abortible_sleep(1)
