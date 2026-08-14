@@ -27,7 +27,7 @@ def run_tec_test(verification: bool = False) -> None:
 
     ui_runtime_controller.abortible_sleep(2)
     # Transition to Standby and use automatic ASW
-    ebtcs.standby(interface, 0, 0)
+    ebtcs.standby(interface, 5, 1)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -42,7 +42,7 @@ def run_tec_test(verification: bool = False) -> None:
     ui_runtime_controller.request_force_pause("Press to continue with the test")
 
     ui_runtime_controller.abortible_sleep(1)
-    for current in range(0, 4095, 205):
+    for current in range(0, 4095, 204):
         ebtcs.set_tec_current(interface, 0, current)
         ui_runtime_controller.abortible_sleep(5)
 
@@ -63,15 +63,15 @@ def run_tec_test(verification: bool = False) -> None:
             measured_current_ma = float(psu_sample["PSU_EB_I"]) * 1000.0
 
         info_log.info(
-            "TEC HK current report: setpoint=%d ADU, drive_current_adu=%s, tec_current=%s A, operating_state=%s",
-            "PSU_EB_I=%s mA",
+            "TEC HK current report: setpoint=%d ADU, drive_current_adu=%s, tec_current=%s A, operating_state=%s, PSU_EB_I=%s mA",
             current,
             tec_current_adu if tec_current_adu is not None else "N/A",
             f"{tec_current_a:.6f}" if tec_current_a is not None else "N/A",
             operating_state if operating_state is not None else "N/A",
-            current,
             f"{measured_current_ma:.2f}" if measured_current_ma is not None else "N/A",
         )
+        ebtcs.set_tec_current(interface, 0, 0)
+        ui_runtime_controller.abortible_sleep(2)
 
     ui_runtime_controller.request_force_pause("Press to continue with the test")
 

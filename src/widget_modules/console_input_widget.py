@@ -34,27 +34,51 @@ COMMAND_TO_TC_FUNC = {
 }
 
 
-def _resolve_eb_tc_func(command_name: str) -> Callable[..., Any] | None:
-    func = getattr(ebtcs, command_name, None)
+# EB console commands use the real Enfys TC names (RET, SAFE, STANDBY, ...)
+# instead of the OB TC names above, since the EB command set is distinct.
+EB_DEFAULT_COMMANDS = list(cmd_ids.enfys_tc_defs.keys())
+
+# Maps each Enfys TC name to the corresponding ebtcs function attribute name.
+_EB_TC_ATTR_BY_NAME = {
+    "RET": "ret",
+    "REQUEST_HK": "hk_request",
+    "PATCH": "patch",
+    "DUMP": "dump",
+    "SET_HK_RATE": "set_hk_rate",
+    "MONITOR_ADDR": "monitor_addr",
+    "ABORT": "abort",
+    "GENERIC_TC": "generic_tc",
+    "SAFE": "safe",
+    "STANDBY": "standby",
+    "ACQUISITION": "acquisition",
+    "SET_MOTOR_CONFIGS": "set_motor_configs",
+    "SET_HEATER_CONFIGS": "set_heater_configs",
+    "SET_ACQ_CONFIGS": "set_acq_configs",
+    "SET_TEC_SETPOINT": "set_tec_setpoint",
+    "SET_FDIR": "set_fdir",
+    "EN_MECH_BOARD": "en_mech_board",
+    "EN_DET_BOARD": "en_det_board",
+    "EN_MECH_HEATER": "en_mech_heater",
+    "EN_DET_HEATER": "en_det_heater",
+    "EN_OB5V": "en_ob5v",
+    "OB_PARK": "ob_park",
+    "OB_HOMING": "ob_homing",
+    "OB_HK": "ob_hk",
+    "CHECK_MEMORY": "check_memory",
+    "GOTO": "goto",
+    "COPY_MEMORY": "copy_memory",
+    "SWITCH_RS422": "switch_rs422",
+    "SET_TEC_CURRENT": "set_tec_current",
+}
+
+
+def _resolve_eb_tc_func(attr_name: str) -> Callable[..., Any] | None:
+    func = getattr(ebtcs, attr_name, None)
     return func if callable(func) else None
 
 
 COMMAND_TO_EB_TC_FUNC = {
-    "HK_Request": _resolve_eb_tc_func("hk_request"),
-    "Clear_Errors": _resolve_eb_tc_func("clear_errors"),
-    "Set_Errors": _resolve_eb_tc_func("set_errors"),
-    "Power_Control": _resolve_eb_tc_func("power_control"),
-    "Heater_Control": _resolve_eb_tc_func("heater_control"),
-    "Set_Mech_SP": _resolve_eb_tc_func("set_mech_sp"),
-    "Set_Detec_SP": _resolve_eb_tc_func("set_detec_sp"),
-    "Set_MTR_Param": _resolve_eb_tc_func("set_mtr_param"),
-    "MTR_Mov_Pos": _resolve_eb_tc_func("mtr_mov_pos"),
-    "MTR_Mov_Neg": _resolve_eb_tc_func("mtr_mov_neg"),
-    "MTR_Halt": _resolve_eb_tc_func("mtr_halt"),
-    "MTR_Homing": _resolve_eb_tc_func("mtr_homing"),
-    "Set_HK_Samples": _resolve_eb_tc_func("set_hk_samples"),
-    "SCI_Offset": _resolve_eb_tc_func("sci_offset"),
-    "SCI_Request": _resolve_eb_tc_func("sci_request"),
+    tc_name: _resolve_eb_tc_func(attr_name) for tc_name, attr_name in _EB_TC_ATTR_BY_NAME.items()
 }
 
 
@@ -181,7 +205,10 @@ def create_console_input_widget(
         commands: Optional command list for selector choices.
         on_send: Optional callback invoked with command text when sent.
     """
-    command_list = list(commands or state.get("console_commands") or DEFAULT_COMMANDS)
+    mode = str(state.get("mode", "OB") or "OB").upper()
+    default_commands = EB_DEFAULT_COMMANDS if mode == "EB" else DEFAULT_COMMANDS
+    uses_mode_default_commands = commands is None and not state.get("console_commands")
+    command_list = list(commands or state.get("console_commands") or default_commands)
     logger = state.get("logger")
 
     ui.add_head_html(
@@ -274,6 +301,20 @@ def create_console_input_widget(
             icon="send",
             on_click=_send_command,
         )
+
+    def _sync_console_commands(new_mode: str) -> None:
+        """Swap the command list between OB and EB TC names when mode changes."""
+        if not uses_mode_default_commands:
+            return
+        mode_upper = str(new_mode or "OB").upper()
+        new_list = EB_DEFAULT_COMMANDS if mode_upper == "EB" else DEFAULT_COMMANDS
+        current_value = command_selector.value
+        next_value = current_value if current_value in new_list else (new_list[0] if new_list else None)
+        command_selector.set_options(new_list, value=next_value)
+        state["cmd"] = next_value
+
+    if isinstance(state.get("plot_refreshers"), list):
+        state["plot_refreshers"].append(_sync_console_commands)
 
     return ConsoleInputController(
         command_selector=command_selector,
