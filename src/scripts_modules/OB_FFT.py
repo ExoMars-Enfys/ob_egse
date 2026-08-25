@@ -77,7 +77,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):
@@ -106,8 +106,10 @@ def fft_stage_1(
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
     )
-
+    errors = []
     response = checks.hk("boot", check_model=True)
+    measured = check_current_profile(read_psu_channels(psu_port, psu_lock), response, errors=errors)
+    ui_runtime_controller.request_force_pause(f"Current Checks review {response}")
 
     # region Mechanism Heater
     #  4-8. Manual mechanism heater check only if not at max ops.
@@ -155,6 +157,7 @@ def fft_stage_1(
             notify_negative=ui_runtime_controller.notify_negative,
             notify_positive=ui_runtime_controller.notify_positive,
         )
+
     # endregion
 
     # region Detector Heater
@@ -226,6 +229,9 @@ def fft_stage_1(
             notify_negative=ui_runtime_controller.notify_negative,
             notify_positive=ui_runtime_controller.notify_positive,
         )
+
+        ui_runtime_controller.request_force_pause(f"Current Checks review {response}")
+
         response = checks.heater(False, False, False, False, False, label="State 2 heater disable")
         errors = []
         ui_runtime_controller.abortible_sleep(5)
@@ -289,12 +295,14 @@ def fft_stage_1(
         notify_positive=ui_runtime_controller.notify_positive,
     )
     log_psu_snapshot(psu_port, "Motor halt current", psu_lock)
+    ui_runtime_controller.request_force_pause("Pause for region MOVE HOLD HALT!")
     # endregion
 
     # region CURRENT and SPEED CHECKS
     checks.home(calibration=True, outer=True, label="return to outer")
     ui_runtime_controller.abortible_sleep(2)
     checks.home(calibration=False, outer=False, label="home to base")
+    ui_runtime_controller.request_force_pause("Pause for report of Motor Steps")
     ui_runtime_controller.abortible_sleep(2)
     for motor_current in (20, 40, 64):
         checks.set_motor_current(motor_current)
@@ -367,7 +375,7 @@ def fft_stage_1(
         notify_negative=ui_runtime_controller.notify_negative,
         notify_positive=ui_runtime_controller.notify_positive,
     )
-
+    ui_runtime_controller.request_force_pause("Pause before Dark region measurements")
     # endregion
 
     # region Detector Dark Measurements
@@ -418,12 +426,12 @@ def fft_stage_1(
     # region SCI ACQ
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.abortible_sleep(5)
-    # checks.state(
-    #     "State5",
-    #     {} if nopsu else read_psu_channels(psu_port, psu_lock),
-    #     response=response,
-    #     allow_psu_unavailable=nopsu,
-    # )
+    checks.state(
+        "State5",
+        {} if nopsu else read_psu_channels(psu_port, psu_lock),
+        response=response,
+        allow_psu_unavailable=nopsu,
+    )
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
     sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
     sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
@@ -440,9 +448,20 @@ def fft_stage_1(
         response=response,
         allow_psu_unavailable=nopsu,
     )
-    checks.home(calibration=False, outer=True, label="State 7 home to outer", active_state="State7")
+    checks.home(
+        calibration=True, outer=True, label="State 7 home to outer", active_state="State7"
+    )  #! Check the consumption limits
+
     response = checks.heater(False, False, False, False, False, label="heaters disable")
     ui_runtime_controller.abortible_sleep(5)
+    checks.home(
+        calibration=False, outer=False, label="State 7 home to outer", active_state="State7"
+    )  #! Check the consumption limits
+    checks.move_to_absolute_position(
+        limits.PARK_POSITION,
+        label="PARK position",
+    )
+    #! Park
     checks.power(0x00, label="OB boards power off")
     ui_runtime_controller.abortible_sleep(5)
     switch_psu(psu_port, enabled=False, psu_lock=psu_lock)
@@ -507,8 +526,16 @@ def fft_stage_2(
     # endregion
 
     # region Power OFF
+    ui_runtime_controller.abortible_sleep(5)
+    checks.home(calibration=False, outer=False, label="State 7 home to outer", active_state="State7")
+    checks.move_to_absolute_position(
+        limits.PARK_POSITION,
+        label="PARK position",
+    )
+
     _run_ob_transaction(worker, port_lock, tc.mtr_halt, port)
     response = checks.heater(False, False, False, False, False, label="heaters disable")
+
     ui_runtime_controller.abortible_sleep(5)
     checks.power(0x00, label="OB boards power off")
     ui_runtime_controller.abortible_sleep(5)
