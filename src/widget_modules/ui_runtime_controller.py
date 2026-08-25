@@ -9,7 +9,7 @@ import statistics
 import threading
 from types import SimpleNamespace
 import time
-from typing import Any
+from typing import Any, Callable
 from queue import Empty
 import logging
 import asyncio
@@ -689,6 +689,68 @@ def notify_script_pause(current: int, total: int) -> None:
     notify(f"Script paused, command {current} of {total}", color="warning")
 
 
+_CONFIRM_EVENT = threading.Event()
+_CONFIRM_RESULT: bool = False
+
+
+def request_confirmation(
+    message: str,
+    title: str = "Confirm",
+    confirm_label: str = "Confirm",
+    cancel_label: str = "Cancel",
+) -> bool:
+    """Show a confirmation dialog and block until the user responds. Safe to call from a background script thread.
+
+    Builds the dialog on the NiceGUI event loop thread (mirroring ``notify``'s
+    threadsafe pattern) since UI elements cannot be created directly from a
+    background thread. Returns True if confirmed, False if cancelled or the
+    script is aborted while waiting.
+    """
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        info_log.info("[confirm] %s", message)
+        return False
+
+    _CONFIRM_EVENT.clear()
+
+    def _open_dialogs() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    with ui.dialog() as dialog, ui.card().classes("w-[34rem] max-w-full"):
+                        ui.label(title).classes("font-bold egse-title")
+                        ui.label(message).classes("egse-text whitespace-pre-wrap")
+                        ui.separator()
+                        with ui.row().classes("w-full justify-end gap-2"):
+
+                            def _cancel(d: Any = dialog) -> None:
+                                global _CONFIRM_RESULT
+                                d.close()
+                                _CONFIRM_RESULT = False
+                                _CONFIRM_EVENT.set()
+
+                            def _confirm(d: Any = dialog) -> None:
+                                global _CONFIRM_RESULT
+                                d.close()
+                                _CONFIRM_RESULT = True
+                                _CONFIRM_EVENT.set()
+
+                            ui.button(cancel_label, on_click=_cancel).props("outline")
+                            ui.button(confirm_label, on_click=_confirm).classes("primary-text")
+                    dialog.open()
+            except Exception as exc:
+                info_log.debug("request_confirmation: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_open_dialogs)
+
+    while not _CONFIRM_EVENT.is_set():
+        if is_aborted():
+            return False
+        time.sleep(0.25)
+
+    return _CONFIRM_RESULT
+
+
 def request_force_pause(msg: str = "") -> None:
     """Request a forced pause — blocks script execution until the user resumes or aborts.
 
@@ -1313,15 +1375,18 @@ def perform_acq_check_sync(
     _ACQ_STATE = 0x08
     start_time = time.monotonic()
     _acq_150s_checked = False
+    progress = ProgressNotifier(f"Acquisition wait: 0s / {acq_timeout_s:.0f}s")
 
     info_log.debug("Starting acquisition wait: waiting for CURRENT_OPERATING_STATE=0x08...")
 
     # --- Phase 1: wait for the EB to enter Acquisition state ---
     while True:
         if is_aborted():
+            progress.finish()
             notify_negative("Acquisition aborted by user.")
             raise RuntimeError("Acquisition aborted by user.")
         if time.monotonic() - start_time > acq_timeout_s:
+            progress.finish()
             notify_negative("Timeout waiting for acquisition to start.")
             raise TimeoutError("Timeout waiting for acquisition to start.")
         latest_hk = get_latest_hk()
@@ -1332,14 +1397,19 @@ def perform_acq_check_sync(
                 sci_count,
             )
             break
+        progress.update(
+            f"Acquisition wait: waiting to start ({time.monotonic() - start_time:.0f}s / {acq_timeout_s:.0f}s)"
+        )
         time.sleep(1)
 
     # --- Phase 2: wait for the EB to leave Acquisition state ---
     while True:
         if is_aborted():
+            progress.finish()
             notify_negative("Acquisition aborted by user.")
             raise RuntimeError("Acquisition aborted by user.")
         if time.monotonic() - start_time > acq_timeout_s:
+            progress.finish()
             notify_negative("Timeout waiting for acquisition to complete.")
             raise TimeoutError("Timeout waiting for acquisition to complete.")
 
@@ -1407,11 +1477,16 @@ def perform_acq_check_sync(
                 info_log.info("SCI packet received: %s", sci_packet)
             except Exception:
                 pass
+            progress.finish()
             return
 
         info_log.info(
             "Acquisition in progress (CURRENT_OPERATING_STATE=0x08, SCIENCE_PACKETS_SENT=%s)",
             getattr(latest_hk, "SCIENCE_PACKETS_SENT", "N/A"),
+        )
+        progress.update(
+            f"Acquisition in progress: {time.monotonic() - start_time:.0f}s / {acq_timeout_s:.0f}s "
+            f"(SCIENCE_PACKETS_SENT={getattr(latest_hk, 'SCIENCE_PACKETS_SENT', 'N/A')})"
         )
         time.sleep(10)
 
@@ -1536,13 +1611,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
-            and getattr(post, "ASW_IMAGE_1_CRC", None) == 0xBAF7
-            and getattr(post, "ASW_IMAGE_2_CRC", None) == 0xA0BB
-            and getattr(post, "ASW_IMAGE_3_CRC", None) == 0xBD18
-            and getattr(post, "ASW_IMAGE_4_CRC", None) == 0xC0F5
-            and getattr(post, "ASW_IMAGE_5_CRC", None) == 0xF0D2
-            and getattr(post, "BSW_IMAGE_CRC", None) == 0xD2D7
-            and getattr(post, "MEASUREMENT_TABLE_CRC", None) == 0x4174
+            and all(getattr(post, field, None) == expected for field, expected in const.POST_EXPECTED_CRC.items())
         )
         if not all_post_passed:
             result["passed"] = False
@@ -1555,20 +1624,10 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 result["details"].append(f"NUM_BAD_FLASH_BLOCKS: {getattr(post, 'NUM_BAD_FLASH_BLOCKS', None)}")
             if getattr(post, "NUM_BAD_SRAM_BLOCKS", None) != 0:
                 result["details"].append(f"NUM_BAD_SRAM_BLOCKS: {getattr(post, 'NUM_BAD_SRAM_BLOCKS', None)}")
-            if getattr(post, "ASW_IMAGE_1_CRC", None) != 0x2B22:
-                result["details"].append(f"ASW_IMAGE_1_CRC: {getattr(post, 'ASW_IMAGE_1_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_2_CRC", None) != 0xD46C:
-                result["details"].append(f"ASW_IMAGE_2_CRC: {getattr(post, 'ASW_IMAGE_2_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_3_CRC", None) != 0x8156:
-                result["details"].append(f"ASW_IMAGE_3_CRC: {getattr(post, 'ASW_IMAGE_3_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_4_CRC", None) != 0x0696:
-                result["details"].append(f"ASW_IMAGE_4_CRC: {getattr(post, 'ASW_IMAGE_4_CRC', None):#06x}")
-            if getattr(post, "ASW_IMAGE_5_CRC", None) != 0x6FEB:
-                result["details"].append(f"ASW_IMAGE_5_CRC: {getattr(post, 'ASW_IMAGE_5_CRC', None):#06x}")
-            if getattr(post, "BSW_IMAGE_CRC", None) != 0xD2D7:
-                result["details"].append(f"BSW_IMAGE_CRC: {getattr(post, 'BSW_IMAGE_CRC', None):#06x}")
-            if getattr(post, "MEASUREMENT_TABLE_CRC", None) != 0xF624:
-                result["details"].append(f"MEASUREMENT_TABLE_CRC: {getattr(post, 'MEASUREMENT_TABLE_CRC', None):#06x}")
+            for field, expected in const.POST_EXPECTED_CRC.items():
+                actual = getattr(post, field, None)
+                if actual != expected:
+                    result["details"].append(f"{field}: {actual:#06x}" if actual is not None else f"{field}: None")
             # Optionally, add converted values to details for debugging
             if tm_12v is not None:
                 result["details"].append(f"TM_12V: {tm_12v:.2f} V")
@@ -1603,6 +1662,7 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
     """
     start_time = time.monotonic()
     info_log.debug("Starting homing wait loop for HOMING_COMPLETE flag...")
+    progress = ProgressNotifier(f"Homing wait: 0s / {homing_timeout_s:.0f}s")
 
     homing_complete = 0
     while homing_complete == 0:
@@ -1611,6 +1671,7 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
         # Allow user to abort the script while waiting
         if is_aborted():
             info_log.warning("Homing wait aborted by user.")
+            progress.finish()
             notify_negative("Homing aborted by user.")
             raise RuntimeError("Homing aborted by user.")
 
@@ -1634,11 +1695,14 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
         hk_time = getattr(latest_hk, "TIME", None)
         if homing_complete == 1:
             info_log.info("HOMING_COMPLETE detected in HK at %s", hk_time)
+            progress.finish()
             return
         if time.monotonic() - start_time > homing_timeout_s:
             info_log.error("Timeout waiting for HOMING_COMPLETE flag in HK telemetry (waited %ss)", homing_timeout_s)
+            progress.finish()
             notify_negative("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
             raise TimeoutError("Timeout waiting for HOMING_COMPLETE flag in HK telemetry.")
+        progress.update(f"Homing wait: {time.monotonic() - start_time:.0f}s / {homing_timeout_s:.0f}s")
         time.sleep(1)  # Sleep briefly to avoid busy-waiting
 
 
@@ -2086,6 +2150,94 @@ def abortible_sleep(seconds: float, poll_s: float = 0.1) -> None:
         if is_aborted():
             raise ScriptAbortRequested
         time.sleep(min(interval, remaining))
+
+
+class ProgressNotifier:
+    """A spinner notification that can be updated/dismissed from any thread.
+
+    Creation and updates are marshalled onto the NiceGUI event loop via
+    ``call_soon_threadsafe``, so this is safe to use from script worker threads.
+    """
+
+    def __init__(self, message: str, *, color: str = "warning") -> None:
+        self._handles: dict[Any, Any] = {}
+        self._create(message, color)
+
+    def _run_on_clients(self, action: Callable[[Any], None]) -> None:
+        loop = _nicegui_core.loop
+        if loop is None or not loop.is_running():
+            return
+
+        def _enqueue() -> None:
+            for client in list(_NiceGuiClient.instances.values()):
+                try:
+                    with client:
+                        action(client)
+                except Exception as exc:
+                    info_log.debug("ProgressNotifier: action failed for client %s: %s", client.id, exc)
+
+        loop.call_soon_threadsafe(_enqueue)
+
+    def _create(self, message: str, color: str) -> None:
+        if _nicegui_core.loop is None or not _nicegui_core.loop.is_running():
+            info_log.info("[progress] %s", message)
+            return
+
+        def _create_for_client(client: Any) -> None:
+            self._handles[client.id] = ui.notification(
+                message, color=color, multi_line=True, spinner=True, timeout=None, close_button=False
+            )
+
+        self._run_on_clients(_create_for_client)
+
+    def update(self, message: str) -> None:
+        """Update the progress text on all open spinner notifications."""
+        info_log.debug("[progress] %s", message)
+
+        def _update_for_client(client: Any) -> None:
+            handle = self._handles.get(client.id)
+            if handle is not None:
+                handle.message = message
+
+        self._run_on_clients(_update_for_client)
+
+    def finish(self) -> None:
+        """Dismiss the spinner notifications."""
+
+        def _dismiss_for_client(client: Any) -> None:
+            handle = self._handles.pop(client.id, None)
+            if handle is not None:
+                handle.dismiss()
+
+        self._run_on_clients(_dismiss_for_client)
+
+
+def abortible_sleep_with_progress(seconds: float, label: str, update_interval: float = 5.0) -> None:
+    """Sleep like ``abortible_sleep`` but show a live-updating progress notification.
+
+    Intended for long waits (heater thermal response, settle delays, etc.) so the
+    operator can see what the script is doing instead of a silent multi-second gap.
+    """
+    total = max(float(seconds), 0.0)
+    if total <= 0:
+        return
+    progress = ProgressNotifier(f"{label}: 0s / {total:.0f}s")
+    deadline = time.monotonic() + total
+    start = time.monotonic()
+    interval = max(float(update_interval), 0.1)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            if is_aborted():
+                raise ScriptAbortRequested
+            elapsed = time.monotonic() - start
+            percent = min(100, int(elapsed / total * 100))
+            progress.update(f"{label}: {elapsed:.0f}s / {total:.0f}s ({percent}%)")
+            time.sleep(min(interval, remaining))
+    finally:
+        progress.finish()
 
 
 def clear_abort() -> None:
@@ -2636,10 +2788,20 @@ def create_poll_tm(
         processed_hk = False
         last_hk_time = state.setdefault("latest_hk_time", None)
 
-        # Process HK packets (match legacy `ebgui` behaviour: increment on every HK pop)
+        # Bound work per tick so a backlog cannot monopolize the GUI event loop.
+        processed_hk_count = 0
+        max_hk_packets_per_tick = 5
         while not const.hk_queue.empty():
+            try:
+                if const.hk_queue.qsize() <= 1:
+                    break
+                const.hk_queue.get_nowait()
+            except (Empty, AttributeError):
+                break
+        while not const.hk_queue.empty() and processed_hk_count < max_hk_packets_per_tick:
             processed_hk = True
             hk = const.hk_queue.get()
+            processed_hk_count += 1
             now = datetime.now()
             if mode == "OB":
                 state["last_ob_tm_time"] = getattr(hk, "TIME", now)
@@ -2759,6 +2921,13 @@ def create_poll_tm(
         # Process SCI packets from TM queues.
         # EB SCI and OB SCI have different packet shapes, so we handle them separately.
         if not const.sci_queue.empty():
+            while not const.sci_queue.empty():
+                try:
+                    if const.sci_queue.qsize() <= 1:
+                        break
+                    const.sci_queue.get_nowait()
+                except (Empty, AttributeError):
+                    break
             if mode == "OB":
                 new_ob_sci_packets = 0
                 latest_ob_sci = None
@@ -2766,8 +2935,11 @@ def create_poll_tm(
                 ob_recent_identity_set = state.setdefault("ob_sci_recent_identity_set", set())
                 max_ob_recent_identities = int(state.get("ob_sci_dedupe_window", 128) or 128)
 
-                while not const.sci_queue.empty():
+                processed_sci_count = 0
+                max_sci_packets_per_tick = 5
+                while not const.sci_queue.empty() and processed_sci_count < max_sci_packets_per_tick:
                     candidate = const.sci_queue.get()
+                    processed_sci_count += 1
                     if not hasattr(candidate, "__dict__") and not isinstance(candidate, dict):
                         logger.debug("Ignoring non-object packet in SCI queue")
                         continue
@@ -2837,8 +3009,11 @@ def create_poll_tm(
                 )
                 sci_packets = state.setdefault("sci_packets", [])
                 sci_packet_identities = state.setdefault("sci_packet_identities", set())
-                while not const.sci_queue.empty():
+                processed_sci_count = 0
+                max_sci_packets_per_tick = 5
+                while not const.sci_queue.empty() and processed_sci_count < max_sci_packets_per_tick:
                     latest_sci = const.sci_queue.get()
+                    processed_sci_count += 1
                     if not all(hasattr(latest_sci, field_name) for field_name in required_sci_fields):
                         logger.debug("Ignoring non-SCI packet in SCI queue")
                         continue
@@ -3086,6 +3261,9 @@ def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: An
         ui.notify("OB port unavailable", color="negative")
         return
 
+    worker = state.get("ob_worker")
+    if worker is not None:
+        return worker.submit(command, *args, priority=1, **kwargs)
     lock = state.get("port_lock")
     lock_ctx = lock if lock is not None else nullcontext()
     with lock_ctx:
