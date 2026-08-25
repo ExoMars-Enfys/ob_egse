@@ -1,7 +1,4 @@
 from types import SimpleNamespace
-
-import pytest
-
 from core_modules import config
 from widget_modules import ui_runtime_controller as urc
 
@@ -113,6 +110,7 @@ def test_perform_hk_check_detects_non_zero_error_and_fdir_fields() -> None:
 # ---------------------------------------------------------------------------
 # Additional alarm lifecycle and HK/POST validation coverage
 # ---------------------------------------------------------------------------
+
 
 def _valid_hk() -> SimpleNamespace:
     return SimpleNamespace(
