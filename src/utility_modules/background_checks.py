@@ -539,7 +539,7 @@ def check_thermal_response(
     if any(value is None for value in values.values()) or any(value is None for value in initial_values.values()):
         event_log.warning("%s heater thermal response cannot be compared because a TRP value is missing.", heater_name)
         return
-    if not any(values[field] > initial_values[field] for field in initial_values):
+    if not any(values[field] > (initial_values[field] + 4) for field in initial_values):
         errors.append(f"{heater_name} heater did not increase the monitored thermal response")
 
 
