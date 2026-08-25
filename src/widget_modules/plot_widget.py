@@ -162,6 +162,12 @@ def create_plot_card(
                     cb.style(f"color: {cfg.color}")
                     checkboxes.append(cb)
 
+        limits_checkbox: Any | None = None
+        if limit_bands:
+            with ui.row().classes("w-full flex-wrap gap-x-4 gap-y-1"):
+                limits_checkbox = ui.checkbox("Show limits", value=True)
+                limits_checkbox.classes("egse-text")
+
         plot = (
             ui.line_plot(n=n_series, limit=limit, figsize=_figsize)
             .classes("w-full self-start")
@@ -290,6 +296,7 @@ def create_plot_card(
         return y_limits
 
     active_y_limits = _selected_y_limits()
+    limits_user_visible = True
 
     def _update_limit_lines() -> None:
         for group in limit_line_groups:
@@ -299,7 +306,7 @@ def create_plot_card(
 
             for severity, bounds in (("warning", warning_bounds), ("alarm", alarm_bounds)):
                 low_line, high_line = group[severity]
-                visible = bool(band.visible and bounds is not None)
+                visible = bool(limits_user_visible and band.visible and bounds is not None)
                 low_line.set_visible(visible)
                 high_line.set_visible(visible)
                 if not visible or bounds is None:
@@ -512,6 +519,16 @@ def create_plot_card(
 
         for index, cb in enumerate(checkboxes):
             cb.on_value_change(_make_handler(index))
+
+    if limits_checkbox is not None:
+
+        def _handle_limits_toggle(e: Any) -> None:
+            nonlocal limits_user_visible
+            limits_user_visible = bool(e.value)
+            _update_limit_lines()
+            _refresh_legend()
+
+        limits_checkbox.on_value_change(_handle_limits_toggle)
 
     _apply_series_visibility()
 
