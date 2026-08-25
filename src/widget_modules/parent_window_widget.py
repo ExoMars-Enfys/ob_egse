@@ -49,6 +49,7 @@ def build_ui(
     psu_port: Any = None,
     psu_lock: Any = None,
     ob_port: Any = None,
+    ob_worker: Any = None,
     port_lock: Any = None,
     stop_event: Any = None,
     psu_mode_state: Any = None,
@@ -81,6 +82,8 @@ def build_ui(
         "plot_refreshers": [],
         "mode_change_resetters": [],
         "refreshers": [],
+        "timers": [],
+        "disconnect_cleanup_done": False,
         "log_search": {"enabled": False},
         "packet_counts": {"hk": 0, "post": 0, "sci": 0},
         "last_ob_tm_time": None,
@@ -124,6 +127,7 @@ def build_ui(
             "limits": monitoring_limits.mms_alarm_limits(),
         },
         "ob_port": ob_port,
+        "ob_worker": ob_worker,
         "psu_port": psu_port,
         "psu_lock": psu_lock,
         "psu_mode_state": psu_mode_state,
@@ -146,6 +150,31 @@ def build_ui(
 
     @ui.page("/")
     def index() -> None:
+        def cleanup_disconnected_client() -> None:
+            """Remove stale UI refresh callbacks when the browser client disappears."""
+            if state.get("disconnect_cleanup_done"):
+                return
+            state["disconnect_cleanup_done"] = True
+
+            for collection_name in ("plot_refreshers", "mode_change_resetters", "refreshers"):
+                collection = state.get(collection_name)
+                if isinstance(collection, list):
+                    collection.clear()
+
+            for timer in state.get("timers", []):
+                try:
+                    timer.active = False
+                except Exception:
+                    pass
+            state["timers"] = []
+
+        try:
+            client = ui.context.client
+            if client is not None:
+                client.on_disconnect(cleanup_disconnected_client)
+        except Exception:
+            pass
+
         def build_left_drawer() -> dict[str, packet_viewer_widget.PacketViewerController]:
             """Placeholder method for left drawer content
             Creates packet viewer tabs and controllers, and returns the controllers for later updates."""
@@ -334,6 +363,7 @@ def build_ui(
                     trp_card.set_mode(state["mode"])
                     trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
 
+                with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
                     voltage_card = plot_widget.create_plot_card(
                         "Voltages",
                         series=[
@@ -564,6 +594,7 @@ def build_ui(
             hk_explorer_card=hk_explorer_card,
         )
 
-        ui.timer(0.2, poll_psu)
-        ui.timer(0.2, poll_tm)
+        poll_psu_timer = ui.timer(0.2, poll_psu)
+        poll_tm_timer = ui.timer(0.2, poll_tm)
+        state["timers"].extend((poll_psu_timer, poll_tm_timer))
         set_mode(normalized_mode)
