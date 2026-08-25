@@ -19,6 +19,7 @@ from core_modules import tmstruct as tmstruct
 from scripts_modules import sequences
 from utility_modules import comms as comms
 from utility_modules import egse_logger as egse_logger
+from utility_modules.ob_serial_worker import OBSerialWorker
 from utility_modules import psu as psu
 from utility_modules import tc as tc
 from utility_modules import tm as tm
@@ -169,10 +170,13 @@ def main() -> None:
         info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
         ob_port = None
 
+    ob_worker = OBSerialWorker(ob_port) if ob_port is not None else None
+
     # 4. NOW register your unified clean_exit since ALL variables are fully defined
     atexit.register(clean_exit, ob_port, psu_port, event_log, stop_event, psu_thread)
 
     app.on_shutdown(stop_event.set)
+    app.on_shutdown(lambda: ob_worker.close() if ob_worker is not None else None)
     app.on_shutdown(lambda: clean_exit(ob_port, psu_port, event_log, stop_event, psu_thread))
 
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
@@ -218,6 +222,10 @@ def main() -> None:
 
     else:
         info_log.info("Running GUI")
+        if args.reload:
+            info_log.warning(
+                "Hot reload is enabled; browser reconnects may trigger normal client disconnects. Disable --reload for stable operation."
+            )
         if psu_port is not None and not psu_thread.is_alive():
             psu_thread.start()
 
@@ -225,6 +233,7 @@ def main() -> None:
             default_mode=startup_mode,
             psu_port=psu_port,
             ob_port=ob_port,
+            ob_worker=ob_worker,
             psu_lock=psu_lock,
             port_lock=port_lock,
             stop_event=stop_event,
