@@ -437,13 +437,12 @@ def fft_stage_1(
     capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 1 science scan")
     try:
         sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+        ui_runtime_controller.request_force_pause("Click to continue once finished from the science scan.")
     except BaseException:
         ui_runtime_controller.cancel_ob_sci_capture(capture_id)
         raise
     else:
         ui_runtime_controller.end_ob_sci_capture(capture_id)
-
-    ui_runtime_controller.request_force_pause("Click to continue once finished from the science scan.")
     _run_ob_transaction(worker, port_lock, tc.mtr_halt, port)
     ui_runtime_controller.abortible_sleep(2)
     response = checks.heater(False, True, False, True, False, label="State 3 heaters enable")
@@ -530,12 +529,12 @@ def fft_stage_2(
     capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
     try:
         sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+        ui_runtime_controller.request_force_pause("Click to continue once finished from the science scan.")
     except BaseException:
         ui_runtime_controller.cancel_ob_sci_capture(capture_id)
         raise
     else:
         ui_runtime_controller.end_ob_sci_capture(capture_id)
-    ui_runtime_controller.request_force_pause("Click to continue once finished from the science scan.")
 
     # endregion
 
