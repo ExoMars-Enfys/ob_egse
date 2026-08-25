@@ -206,38 +206,47 @@ def _plot_single_rs422_packet(
     title_prefix = f"{sci_name} - Packet {packet_index:04d} ({packet_type_label})"
     file_prefix = f"{sci_name}_pkt{packet_index:04d}_{packet_type_label}"
 
-    plt.figure()
-    plt.scatter(abs_steps_array, swir_low, s=5, label="SWIR_LOW")
-    plt.plot(abs_steps_array, swir_low, linewidth=0.5)
-    plt.scatter(abs_steps_array, swir_med, s=5, label="SWIR_MED")
-    plt.plot(abs_steps_array, swir_med, linewidth=0.5)
-    plt.scatter(abs_steps_array, swir_high, s=5, label="SWIR_HIGH")
-    plt.plot(abs_steps_array, swir_high, linewidth=0.5)
-    plt.xlabel("Absolute Motor Steps")
-    plt.ylabel("Intensity")
-    plt.title(f"{title_prefix} - SWIR")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{file_prefix}_SWIR_Plotted.png")
+    fig_swir = plt.figure()
+    try:
+        plt.scatter(abs_steps_array, swir_low, s=5, label="SWIR_LOW")
+        plt.plot(abs_steps_array, swir_low, linewidth=0.5)
+        plt.scatter(abs_steps_array, swir_med, s=5, label="SWIR_MED")
+        plt.plot(abs_steps_array, swir_med, linewidth=0.5)
+        plt.scatter(abs_steps_array, swir_high, s=5, label="SWIR_HIGH")
+        plt.plot(abs_steps_array, swir_high, linewidth=0.5)
+        plt.xlabel("Absolute Motor Steps")
+        plt.ylabel("Intensity")
+        plt.title(f"{title_prefix} - SWIR")
+        plt.legend()
+        if save and output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_dir / f"{file_prefix}_SWIR_Plotted.png")
+        if show:
+            plt.show(block=False)
+    finally:
+        if not show or save:
+            plt.close(fig_swir)
 
-    plt.figure()
-    plt.scatter(abs_steps_array, mwir_low, s=5, label="MWIR_LOW")
-    plt.plot(abs_steps_array, mwir_low, linewidth=0.5)
-    plt.scatter(abs_steps_array, mwir_med, s=5, label="MWIR_MED")
-    plt.plot(abs_steps_array, mwir_med, linewidth=0.5)
-    plt.scatter(abs_steps_array, mwir_high, s=5, label="MWIR_HIGH")
-    plt.plot(abs_steps_array, mwir_high, linewidth=0.5)
-    plt.ylabel("Intensity")
-    plt.title(f"{title_prefix} - MWIR")
-    plt.xlabel("Absolute Motor Steps")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{file_prefix}_MWIR_Plotted.png")
-
-    if not show:
-        plt.close("all")
+    fig_mwir = plt.figure()
+    try:
+        plt.scatter(abs_steps_array, mwir_low, s=5, label="MWIR_LOW")
+        plt.plot(abs_steps_array, mwir_low, linewidth=0.5)
+        plt.scatter(abs_steps_array, mwir_med, s=5, label="MWIR_MED")
+        plt.plot(abs_steps_array, mwir_med, linewidth=0.5)
+        plt.scatter(abs_steps_array, mwir_high, s=5, label="MWIR_HIGH")
+        plt.plot(abs_steps_array, mwir_high, linewidth=0.5)
+        plt.ylabel("Intensity")
+        plt.title(f"{title_prefix} - MWIR")
+        plt.xlabel("Absolute Motor Steps")
+        plt.legend()
+        if save and output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_dir / f"{file_prefix}_MWIR_Plotted.png")
+        if show:
+            plt.show(block=False)
+    finally:
+        if not show or save:
+            plt.close(fig_mwir)
 
 
 def plot_sci_log_file(
@@ -292,38 +301,47 @@ def plot_sci_log_file(
             cast(list[int], values.tolist()) for values in cleaned
         ]
 
-    plt.figure()
-    plt.scatter(sample_index, swir_low, s=5, label="SWIR_LOW")
-    plt.plot(sample_index, swir_low, linewidth=0.5)
-    plt.scatter(sample_index, swir_med, s=5, label="SWIR_MED")
-    plt.plot(sample_index, swir_med, linewidth=0.5)
-    plt.scatter(sample_index, swir_high, s=5, label="SWIR_HIGH")
-    plt.plot(sample_index, swir_high, linewidth=0.5)
-    plt.xlabel("Science Sample Index")
-    plt.ylabel("Intensity")
-    plt.title(f"{sci_name} - SWIR (ABS steps in packet data)")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{sci_name}_SWIR_Plotted.png")
+    fig_swir = plt.figure()
+    try:
+        plt.scatter(sample_index, swir_low, s=5, label="SWIR_LOW")
+        plt.plot(sample_index, swir_low, linewidth=0.5)
+        plt.scatter(sample_index, swir_med, s=5, label="SWIR_MED")
+        plt.plot(sample_index, swir_med, linewidth=0.5)
+        plt.scatter(sample_index, swir_high, s=5, label="SWIR_HIGH")
+        plt.plot(sample_index, swir_high, linewidth=0.5)
+        plt.xlabel("Science Sample Index")
+        plt.ylabel("Intensity")
+        plt.title(f"{sci_name} - SWIR (ABS steps in packet data)")
+        plt.legend()
+        if save and output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_dir / f"{sci_name}_SWIR_Plotted.png")
+        if show:
+            plt.show(block=False)
+    finally:
+        if not show or save:
+            plt.close(fig_swir)
 
-    plt.figure()
-    plt.scatter(sample_index, mwir_low, s=5, label="MWIR_LOW")
-    plt.plot(sample_index, mwir_low, linewidth=0.5)
-    plt.scatter(sample_index, mwir_med, s=5, label="MWIR_MED")
-    plt.plot(sample_index, mwir_med, linewidth=0.5)
-    plt.scatter(sample_index, mwir_high, s=5, label="MWIR_HIGH")
-    plt.plot(sample_index, mwir_high, linewidth=0.5)
-    plt.ylabel("Intensity")
-    plt.title(f"{sci_name} - MWIR (ABS steps in packet data)")
-    plt.xlabel("Science Sample Index")
-    plt.legend()
-    if save and output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"{sci_name}_MWIR_Plotted.png")
-
-    if not show:
-        plt.close("all")
+    fig_mwir = plt.figure()
+    try:
+        plt.scatter(sample_index, mwir_low, s=5, label="MWIR_LOW")
+        plt.plot(sample_index, mwir_low, linewidth=0.5)
+        plt.scatter(sample_index, mwir_med, s=5, label="MWIR_MED")
+        plt.plot(sample_index, mwir_med, linewidth=0.5)
+        plt.scatter(sample_index, mwir_high, s=5, label="MWIR_HIGH")
+        plt.plot(sample_index, mwir_high, linewidth=0.5)
+        plt.ylabel("Intensity")
+        plt.title(f"{sci_name} - MWIR (ABS steps in packet data)")
+        plt.xlabel("Science Sample Index")
+        plt.legend()
+        if save and output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_dir / f"{sci_name}_MWIR_Plotted.png")
+        if show:
+            plt.show(block=False)
+    finally:
+        if not show or save:
+            plt.close(fig_mwir)
 
 
 def plot_sci_from_rs422(

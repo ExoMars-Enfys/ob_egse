@@ -584,6 +584,117 @@ class ClickHandler:
         self.ax_mwir = ax_mwir
         self.error_events = list(error_events or [])
         self.click_axes = tuple(click_axes or ())
+        self.point_annotation = None
+        self._last_mouse_event = None
+
+    @staticmethod
+    def _format_x_value(ax, raw_x, numeric_x):
+        """Return an exact, readable x value for numeric and datetime axes."""
+        if isinstance(raw_x, datetime):
+            return raw_x.strftime("%Y-%m-%d %H:%M:%S.%f")
+        if isinstance(raw_x, np.datetime64):
+            return np.datetime_as_string(raw_x, unit="us").replace("T", " ")
+
+        formatter = ax.xaxis.get_major_formatter()
+        date_formatters = tuple(
+            cls
+            for cls in (
+                getattr(mdates, "DateFormatter", None),
+                getattr(mdates, "AutoDateFormatter", None),
+                getattr(mdates, "ConciseDateFormatter", None),
+            )
+            if cls is not None
+        )
+        if date_formatters and isinstance(formatter, date_formatters):
+            dt = mdates.num2date(float(numeric_x))
+            return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+        return f"{float(numeric_x):.12g}"
+
+    def _show_nearest_datapoint(self, event):
+        """Annotate the nearest actual plotted sample in the clicked axes."""
+        ax = event.inaxes
+        if ax not in self.click_axes or event.x is None or event.y is None:
+            return False
+
+        best = None
+
+        # Regular Line2D traces (temperature, voltage, errors, PSU and custom HK).
+        for line in ax.lines:
+            label = line.get_label()
+            if not line.get_visible() or not label or label.startswith("_") or label == "Error":
+                continue
+            raw_x = np.atleast_1d(np.asarray(line.get_xdata(orig=True)))
+            numeric_x = np.atleast_1d(np.asarray(line.get_xdata(orig=False), dtype=float))
+            try:
+                numeric_y = np.atleast_1d(np.asarray(line.get_ydata(orig=False), dtype=float))
+            except (TypeError, ValueError):
+                continue
+            if numeric_x.ndim == 0:
+                numeric_x = numeric_x.reshape(1)
+            if numeric_y.ndim == 0:
+                numeric_y = numeric_y.reshape(1)
+            count = min(len(numeric_x), len(numeric_y))
+            if count == 0:
+                continue
+            points = np.column_stack((numeric_x[:count], numeric_y[:count]))
+            finite = np.isfinite(points).all(axis=1)
+            if not np.any(finite):
+                continue
+            indices = np.flatnonzero(finite)
+            display = ax.transData.transform(points[finite])
+            distances = np.hypot(display[:, 0] - event.x, display[:, 1] - event.y)
+            local = int(np.argmin(distances))
+            idx = int(indices[local])
+            candidate = (float(distances[local]), label, raw_x[idx], points[idx, 0], points[idx, 1])
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+        # Scatter traces (notably SWIR/MWIR).
+        for collection in ax.collections:
+            label = collection.get_label()
+            if not collection.get_visible() or not label or label.startswith("_"):
+                continue
+            offsets = np.asarray(collection.get_offsets(), dtype=float)
+            if offsets.ndim != 2 or offsets.shape[0] == 0 or offsets.shape[1] < 2:
+                continue
+            points = offsets[:, :2]
+            finite = np.isfinite(points).all(axis=1)
+            if not np.any(finite):
+                continue
+            indices = np.flatnonzero(finite)
+            display = ax.transData.transform(points[finite])
+            distances = np.hypot(display[:, 0] - event.x, display[:, 1] - event.y)
+            local = int(np.argmin(distances))
+            idx = int(indices[local])
+            candidate = (float(distances[local]), label, points[idx, 0], points[idx, 0], points[idx, 1])
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+        if best is None:
+            return False
+
+        _distance, label, raw_x, numeric_x, numeric_y = best
+        if self.point_annotation is not None:
+            try:
+                self.point_annotation.remove()
+            except Exception:
+                pass
+
+        x_text = self._format_x_value(ax, raw_x, numeric_x)
+        y_text = f"{float(numeric_y):.12g}"
+        self.point_annotation = ax.annotate(
+            f"{label}\nX: {x_text}\nY: {y_text}",
+            xy=(numeric_x, numeric_y),
+            xytext=(14, 14),
+            textcoords="offset points",
+            fontsize=9,
+            bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "edgecolor": "#333333", "alpha": 0.95},
+            arrowprops={"arrowstyle": "->", "color": "#333333"},
+            zorder=20,
+        )
+        ax.figure.canvas.draw_idle()
+        print(f"{label}: X={x_text}, Y={y_text}")
+        return True
 
     def _show_error_popup(self, ts, eb, ob, mtr):
         title = f"Error details @ {ts.strftime('%Y-%m-%d %H:%M:%S')}"
@@ -622,8 +733,17 @@ class ClickHandler:
         self._show_error_popup(ts, eb, ob, mtr)
         return True
 
-    def on_click(self, event):
+    def _handle_datapoint_click(self, event):
+        # A pick_event and button_press_event from one physical click share the
+        # same MouseEvent.  Handle it only once so the dialog is not duplicated.
+        if event is self._last_mouse_event:
+            return
+        self._last_mouse_event = event
+
         if self._try_error_popup(event):
+            return
+
+        if self._show_nearest_datapoint(event):
             return
 
         if event.inaxes not in (self.ax_swir, self.ax_mwir) or event.xdata is None:
@@ -677,6 +797,15 @@ class ClickHandler:
         print(f"  Channel:   {names[best]}")
         print(f"  Intensity: {int(vals[best])}")
         print(f"{'=' * 60}")
+
+    def on_click(self, event):
+        if getattr(event, "button", None) == 1:
+            self._handle_datapoint_click(event)
+
+    def on_pick(self, event):
+        mouse_event = getattr(event, "mouseevent", None)
+        if mouse_event is not None and getattr(mouse_event, "button", None) == 1:
+            self._handle_datapoint_click(mouse_event)
 
 
 # ── HK anomaly detection ─────────────────────────────────────────────────────
@@ -1131,33 +1260,6 @@ def _draw_all_axes(
             if handles:
                 ax_err.legend(loc="best", fontsize=7)
 
-    # Reflow visible base panels so hidden panels do not leave blank vertical gaps.
-    base_axes = [
-        ax
-        for ax, panel in (
-            (ax_temp, "temp"),
-            (ax_volt, "volt"),
-            (ax_err, "err"),
-            (ax_psu_ch3, "psu_ch3"),
-            (ax_psu_ch4, "psu_ch4"),
-            (ax_swir, "swir"),
-            (ax_mwir, "mwir"),
-        )
-        if ax is not None and panel_visibility.get(panel, True)
-    ]
-    custom_visible_axes = [ax for _field, ax in custom_axes if ax is not None]
-    custom_top = max((ax.get_position().y1 for ax in custom_visible_axes), default=0.0)
-    base_top = 0.88
-    base_bottom = max(0.06, custom_top + 0.03)
-    if base_axes and base_bottom < base_top:
-        gap = 0.012
-        total_h = base_top - base_bottom
-        h = max(0.05, (total_h - gap * (len(base_axes) - 1)) / len(base_axes))
-        y = base_top - h
-        for ax in base_axes:
-            ax.set_position((0.08, y, 0.86, h))
-            y -= h + gap
-
     def _plot_psu_axis(ax_psu, panel_key, channel, title):
         if ax_psu is None or not ax_psu.get_visible():
             return
@@ -1418,6 +1520,20 @@ def _draw_all_axes(
             bottom_ax.set_xlabel("Time (HH:MM:SS)")
     if not (sci_axis_mode == "abs_steps" and visible_axes and visible_axes[-1] in (ax_swir, ax_mwir)):
         fig.autofmt_xdate(rotation=45, ha="right")
+
+    # Give every visible plot (built-in and single-parameter) exactly the same
+    # height.  Do this after autofmt_xdate/subplot adjustment so Matplotlib
+    # cannot resize only the original subplot axes after custom axes are added.
+    if visible_axes:
+        layout_top = 0.88
+        layout_bottom = 0.06
+        gap = 0.012
+        available_h = layout_top - layout_bottom - gap * (len(visible_axes) - 1)
+        panel_h = available_h / len(visible_axes)
+        y = layout_top - panel_h
+        for ax in visible_axes:
+            ax.set_position((0.08, y, 0.86, panel_h))
+            y -= panel_h + gap
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -1694,7 +1810,7 @@ def main():
 
         win = tk.Toplevel(root)
         win.title("Select Visible Plots")
-        win.geometry("320x320")
+        win.geometry("420x460")
 
         frame = tk.Frame(win)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -1709,12 +1825,26 @@ def main():
             vars_map[panel] = var
             tk.Checkbutton(frame, text=PANEL_LABELS[panel], variable=var).pack(anchor="w", pady=2)
 
+        custom_fields = state.get("custom_fields")
+        if not isinstance(custom_fields, list):
+            custom_fields = []
+        custom_vars = {}
+        if custom_fields:
+            custom_group = tk.LabelFrame(frame, text="Single-parameter plots (uncheck to remove)")
+            custom_group.pack(fill="x", pady=(10, 2))
+            for field_name in custom_fields:
+                var = tk.BooleanVar(value=True)
+                custom_vars[field_name] = var
+                tk.Checkbutton(custom_group, text=field_name, variable=var).pack(anchor="w", padx=6, pady=1)
+
         def _apply():
             new_vis = {k: bool(v.get()) for k, v in vars_map.items()}
-            if not any(new_vis.values()):
+            kept_custom_fields = [field_name for field_name in custom_fields if bool(custom_vars[field_name].get())]
+            if not any(new_vis.values()) and not kept_custom_fields:
                 messagebox.showwarning("Select Visible Plots", "At least one plot must remain visible.")
                 return
             state["panel_visibility"] = new_vis
+            state["custom_fields"] = kept_custom_fields
             last_result = state.get("last_result")
             if isinstance(last_result, dict):
                 _apply_analysis(last_result)
@@ -1916,25 +2046,38 @@ def main():
     fig.subplots_adjust(top=0.90, hspace=0.35)
 
     # Keep controls on a dedicated row below the title to avoid overlap.
+    # Use darker borders and explicit text color so the buttons remain legible on
+    # a light figure background and across Windows theme changes.
+    def _make_legend_button(ax, label, *, face, hover, text_color="#111827"):
+        button = Button(ax, label, color=face, hovercolor=hover)
+        ax.patch.set_facecolor(face)
+        ax.patch.set_edgecolor("#3b4a5a")
+        ax.patch.set_linewidth(1.0)
+        button.label.set_color(text_color)
+        button.label.set_fontsize(9)
+        return button
+
     ax_btn_plots = fig.add_axes((0.11, 0.92, 0.09, 0.024))
-    btn_plots = Button(ax_btn_plots, "Plots", color="lavender", hovercolor="thistle")
+    btn_plots = _make_legend_button(ax_btn_plots, "Plots", face="#dfe7ff", hover="#bfd1ff")
     ax_btn_params = fig.add_axes((0.21, 0.92, 0.09, 0.024))
-    btn_params = Button(ax_btn_params, "Params", color="honeydew", hovercolor="palegreen")
+    btn_params = _make_legend_button(ax_btn_params, "Params", face="#dff7e6", hover="#b8ecc5")
     ax_btn_replay = fig.add_axes((0.31, 0.92, 0.09, 0.024))
-    btn_replay = Button(ax_btn_replay, "Replay", color="aliceblue", hovercolor="lightskyblue")
+    btn_replay = _make_legend_button(ax_btn_replay, "Replay", face="#dfeeff", hover="#bddcff")
     ax_btn_axis = fig.add_axes((0.41, 0.92, 0.09, 0.024))
-    btn_axis = Button(ax_btn_axis, "SCI: Auto", color="honeydew", hovercolor="palegreen")
+    btn_axis = _make_legend_button(ax_btn_axis, "SCI: Auto", face="#dff7e6", hover="#b8ecc5")
     ax_btn_errors = fig.add_axes((0.51, 0.92, 0.09, 0.024))
-    btn_errors = Button(ax_btn_errors, "Errors", color="mistyrose", hovercolor="lightcoral")
+    btn_errors = _make_legend_button(ax_btn_errors, "Errors", face="#ffe6e6", hover="#ffc5c5")
     ax_btn_rs422 = fig.add_axes((0.61, 0.92, 0.09, 0.024))
-    btn_rs422 = Button(ax_btn_rs422, "Open RS422", color="lightgrey", hovercolor="gainsboro")
+    btn_rs422 = _make_legend_button(ax_btn_rs422, "Open RS422", face="#e7e7e7", hover="#d0d0d0")
     ax_btn_psu = fig.add_axes((0.71, 0.92, 0.09, 0.024))
-    btn_psu = Button(ax_btn_psu, "Open PSU", color="lightgrey", hovercolor="gainsboro")
+    btn_psu = _make_legend_button(ax_btn_psu, "Open PSU", face="#e7e7e7", hover="#d0d0d0")
     ax_btn_reload = fig.add_axes((0.81, 0.92, 0.09, 0.024))
-    btn_reload = Button(ax_btn_reload, "\u27f3 Reload", color="lightsteelblue", hovercolor="deepskyblue")
+    btn_reload = _make_legend_button(ax_btn_reload, "\u27f3 Reload", face="#dfeafc", hover="#bad3ff")
 
     state: dict[str, object] = {
         "cid": None,
+        "pick_cid": None,
+        "click_handler": None,
         "rs422_logs": list(args.rs422_log),
         "psu_log": args.psu_log,
         "error_events": [],
@@ -2407,6 +2550,11 @@ def main():
         if isinstance(cid, int):
             fig.canvas.mpl_disconnect(cid)
             state["cid"] = None
+        pick_cid = state.get("pick_cid")
+        if isinstance(pick_cid, int):
+            fig.canvas.mpl_disconnect(pick_cid)
+            state["pick_cid"] = None
+        state["click_handler"] = None
 
         popup_events = [evt for evt in result["error_events"] if evt[1] or evt[2] or evt[3]]
         state["error_events"] = result["error_events"]
@@ -2429,6 +2577,18 @@ def main():
         for _field, ax_custom in custom_axes:
             click_axes.append(ax_custom)
 
+        # Enable Matplotlib's native picking as a second, independent route to
+        # the value handler.  The normal axes click remains available too.
+        for click_ax in click_axes:
+            for line in click_ax.lines:
+                label = line.get_label()
+                if label and not label.startswith("_") and label != "Error":
+                    line.set_picker(8)
+            for collection in click_ax.collections:
+                label = collection.get_label()
+                if label and not label.startswith("_"):
+                    collection.set_picker(True)
+
         hdlr = ClickHandler(
             result["sci_datetimes"],
             result["sci_abs_steps"] if display_sci_axis_mode == "abs_steps" else result["sci_datetimes"],
@@ -2446,16 +2606,22 @@ def main():
             popup_events,
             tuple(click_axes),
         )
+        # Matplotlib stores a weak reference to bound callback methods.  Keep
+        # the handler itself alive for as long as this connection is active.
+        state["click_handler"] = hdlr
         state["cid"] = fig.canvas.mpl_connect("button_press_event", hdlr.on_click)
+        state["pick_cid"] = fig.canvas.mpl_connect("pick_event", hdlr.on_pick)
         if popup_events:
             print(
                 "\nClick near red error lines for popup details, use the Errors button for full list,"
-                " or click SWIR/MWIR points to inspect intensity values."
+                " or click near any plotted data point to show its exact X/Y values."
             )
         elif result["sci_datetimes"]:
-            print("\nUse the Errors button for full list, or click SWIR/MWIR data points to inspect intensity values.")
+            print("\nUse the Errors button for full list, or click near any plotted data point for exact X/Y values.")
         else:
-            print("\nUse the Errors button for full list of detected error transitions.")
+            print(
+                "\nUse the Errors button for error transitions, or click near any plotted data point for exact X/Y values."
+            )
 
         fig.suptitle(_title_for_logs(result["valid_logs"]), fontsize=13, fontweight="bold", y=0.985)
         fig.canvas.draw_idle()
