@@ -3,16 +3,21 @@ Desktop application wrapper using pywebview.
 Runs the NiceGUI app as a standalone desktop application.
 """
 
-import signal
-import time
-import threading
 import logging
+import signal
+import threading
+import time
 
 info_log = logging.getLogger("info_log")
 
 # Module-level reference to the pywebview window; set once the window is created.
 # Other modules can call destroy_desktop_window() to close the app cleanly.
 _window_ref: list = [None]
+
+
+def register_desktop_window(window: object) -> None:
+    """Register the active pywebview window for shutdown callbacks."""
+    _window_ref[0] = window
 
 
 def destroy_desktop_window() -> None:
@@ -27,7 +32,7 @@ def destroy_desktop_window() -> None:
 def run_app_in_desktop(reload: bool = False) -> None:
     """
     Run the NiceGUI app in a pywebview desktop window.
-    
+
     Args:
         reload: Enable hot reload (for development) - Note: reload doesn't work with
                 threaded pywebview due to signal handling requirements in main thread.

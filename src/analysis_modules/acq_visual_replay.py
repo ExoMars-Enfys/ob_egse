@@ -511,28 +511,34 @@ def _render_run_html(
                 x1=event.check_end,
                 fillcolor=band_color,
                 line_width=0,
-                row=3,
-                col=1,
+                row=3,  # type: ignore[arg-type]
+                col=1,  # type: ignore[arg-type]
             )
-            fig.add_vline(x=event.acq_cmd_time + timedelta(hours=1), line_dash="dot", line_color="#ff8f00", row=3, col=1)
-            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=1, col=1)
-            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=2, col=1)
-            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=3, col=1)
+            fig.add_vline(
+                x=event.acq_cmd_time + timedelta(hours=1),
+                line_dash="dot",
+                line_color="#ff8f00",
+                row=3,  # type: ignore[arg-type]
+                col=1,  # type: ignore[arg-type]
+            )
+            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=1, col=1)  # type: ignore[arg-type]
+            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=2, col=1)  # type: ignore[arg-type]
+            fig.add_vline(x=event.check_start, line_dash="dash", line_color="#1565c0", row=3, col=1)  # type: ignore[arg-type]
             if event.expected_min_ma is not None and event.expected_max_ma is not None:
                 fig.add_hrect(
                     y0=event.expected_min_ma,
                     y1=event.expected_max_ma,
                     fillcolor="rgba(21,101,192,0.08)",
                     line_width=0,
-                    row=3,
-                    col=1,
+                    row=3,  # type: ignore[arg-type]
+                    col=1,  # type: ignore[arg-type]
                 )
 
     if replay_options.include_homing_check and homing_times:
         for homing_time in homing_times:
-            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=1, col=1)
-            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=2, col=1)
-            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=3, col=1)
+            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=1, col=1)  # type: ignore[arg-type]
+            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=2, col=1)  # type: ignore[arg-type]
+            fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=3, col=1)  # type: ignore[arg-type]
 
     fig.update_yaxes(title_text="State", row=1, col=1, tickmode="array", tickvals=[0, 2, 4, 8], ticktext=["0", "SAFE", "STBY", "ACQ"])
     fig.update_yaxes(title_text="MOVING", row=2, col=1, range=[-0.1, 1.1], tickmode="array", tickvals=[0, 1])
@@ -554,7 +560,7 @@ def _render_run_html(
         psu_min = min(psu_plot_raw + psu_plot_ma5) if (psu_plot_raw or psu_plot_ma5) else 0.0
         psu_max = max(psu_plot_raw + psu_plot_ma5) if (psu_plot_raw or psu_plot_ma5) else 1.0
         cursor_time = run_start
-        cursor_trace_start = len(fig.data)
+        cursor_trace_start = len(fig.data)  # type: ignore[arg-type]
 
         fig.add_trace(
             go.Scatter(x=[cursor_time, cursor_time], y=[0, 8], mode="lines", line=dict(color="#6a1b9a", width=2), name="Replay cursor", showlegend=False),

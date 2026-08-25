@@ -322,7 +322,7 @@ def _decoded_ob_value(packet: Any, field_names: str | tuple[str, ...] | list[str
     display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
     if display_mode == "ADU":
         try:
-            return float(raw)
+            return float(raw) if resolved_name.startswith("OB_") else float(int(raw) >> 4)
         except (TypeError, ValueError):
             return None
 
@@ -337,7 +337,7 @@ def _decoded_ob_value(packet: Any, field_names: str | tuple[str, ...] | list[str
             return None
 
     try:
-        raw_value = float(raw)
+        raw_value = float(raw) if resolved_name.startswith("OB_") else float(int(raw) >> 4)
         if resolved_name == "HK_V_3V3":
             return raw_value * 4.05 / 4095.0 * 2.0
         if resolved_name == "HK_V_1V5":
@@ -439,9 +439,10 @@ def decoded(packet: Any, field_name: str) -> float | None:
             return None
 
     # Standalone OB HK fallback conversions. These names come directly from
-    # core_modules.tmstruct.hk.
+    # core_modules.tmstruct.hk. Native fields pack the 12-bit ADC value into
+    # the upper bits of a 16-bit field, so it must be shifted out first.
     try:
-        raw_value = float(raw)
+        raw_value = float(int(raw) >> 4)
         if field_name == "HK_V_3V3":
             return raw_value * 4.05 / 4095.0 * 2.0
         if field_name == "HK_V_1V5":
@@ -740,7 +741,11 @@ def _ob_hk_specs() -> list[MetricSpec]:
             unit="°C",
             **monitoring_limits.metric_limit_kwargs("ob_trp"),
         ),
-        MetricSpec(key="cmd_cnt", label="CMD CNT", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("CMD_CNT"))[0]),
+        MetricSpec(
+            key="cmd_cnt",
+            label="CMD CNT",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("CMD_CNT"))[0],
+        ),
         MetricSpec(key="pwr_stat", label="PWR STAT", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("PWR_STAT"))),
         MetricSpec(
             key="mech_pwr",
@@ -770,10 +775,26 @@ def _ob_hk_specs() -> list[MetricSpec]:
             true_color="green",
             false_color="grey",
         ),
-        MetricSpec(key="hk_samples", label="HK SAMPLES", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_SAMPLES"))[0]),
-        MetricSpec(key="hk_mech_cur", label="MECH CUR", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_MECH_CUR"))[0]),
-        MetricSpec(key="swir_offset", label="SWIR OFFSET", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("SWIR_OFFSET"))[0]),
-        MetricSpec(key="mwir_offset", label="MWIR OFFSET", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MWIR_OFFSET"))[0]),
+        MetricSpec(
+            key="hk_samples",
+            label="HK SAMPLES",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_SAMPLES"))[0],
+        ),
+        MetricSpec(
+            key="hk_mech_cur",
+            label="MECH CUR",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_MECH_CUR"))[0],
+        ),
+        MetricSpec(
+            key="swir_offset",
+            label="SWIR OFFSET",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("SWIR_OFFSET"))[0],
+        ),
+        MetricSpec(
+            key="mwir_offset",
+            label="MWIR OFFSET",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MWIR_OFFSET"))[0],
+        ),
         # Motor status and configuration
         MetricSpec(
             key="ob_motor_moving",
@@ -797,8 +818,16 @@ def _ob_hk_specs() -> list[MetricSpec]:
             getter=_stop,
             color_map={"BASE": "purple", "OUTER": "blue", "Not At Stop": "grey", "_default": "grey"},
         ),
-        MetricSpec(key="ob_steps", label="ABS STEPS", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_ABS_STEPS"))[0]),
-        MetricSpec(key="mtr_rel_steps", label="REL STEPS", getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_REL_STEPS"))[0]),
+        MetricSpec(
+            key="ob_steps",
+            label="ABS STEPS",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_ABS_STEPS"))[0],
+        ),
+        MetricSpec(
+            key="mtr_rel_steps",
+            label="REL STEPS",
+            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MTR_REL_STEPS"))[0],
+        ),
         MetricSpec(
             key="ob_mech_cal",
             label="CAL",

@@ -12,10 +12,10 @@ import time
 from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
-from queue import Empty
 from typing import Any, Callable
 
 from core_modules import config
+from core_modules import constants as const  # noqa: F401 - re-exported for test monkeypatching
 from core_modules import measurement_config as limits
 from utility_modules import eb_packet_utility, psu, tc
 from utility_modules.send_cmd import cmd_repeat as repeat

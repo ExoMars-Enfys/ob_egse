@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
+from typing import Any
 
 from core_modules import config
 
@@ -17,10 +18,10 @@ LOG_PATH = DEFAULT_PATH
 
 # ----Program Variables-----------------------------------------------------------------------------
 # Set by EGSE.py do not write here.
-ACK_LOG_FH = None
-CMD_LOG_FH = None
-HK_LOG_FH = None
-SCI_LOG_FH = None
+ACK_LOG_FH: Any = None
+CMD_LOG_FH: Any = None
+HK_LOG_FH: Any = None
+SCI_LOG_FH: Any = None
 
 # HK queue
 hk_queue = Queue(maxsize=100)

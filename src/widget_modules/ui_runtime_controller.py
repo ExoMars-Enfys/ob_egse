@@ -23,7 +23,7 @@ from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, h
 from utility_modules.eb_packet_utility import get_latest_hk, get_latest_psu, set_latest_psu, wait_for_fresh_hk
 
 # core
-from core_modules import tmstruct, constants as const
+from core_modules import tmstruct, constants as const, config
 from core_modules.constants import HEATER_INCLUSIVE_STATES, MODEL_CONSUMPTION
 
 from widget_modules import monitoring_limits
@@ -1611,7 +1611,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             and getattr(post, "POST_ERROR_FLAGS", None) == 0
             and getattr(post, "NUM_BAD_FLASH_BLOCKS", None) == 0
             and getattr(post, "NUM_BAD_SRAM_BLOCKS", None) == 0
-            and all(getattr(post, field, None) == expected for field, expected in const.POST_EXPECTED_CRC.items())
+            and all(getattr(post, field, None) == expected for field, expected in config.POST_EXPECTED_CRC.items())
         )
         if not all_post_passed:
             result["passed"] = False
@@ -1624,7 +1624,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 result["details"].append(f"NUM_BAD_FLASH_BLOCKS: {getattr(post, 'NUM_BAD_FLASH_BLOCKS', None)}")
             if getattr(post, "NUM_BAD_SRAM_BLOCKS", None) != 0:
                 result["details"].append(f"NUM_BAD_SRAM_BLOCKS: {getattr(post, 'NUM_BAD_SRAM_BLOCKS', None)}")
-            for field, expected in const.POST_EXPECTED_CRC.items():
+            for field, expected in config.POST_EXPECTED_CRC.items():
                 actual = getattr(post, field, None)
                 if actual != expected:
                     result["details"].append(f"{field}: {actual:#06x}" if actual is not None else f"{field}: None")
@@ -1785,7 +1785,7 @@ def verify_heater_states(
                 if h["last_expected"] is None:
                     h["last_expected"] = False  # firmware default at first enable
             h.update(prev_auto=True, prev_manual=False)
-            if None in (trp, on_sp, off_sp):
+            if trp is None or on_sp is None or off_sp is None:
                 info_log.warning(
                     "%s heater Auto mode — fields missing (%s=%s, %s=%s, %s=%s), skipping check",
                     label,
@@ -2493,6 +2493,8 @@ def decode_plot_field(
 
     try:
         value = hk_conversions.decode_field(packet, field_name)
+        if value is None:
+            return None
         value = float(value)
     except (TypeError, ValueError, ZeroDivisionError, OverflowError):
         return None

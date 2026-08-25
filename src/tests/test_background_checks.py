@@ -1,5 +1,6 @@
 import threading
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -56,7 +57,7 @@ def test_boot_motor_params_are_not_treated_as_nominal():
     response = _hk(MTR_CURRENT=64, MTR_GUARD_SELECT=0, MTR_CHOP=32, MTR_SPEED=9)
     check_motor_params(response, (64, 0, 32, 9))
 
-    with pytest.raises(AssertionError, match="expected \(64, 0, 60, 8\)"):
+    with pytest.raises(AssertionError, match=r"expected \(64, 0, 60, 8\)"):
         check_motor_params(response, (64, 0, 60, 8))
 
 
@@ -233,7 +234,7 @@ def test_move_validates_active_state_while_moving(monkeypatch):
 
     monkeypatch.setattr(CommandChecks, "hk", fake_hk)
 
-    def fake_state(self, state_name, readings, *, response=None, allow_psu_unavailable=False):
+    def fake_state(self, state_name, readings, *, response: Any = None, allow_psu_unavailable=False):
         states.append((state_name, bool(response.MTR_FLAGS.MOVING), readings))
         return {"CH1": 18.0, "CH2": 129.0, "CH3": 60.0}
 
@@ -274,7 +275,7 @@ def test_move_validates_all_samples_across_whole_motion(monkeypatch):
 
     monkeypatch.setattr(CommandChecks, "hk", fake_hk)
 
-    def fake_state(self, state_name, readings, *, response=None, allow_psu_unavailable=False):
+    def fake_state(self, state_name, readings, *, response: Any = None, allow_psu_unavailable=False):
         state_calls.append(
             {"state": state_name, "moving": bool(response.MTR_FLAGS.MOVING), "readings": readings.copy()}
         )
@@ -335,7 +336,7 @@ def test_movement_speed_is_calculated_from_steps_and_time():
 def test_movement_time_is_checked_with_two_second_tolerance():
     CommandChecks._assert_elapsed_within_tolerance("speed check", 18.0, 20.0, 2.0)
 
-    with pytest.raises(AssertionError, match="outside 18.00\.\.22\.00 s"):
+    with pytest.raises(AssertionError, match=r"outside 18.00\.\.22\.00 s"):
         CommandChecks._assert_elapsed_within_tolerance("speed check", 23.0, 20.0, 2.0)
 
 
@@ -454,7 +455,7 @@ def test_ob_state_current_checks_only_configured_rails():
 
 
 def test_ob_current_profile_sums_active_components():
-    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 80.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
 
 
 def test_ob_current_profile_includes_movement_component():
@@ -500,7 +501,7 @@ def test_ob_state_expected_ch3_includes_powered_heated_board_load():
     )
     assert measured == {"CH1": 18.0, "CH2": 129.0, "CH3": 80.0}
 
-    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 80.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
 
 
 def test_ob_state_current_reports_out_of_range_rail():

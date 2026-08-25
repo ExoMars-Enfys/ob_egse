@@ -4,9 +4,9 @@ import logging
 
 # Additional libraries
 from abc import abstractmethod
-from collections import namedtuple
 from datetime import datetime
 from types import SimpleNamespace
+from typing import Any
 
 import bitstruct
 import crc8
@@ -88,7 +88,13 @@ class TM:
             self.raw_bytes,
         )
         for k, v in param.items():
-            setattr(self, k, v)
+            setattr(self, str(k), v)
+
+    def __getattr__(self, name: str) -> Any:
+        # Fields are decoded dynamically via decode_bytes/setattr; real lookups never
+        # reach here since they're already in __dict__, so this only satisfies the
+        # type checker and preserves normal AttributeError for genuinely missing names.
+        raise AttributeError(name)
 
     def decode_error_byte(self) -> None:
         error_param = bitstruct.unpack_dict(
@@ -97,7 +103,7 @@ class TM:
             self.ERROR_BYTE.to_bytes(1, byteorder="big"),
         )
 
-        self.ERRORS = SimpleNamespace(**error_param)
+        self.ERRORS = SimpleNamespace(**{str(k): v for k, v in error_param.items()})
 
     def decode_mtr_error_byte(self) -> None:
         values = bitstruct.unpack_dict(
@@ -105,7 +111,7 @@ class TM:
             [name for name, _ in tmstruct.mtr_error_struct],
             self.ERROR_MTR.to_bytes(1, byteorder="big"),
         )
-        self.MTR_ERRORS = SimpleNamespace(**values)
+        self.MTR_ERRORS = SimpleNamespace(**{str(k): v for k, v in values.items()})
 
     def decode_thrm_status_byte(self) -> None:
         values = bitstruct.unpack_dict(
@@ -113,7 +119,7 @@ class TM:
             [name for name, _ in tmstruct.thrm_status_struct],
             self.THRM_STATUS_BYTE.to_bytes(1, byteorder="big"),
         )
-        self.THRM_STATUS = SimpleNamespace(**values)
+        self.THRM_STATUS = SimpleNamespace(**{str(k): v for k, v in values.items()})
 
     def check_errors(self):
         """Check the error byte and log any errors that are asserted"""
@@ -164,7 +170,7 @@ class HK(TM):
             [name for name, _ in tmstruct.mtr_flag_struct],
             self.MTR_FLAGS_BYTE.to_bytes(1, byteorder="big"),
         )
-        self.MTR_FLAGS = SimpleNamespace(**mtr_flags)
+        self.MTR_FLAGS = SimpleNamespace(**{str(k): v for k, v in mtr_flags.items()})
 
         # Motor ERROR Masks
         mtr_mask = bitstruct.unpack_dict(
@@ -172,7 +178,7 @@ class HK(TM):
             [name for name, _ in tmstruct.mtr_err_msk_struct],
             self.MTR_ERR_MSK_BYTE.to_bytes(1, byteorder="big"),
         )
-        self.MTR_ERR_MSK = SimpleNamespace(**mtr_mask)
+        self.MTR_ERR_MSK = SimpleNamespace(**{str(k): v for k, v in mtr_mask.items()})
 
         info_log.info(f"CMD Count: {self.CMD_CNT=}")
 
@@ -289,7 +295,7 @@ def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     return raw_bytes
 
 
-def parse_tm(response):
+def parse_tm(response) -> Any:
     """Parse the raw bytes from the TM response and return the appropriate object based on the CMD ID"""
     info_log.debug(f"Response type: {response.cmd_type}")
 
@@ -297,8 +303,9 @@ def parse_tm(response):
         ack = HK(response)
         if const.hk_queue is not None:
             const.hk_queue.put(ack)
-        if hasattr(const, "hk_explorer_queue"):
-            const.hk_explorer_queue.put(ack)
+        hk_explorer_queue = getattr(const, "hk_explorer_queue", None)
+        if hk_explorer_queue is not None:
+            hk_explorer_queue.put(ack)
         try:
             from utility_modules import eb_packet_utility
 

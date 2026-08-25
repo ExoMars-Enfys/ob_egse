@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from core_modules import config
 from widget_modules import ui_runtime_controller as urc
 
 
@@ -137,13 +138,7 @@ def _valid_post(**overrides) -> SimpleNamespace:
         "POST_ERROR_FLAGS": 0,
         "NUM_BAD_FLASH_BLOCKS": 0,
         "NUM_BAD_SRAM_BLOCKS": 0,
-        "ASW_IMAGE_1_CRC": 0x2B22,
-        "ASW_IMAGE_2_CRC": 0xD46C,
-        "ASW_IMAGE_3_CRC": 0x8156,
-        "ASW_IMAGE_4_CRC": 0x0696,
-        "ASW_IMAGE_5_CRC": 0x6FEB,
-        "BSW_IMAGE_CRC": 0xD2D7,
-        "MEASUREMENT_TABLE_CRC": 0xF624,
+        **config.POST_EXPECTED_CRC,
     }
     values.update(overrides)
     return SimpleNamespace(**values)

@@ -23,3 +23,15 @@ dev = ["pytest>=8.3.4", "ruff>=0.9.4"]
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = ["src/tests/*", "src/main.py", "src/desktop_app.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.coverage.html]
+directory = "htmlcov"

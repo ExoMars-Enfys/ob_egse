@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # Std library
 import asyncio
+import inspect
 import os
 import threading
 from dataclasses import dataclass
@@ -87,6 +88,37 @@ def _script_uses_ebtc(script_runner: Any) -> bool:
     )
 
 
+def _invoke_script_entry_point(script_runner: Any, state: dict[str, Any]) -> None:
+    """Call a script using the active OB/PSU port state when the function requires it."""
+    try:
+        params = inspect.signature(script_runner).parameters
+    except (TypeError, ValueError):
+        script_runner()
+        return
+
+    kwargs: dict[str, Any] = {}
+    for name, parameter in params.items():
+        if name == "port":
+            kwargs[name] = state.get("ob_port")
+        elif name == "psu_port":
+            kwargs[name] = state.get("psu_port")
+        elif name == "nopsu":
+            kwargs[name] = bool(state.get("nopsu", False))
+        elif name == "psu_lock":
+            kwargs[name] = state.get("psu_lock")
+        elif name == "worker":
+            kwargs[name] = state.get("ob_worker")
+        elif name == "worker":
+            kwargs[name] = state.get("ob_worker")
+        elif name in state and parameter.default is parameter.empty:
+            kwargs[name] = state.get(name)
+
+    if kwargs:
+        script_runner(**kwargs)
+        return
+    script_runner()
+
+
 def create_menu(
     state: dict[str, Any],
     *,
@@ -151,6 +183,7 @@ def create_menu(
                 def on_model_change(e):
                     state["model"] = e.value
                     app.state.current_model = e.value
+                    config.set_expected_model_id(e.value)
 
                 def _on_mms_toggle(e: Any) -> None:
                     enabled = bool(e.value)
@@ -636,7 +669,7 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
             if key == "tec_test":
                 script_runner(scope_setup_file=str(app.state.scope_setup_file))
             else:
-                script_runner()
+                _invoke_script_entry_point(script_runner, state)
 
             if ui_runtime_controller.is_aborted():
                 state["logger"].warning(f"{key} script aborted")
@@ -656,7 +689,7 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
             ui_runtime_controller.clear_pause()
 
     ui.notify(f"{key} script started")
-    await run.io_bound(_runner)
+    threading.Thread(target=_runner, name=f"script-{key}", daemon=True).start()
 
 
 def _start_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:

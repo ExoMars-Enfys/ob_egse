@@ -17,6 +17,7 @@ except ImportError:
 # Add src to path
 _SRC_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SRC_DIR))
+from utility_modules.desktop_launcher import register_desktop_window
 
 
 def run_app_in_desktop(
@@ -31,7 +32,7 @@ def run_app_in_desktop(
 ) -> None:
     """
     Run the NiceGUI app in a pywebview desktop window.
-    
+
     Args:
         default_mode: Starting mode (EB or OB)
         psu_port: PSU serial port object
@@ -61,13 +62,14 @@ def run_app_in_desktop(
     # The window will connect to the NiceGUI server once it starts
     def create_pywebview_window():
         time.sleep(2)  # Wait for NiceGUI server to start
-        webview.create_window(
+        window = webview.create_window(
             title="OB EGSE Control",
             url="http://localhost:8085",
             width=1920,
             height=1080,
             min_size=(1280, 720),
         )
+        register_desktop_window(window)
 
     webview_thread = threading.Thread(target=create_pywebview_window, daemon=True)
     webview_thread.start()
@@ -96,9 +98,7 @@ if __name__ == "__main__":
     # Setup logging
     if const.LOG_PATH == const.DEFAULT_PATH:
         const.LOG_PATH.mkdir(parents=True, exist_ok=True)
-    event_log, info_log, psu_log = egse_logger.get_loggers(
-        const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL
-    )
+    event_log, info_log, psu_log = egse_logger.get_loggers(const.LOG_PATH, const.LOG_PREFIX, const.DEBUG_LEVEL)
 
     # Initialize comms (similar to main.py)
     import atexit
@@ -147,7 +147,15 @@ if __name__ == "__main__":
     # Start PSU monitor thread
     psu_thread = threading.Thread(
         target=psu.psu_monitor_thread,
-        args=(psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, threading.Event(), psu_mode_state, psu_lock),
+        args=(
+            psu_port,
+            startup_eb_mode,
+            stop_event,
+            config.PSU_LOGGING_FREQ,
+            threading.Event(),
+            psu_mode_state,
+            psu_lock,
+        ),
         daemon=True,
     )
     psu_thread.start()
