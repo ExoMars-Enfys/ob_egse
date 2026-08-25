@@ -10,10 +10,6 @@ from typing import Any
 from nicegui import app, run, ui
 
 # Local modules
-# analysis
-from analysis_modules import sci_plot
-
-# Local modules
 # core
 from core_modules import tmstruct
 
@@ -154,47 +150,71 @@ class PacketViewerController:
         self._render_sci_panel(packet)
 
     async def plot_selected_sci_packet(self) -> None:
-        packets = list(self.app_state.get("sci_packets") or self.sci_state.get("packets") or [])
+        is_ob_science = self.packet_type == "OB_SCI"
+        if is_ob_science:
+            stitched_packet = self.app_state.get("ob_sci_stitched_packet")
+            capture_active = bool(self.app_state.get("ob_sci_capture_active"))
+            if stitched_packet is not None and not capture_active:
+                packets = [stitched_packet]
+                ob_point_count = int(getattr(stitched_packet, "SCI_POINT_COUNT", 0) or 0)
+            else:
+                packets = list(self.app_state.get("ob_sci_packets") or [])
+                ob_point_count = len(packets)
+        else:
+            packets = list(self.app_state.get("sci_packets") or self.sci_state.get("packets") or [])
         if not packets:
-            ui.notify("No science packet selected to plot", color="warning")
+            ui.notify("No science data available to plot", color="warning")
             return
         ui.notify("Generating interactive science plot...", color="primary")
 
         with ui.dialog() as plot_dialog:
             with ui.card().classes("w-[95vw] max-w-6xl max-h-[90vh] overflow-auto"):
                 with ui.row(align_items="center").classes("w-full justify-between gap-2"):
-                    ui.label("Interactive Science Plot (ABS steps vs intensity)").classes("text-lg font-bold")
+                    plot_title = "OB Science Plot" if is_ob_science else "Interactive Science Plot"
+                    ui.label(f"{plot_title} (ABS steps vs intensity)").classes("text-lg font-bold")
                     ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
                 ui.separator()
 
                 dialog_state = {"index": max(0, min(int(self.sci_state.get("packet_index", 0)), len(packets) - 1))}
 
-                with ui.row().classes("w-full items-center justify-between gap-2"):
-                    ui.button(
-                        icon="chevron_left",
-                        on_click=lambda: _shift_packet(-1),
-                    ).props("dense flat")
-                    packet_label = ui.label("").classes("font-bold")
-                    ui.button(
-                        icon="chevron_right",
-                        on_click=lambda: _shift_packet(1),
-                    ).props("dense flat")
+                if is_ob_science:
+                    capture_status = "capturing" if capture_active else "stitched scan"
+                    packet_label = ui.label(f"{ob_point_count} OB science points ({capture_status})").classes(
+                        "font-bold"
+                    )
+                else:
+                    with ui.row().classes("w-full items-center justify-between gap-2"):
+                        ui.button(
+                            icon="chevron_left",
+                            on_click=lambda: _shift_packet(-1),
+                        ).props("dense flat")
+                        packet_label = ui.label("").classes("font-bold")
+                        ui.button(
+                            icon="chevron_right",
+                            on_click=lambda: _shift_packet(1),
+                        ).props("dense flat")
 
                 plot_body = ui.column().classes("w-full gap-3")
 
                 async def render_packet_plot(packet_index: int) -> None:
-                    packet = packets[packet_index]
-                    packet_type = getattr(packet, "SCI_PACKET_CRITICALITY", "?")
-                    packet_number = getattr(packet, "PACKET_NUMBER", packet_index + 1)
-                    packet_label.set_text(
-                        f"Packet {packet_index + 1} / {len(packets)} (PKT {packet_number}, {packet_type})"
-                    )
+                    if is_ob_science:
+                        packets_to_plot = packets
+                        title_prefix = "OB Science Scan"
+                    else:
+                        packet = packets[packet_index]
+                        packet_type = getattr(packet, "SCI_PACKET_CRITICALITY", "?")
+                        packet_number = getattr(packet, "PACKET_NUMBER", packet_index + 1)
+                        packet_label.set_text(
+                            f"Packet {packet_index + 1} / {len(packets)} (PKT {packet_number}, {packet_type})"
+                        )
+                        packets_to_plot = [packet]
+                        title_prefix = f"SCI Packet {packet_number}"
 
                     try:
                         figures = await run.io_bound(
-                            lambda: sci_plot.render_sci_packets_plotly_figures(
-                                sci_packets=[packet],
-                                title_prefix=f"SCI Packet {packet_number}",
+                            lambda: ui_runtime_controller.render_sci_plotly_figures(
+                                sci_packets=packets_to_plot,
+                                title_prefix=title_prefix,
                             )
                         )
                     except Exception as exc:
@@ -522,6 +542,14 @@ def create_packet_viewer(state: dict[str, Any], packet_type: str | None = None) 
             with ui.row(align_items="center").classes("w-full justify-center"):
                 ui.button(
                     "Plot Science Data",
+                    icon="show_chart",
+                    on_click=_plot_selected_sci_packet_click,
+                ).props("color=primary")
+
+        if selected_type == "OB_SCI":
+            with ui.row(align_items="center").classes("w-full justify-center"):
+                ui.button(
+                    "Plot OB Science Data",
                     icon="show_chart",
                     on_click=_plot_selected_sci_packet_click,
                 ).props("color=primary")

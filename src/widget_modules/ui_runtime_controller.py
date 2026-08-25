@@ -34,6 +34,11 @@ info_log = logging.getLogger("info_log")
 
 _FORCE_PAUSE_EVENT = threading.Event()
 _FORCE_PAUSE_DIALOGS: dict[str, Any] = {}
+_OB_SCI_CAPTURE_LOCK = threading.RLock()
+_OB_SCI_CAPTURE_ID = 0
+_OB_SCI_CAPTURE_ACTIVE = False
+_OB_SCI_CAPTURE_CLOSING = False
+_OB_SCI_CAPTURE_LABEL = ""
 _SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
 _SCI_ACQ_TRIGGER_S = 150.0
 _SCI_CONSUMPTION_CHECK_DURATION_S = 5.0
@@ -689,6 +694,68 @@ def notify_script_done() -> None:
 def notify_script_pause(current: int, total: int) -> None:
     """Notify the user that the script is paused, showing progress."""
     notify(f"Script paused, command {current} of {total}", color="warning")
+
+
+def begin_ob_sci_capture(label: str = "OB Science Scan") -> int:
+    """Start a new OB scan capture and discard pre-scan SCI queue residue."""
+    global _OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING, _OB_SCI_CAPTURE_LABEL
+
+    # DAC-offset calculations use the same OB SCI packet shape. They happen
+    # before measurement_scan(), so clear any of their unconsumed packets at
+    # this explicit acquisition boundary.
+    while not const.sci_queue.empty():
+        try:
+            const.sci_queue.get_nowait()
+        except (Empty, AttributeError):
+            break
+
+    with _OB_SCI_CAPTURE_LOCK:
+        _OB_SCI_CAPTURE_ID += 1
+        _OB_SCI_CAPTURE_ACTIVE = True
+        _OB_SCI_CAPTURE_CLOSING = False
+        _OB_SCI_CAPTURE_LABEL = str(label).strip() or "OB Science Scan"
+        capture_id = _OB_SCI_CAPTURE_ID
+    info_log.info("Started OB SCI capture %s: %s", capture_id, _OB_SCI_CAPTURE_LABEL)
+    return capture_id
+
+
+def end_ob_sci_capture(capture_id: int) -> None:
+    """Close a capture after the telemetry poller drains its remaining points."""
+    global _OB_SCI_CAPTURE_CLOSING
+    with _OB_SCI_CAPTURE_LOCK:
+        if _OB_SCI_CAPTURE_ACTIVE and capture_id == _OB_SCI_CAPTURE_ID:
+            _OB_SCI_CAPTURE_CLOSING = True
+
+
+def cancel_ob_sci_capture(capture_id: int) -> None:
+    """Cancel a failed scan without publishing its partial points as a packet."""
+    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING
+    with _OB_SCI_CAPTURE_LOCK:
+        if capture_id == _OB_SCI_CAPTURE_ID:
+            _OB_SCI_CAPTURE_ACTIVE = False
+            _OB_SCI_CAPTURE_CLOSING = False
+    info_log.info("Cancelled OB SCI capture %s", capture_id)
+
+
+def _ob_sci_capture_snapshot() -> tuple[int, str] | None:
+    with _OB_SCI_CAPTURE_LOCK:
+        if not _OB_SCI_CAPTURE_ACTIVE:
+            return None
+        return _OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_LABEL
+
+
+def _complete_ob_sci_capture_if_drained() -> tuple[int, str] | None:
+    """Atomically complete a closing capture once no decoded points remain."""
+    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING
+    with _OB_SCI_CAPTURE_LOCK:
+        if not (_OB_SCI_CAPTURE_ACTIVE and _OB_SCI_CAPTURE_CLOSING):
+            return None
+        if not const.sci_queue.empty():
+            return None
+        completed = (_OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_LABEL)
+        _OB_SCI_CAPTURE_ACTIVE = False
+        _OB_SCI_CAPTURE_CLOSING = False
+        return completed
 
 
 def _remove_force_pause_popup(popup: Any) -> None:
@@ -3035,16 +3102,21 @@ def create_poll_tm(
         # Process SCI packets from TM queues.
         # EB SCI and OB SCI have different packet shapes, so we handle them separately.
         if not const.sci_queue.empty():
-            while not const.sci_queue.empty():
-                try:
-                    if const.sci_queue.qsize() <= 1:
+            # EB packets are complete multi-point products, so retain its legacy
+            # latest-packet behaviour. Each OB packet is one scan point; draining
+            # that queue here would punch holes in the plotted OB scan.
+            if mode != "OB":
+                while not const.sci_queue.empty():
+                    try:
+                        if const.sci_queue.qsize() <= 1:
+                            break
+                        const.sci_queue.get_nowait()
+                    except (Empty, AttributeError):
                         break
-                    const.sci_queue.get_nowait()
-                except (Empty, AttributeError):
-                    break
             if mode == "OB":
                 new_ob_sci_packets = 0
                 latest_ob_sci = None
+                ob_sci_packets = state.setdefault("ob_sci_packets", [])
                 ob_recent_identities = state.setdefault("ob_sci_recent_identities", [])
                 ob_recent_identity_set = state.setdefault("ob_sci_recent_identity_set", set())
                 max_ob_recent_identities = int(state.get("ob_sci_dedupe_window", 128) or 128)
@@ -3078,6 +3150,7 @@ def create_poll_tm(
                     sci_identity = (
                         "OB_SCI",
                         _field("CMD_CNT"),
+                        _field("ABS_STEPS"),
                         _field("SWIR_HIGH"),
                         _field("SWIR_MED"),
                         _field("SWIR_LOW"),
@@ -3097,6 +3170,35 @@ def create_poll_tm(
                             ob_recent_identity_set.discard(expired)
 
                     latest_ob_sci = latest_sci
+                    capture = _ob_sci_capture_snapshot()
+                    if capture is not None:
+                        capture_id, capture_label = capture
+                        if state.get("ob_sci_capture_id") != capture_id:
+                            ob_sci_packets.clear()
+                            state["ob_sci_capture_id"] = capture_id
+                            state["ob_sci_capture_label"] = capture_label
+                            state["ob_sci_capture_active"] = True
+                            state["ob_sci_stitched_packet"] = None
+                        required_plot_fields = (
+                            "ABS_STEPS",
+                            "SWIR_HIGH",
+                            "SWIR_MED",
+                            "SWIR_LOW",
+                            "MWIR_HIGH",
+                            "MWIR_MED",
+                            "MWIR_LOW",
+                        )
+                        missing_plot_fields = [name for name in required_plot_fields if _field(name) is None]
+                        if missing_plot_fields:
+                            logger.debug(
+                                "Ignoring non-measurement OB SCI packet during capture; missing %s",
+                                ", ".join(missing_plot_fields),
+                            )
+                        else:
+                            ob_sci_packets.append(latest_sci)
+                            max_ob_sci_packets = int(state.get("max_ob_sci_packets", 4096) or 4096)
+                            if len(ob_sci_packets) > max_ob_sci_packets:
+                                del ob_sci_packets[:-max_ob_sci_packets]
                     counts["sci"] = int(counts.get("sci", 0)) + 1
                     new_ob_sci_packets += 1
 
@@ -3204,6 +3306,42 @@ def create_poll_tm(
                                 packet_list_controller.add_packet("EB_SCI", sci_data, label)
                         except Exception:
                             logger.debug("Failed to update SCI packet viewer")
+
+        if mode == "OB":
+            completed_capture = _complete_ob_sci_capture_if_drained()
+            if completed_capture is not None:
+                capture_id, capture_label = completed_capture
+                if state.get("ob_sci_capture_id") == capture_id:
+                    points = list(state.get("ob_sci_packets") or [])
+                else:
+                    state["ob_sci_packets"] = []
+                    state["ob_sci_capture_id"] = capture_id
+                    state["ob_sci_capture_label"] = capture_label
+                    points = []
+                normalized_points = [SimpleNamespace(**point) if isinstance(point, dict) else point for point in points]
+                stitched_packet = SimpleNamespace(
+                    SCI_PACKET_CRITICALITY="OB",
+                    PACKET_NUMBER=capture_id,
+                    SCI_POINT_COUNT=len(normalized_points),
+                    SCI_POINTS=normalized_points,
+                    CAPTURE_LABEL=capture_label,
+                    TIME=datetime.now(),
+                )
+                state["ob_sci_stitched_packet"] = stitched_packet
+                state["ob_sci_capture_active"] = False
+                ob_sci_scans = state.setdefault("ob_sci_scans", [])
+                ob_sci_scans.append(stitched_packet)
+                del ob_sci_scans[:-12]
+                info_log.info(
+                    "Completed OB SCI capture %s with %s points: %s",
+                    capture_id,
+                    len(normalized_points),
+                    capture_label,
+                )
+                notify(
+                    f"OB science scan captured: {len(normalized_points)} points",
+                    color="positive" if normalized_points else "warning",
+                )
 
         packet_metrics_card.refresh()
 
@@ -3406,6 +3544,25 @@ def dispatch_eb_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: An
 # UI controllers — SCI packet navigation
 # ---------------------------------------------------------------------------
 # region UI controllers — SCI packet navigation
+
+
+def render_sci_plotly_figures(
+    sci_packets: list[Any],
+    title_prefix: str = "SCI Buffer",
+) -> list[Any]:
+    """Build interactive SCI figures for EB packets or accumulated OB points.
+
+    The plotting module expects attribute-based packet objects. OB telemetry can
+    arrive as either dictionaries or decoded objects, so normalize mappings here
+    and keep the widget independent of packet representation.
+    """
+    from analysis_modules import sci_plot
+
+    normalized_packets = [SimpleNamespace(**packet) if isinstance(packet, dict) else packet for packet in sci_packets]
+    return sci_plot.render_sci_packets_plotly_figures(
+        sci_packets=normalized_packets,
+        title_prefix=title_prefix,
+    )
 
 
 def create_sci_navigation_state(max_packets: int = 12) -> dict[str, Any]:
