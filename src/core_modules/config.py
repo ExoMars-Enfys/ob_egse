@@ -65,3 +65,41 @@ MEASUREMENT_TABLES = [
     # Uneven steps for testing
     list(range(0, 1300, 10)) + list(range(1300, 7600)) + list(range(7600, 8601, 10)),
 ]
+
+# Expected firmware/table CRCs reported in the EB POST packet. Keep in one
+# place so image/table updates only require a change here.
+POST_EXPECTED_CRC = {
+    "ASW_IMAGE_1_CRC": 0xBAF7,
+    "ASW_IMAGE_2_CRC": 0xA0BB,
+    "ASW_IMAGE_3_CRC": 0xBD18,
+    "ASW_IMAGE_4_CRC": 0xC0F5,
+    "ASW_IMAGE_5_CRC": 0xF0D2,
+    "BSW_IMAGE_CRC": 0xD2D7,
+    "MEASUREMENT_TABLE_CRC": 0x4174,
+}
+
+EXP_MODEL_ID = 0x02
+
+
+def _model_bitmap_value(model: str) -> int:
+    value = MODEL_BITMAPS.get(model, model)
+    if isinstance(value, str):
+        if set(value).issubset({"0", "1"}):
+            return int(value, 2)
+        try:
+            return int(value, 10)
+        except ValueError:
+            return int(str(value), 10)
+    return int(value)
+
+
+def set_expected_model_id(model: str | None) -> int:
+    global EXP_MODEL_ID
+    if not model:
+        EXP_MODEL_ID = _model_bitmap_value("DEM")
+        return EXP_MODEL_ID
+    EXP_MODEL_ID = _model_bitmap_value(model)
+    return EXP_MODEL_ID
+
+
+set_expected_model_id("DEM")
