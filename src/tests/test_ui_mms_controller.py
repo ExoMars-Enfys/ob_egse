@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from widget_modules import ui_runtime_controller as urc
+from widget_modules import menu_widget, ui_runtime_controller as urc
 
 
 class _DummyLogger:
@@ -18,6 +18,22 @@ class _DummyLogger:
 
     def error(self, msg, *args):
         self.records.append(("error", msg % args if args else msg))
+
+
+def test_menu_invoke_passes_ob_port_to_ob_fft_script() -> None:
+    calls = {}
+
+    def fake_runner(port, psu_port=None, nopsu=False):
+        calls["port"] = port
+        calls["psu_port"] = psu_port
+        calls["nopsu"] = nopsu
+
+    state = {"ob_port": object(), "psu_port": object(), "nopsu": True}
+    menu_widget._invoke_script_entry_point(fake_runner, state)
+
+    assert calls["port"] is state["ob_port"]
+    assert calls["psu_port"] is state["psu_port"]
+    assert calls["nopsu"] is True
 
 
 def test_mms_reasons_masks_ob_general_error(monkeypatch) -> None:
@@ -98,9 +114,13 @@ def test_mms_runs_actions_and_latches(monkeypatch) -> None:
         "clear_force_pause",
         lambda: calls.__setitem__("clear_force_pause", calls["clear_force_pause"] + 1),
     )
-    monkeypatch.setattr(urc, "disable_ob5v", lambda _logger: calls.__setitem__("disable_ob5v", calls["disable_ob5v"] + 1))
+    monkeypatch.setattr(
+        urc, "disable_ob5v", lambda _logger: calls.__setitem__("disable_ob5v", calls["disable_ob5v"] + 1)
+    )
     monkeypatch.setattr(urc.eb_interface, "get_egse_interface", lambda: _Interface())
-    monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: calls.__setitem__("safe", calls["safe"] + 1) or "OK")
+    monkeypatch.setattr(
+        urc.ebtcs, "safe", lambda *_args, **_kwargs: calls.__setitem__("safe", calls["safe"] + 1) or "OK"
+    )
     monkeypatch.setattr(
         urc.ebtcs,
         "ret",
@@ -168,6 +188,7 @@ def test_mms_returns_early_when_latched(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Additional MMS de-duplication, fallback, and failure-path coverage
 # ---------------------------------------------------------------------------
+
 
 def _app() -> SimpleNamespace:
     return SimpleNamespace(state=SimpleNamespace(eb_interface=SimpleNamespace(rs422_log_path=None)))

@@ -65,3 +65,27 @@ def test_emit_eb_ret_tc_for_psu_toggle_skips_non_enable(monkeypatch) -> None:
     psu_widget.emit_eb_ret_tc_for_psu_toggle({"mode": "EB"}, enabled=False, physical_channel=4)
 
     assert called["ret"] is False
+
+
+def test_ui_element_guard_skips_deleted_clients() -> None:
+    class DeadClientElement:
+        @property
+        def client(self):
+            raise RuntimeError("The client this element belongs to has been deleted.")
+
+    element = DeadClientElement()
+
+    assert psu_widget.is_ui_element_alive(element) is False
+    assert psu_widget.try_set_element_value(element, True) is False
+
+
+def test_set_component_busy_skips_deleted_component() -> None:
+    class DeadClientElement:
+        @property
+        def client(self):
+            raise RuntimeError("The client this element belongs to has been deleted.")
+
+    element = DeadClientElement()
+
+    psu_widget.set_component_busy(element, True)
+    assert True

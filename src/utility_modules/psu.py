@@ -107,16 +107,16 @@ def close_psu_comms(port: serial.Serial) -> None:
         # 1. Clear out any residual data sitting in the buffers
         port.reset_input_buffer()
         port.reset_output_buffer()
-        
+
         # 2. Send the exact working local command
         port.write("LOCAL\n".encode("utf-8"))
-        
+
         # 3. CRITICAL: Force the OS to push the bytes out to the wire right now
         port.flush()
-        
+
         # 4. Give the PSU parser a split second to breathe before killing the port
         time.sleep(0.2)
-        
+
         # 5. Cleanly shut down the port
         port.close()
     return
@@ -318,6 +318,12 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         }
                         if const.psu_queue is not None:
                             const.psu_queue.put(psu_readings)
+                        try:
+                            from utility_modules import eb_packet_utility
+
+                            eb_packet_utility.set_latest_psu(psu_readings)
+                        except Exception:
+                            pass
 
                         psu_log.info(
                             f"CH3(status={rov_htr_status}) {rov_htr_v}\t{rov_htr_i}\tCH4(status={ebstatus}) {eb_v}\t{eb_i}"
@@ -435,6 +441,12 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                         }
                         if const.psu_queue is not None:
                             const.psu_queue.put(psu_readings)
+                        try:
+                            from utility_modules import eb_packet_utility
+
+                            eb_packet_utility.set_latest_psu(psu_readings)
+                        except Exception:
+                            pass
 
                         psu_log.info(f"{ch1_v}  \t{ch1_i}  \t{ch2_v}  \t{ch2_i}  \t{ch3_v}  \t{ch3_i}")
 
@@ -664,34 +676,36 @@ def shutdown_psu_outputs(port: serial.Serial) -> None:
         psu_log.warning("PSU outputs shut down (port kept open for recovery).")
 
 
-def emergencyShutDown(port: serial.Serial, stop_event: threading.Event = None, psu_thread: threading.Thread = None) -> None:
+def emergencyShutDown(
+    port: serial.Serial, stop_event: threading.Event = None, psu_thread: threading.Thread = None
+) -> None:
     """Safely halts the background telemetry monitoring, clears channels, and releases local control."""
-    
+
     # 1. Force the thread loop condition to evaluate to False immediately
     if stop_event is not None:
         stop_event.set()
-        
+
     # 2. Wait for the background thread to safely exit its active reading block
     if psu_thread is not None and psu_thread.is_alive():
         psu_thread.join(timeout=1.0)
-        
+
     if port and port.is_open:
         # 3. Suppress all outputs safely
         port.write("OPALL 0\n".encode("utf-8"))
         port.flush()
-        time.sleep(0.1) # Give the hardware relay coils time to open
-        
+        time.sleep(0.1)  # Give the hardware relay coils time to open
+
         # 4. Clear python serial device pipelines
         port.reset_input_buffer()
         port.reset_output_buffer()
-        
+
         # 5. Issue the clean Local directive
         port.write("LOCAL\n".encode("utf-8"))
         port.flush()
-        
+
         # 6. Sleep briefly to ensure the local directive clears the physical TX line entirely
         time.sleep(0.2)
-        
+
         # 7. Safe teardown
         port.close()
         print("PSU Comm Link Closed & Panel Returned to Local Operating Mode.")

@@ -22,8 +22,36 @@ from widget_modules import plot_widget
 info_log = logging.getLogger("info_log")
 
 
+def _safe_get_client(element: Any) -> Any | None:
+    """Return the client's object if it still exists, otherwise None."""
+    if element is None:
+        return None
+    try:
+        return getattr(element, "client")
+    except Exception:
+        return None
+
+
+def is_ui_element_alive(element: Any) -> bool:
+    """Return True only when a NiceGUI element still belongs to a live client."""
+    if element is None:
+        return False
+    return _safe_get_client(element) is not None
+
+
+def try_set_element_value(element: Any, value: Any) -> bool:
+    """Attempt to set a NiceGUI value only when the element still belongs to a live client."""
+    if not is_ui_element_alive(element):
+        return False
+    try:
+        element.value = value
+        return True
+    except Exception:
+        return False
+
+
 def set_component_busy(component: Any, busy: bool) -> None:
-    if component is None:
+    if component is None or not is_ui_element_alive(component):
         return
     for method_name in ("disable", "enable"):
         method = getattr(component, method_name, None)
@@ -32,7 +60,10 @@ def set_component_busy(component: Any, busy: bool) -> None:
                 method()
                 return
     # Fallback for components without helper methods.
-    component.props("disable" if busy else "")
+    try:
+        component.props("disable" if busy else "")
+    except Exception:
+        pass
 
 
 def title_hides_plot(title: str) -> bool:
@@ -427,11 +458,13 @@ def create_ob_master_channels_toggle(
         )
 
     def set_visible(mode: str) -> None:
+        if not is_ui_element_alive(ob_master_toggle):
+            return
         ob_master_toggle.set_visibility(mode == "OB")
 
     def sync_value(_: Any | None = None) -> None:
         cards = cards_ref.get("cards")
-        if cards is None:
+        if cards is None or not is_ui_element_alive(ob_master_toggle):
             return
         enabled_all = all(bool(card.channel.get("enabled", True)) for card in cards)
         if bool(getattr(ob_master_toggle, "value", False)) == bool(enabled_all):
@@ -439,7 +472,8 @@ def create_ob_master_channels_toggle(
         master_sync_state["suppress_next_event"] = True
         master_sync_state["syncing"] = True
         try:
-            ob_master_toggle.value = enabled_all
+            if not try_set_element_value(ob_master_toggle, enabled_all):
+                return
         finally:
             master_sync_state["syncing"] = False
 
@@ -448,6 +482,8 @@ def create_ob_master_channels_toggle(
             master_sync_state["suppress_next_event"] = False
             return
         if master_sync_state["syncing"]:
+            return
+        if not is_ui_element_alive(ob_master_toggle):
             return
         cards = cards_ref.get("cards")
         if cards is None:
@@ -466,7 +502,11 @@ def create_ob_master_channels_toggle(
                         int(card.channel.get("_suppress_toggle_events", 0) or 0) + 1
                     )
                     card.channel["_syncing_from_psu"] = True
-                    card.enabled_switch.value = enabled
+                    try:
+                        if is_ui_element_alive(card.enabled_switch):
+                            card.enabled_switch.value = enabled
+                    except Exception:
+                        pass
                     card.channel["_syncing_from_psu"] = False
 
         psu_port = state.get("psu_port")
@@ -476,8 +516,12 @@ def create_ob_master_channels_toggle(
 
         # Block re-enabling channels while the MMS/protection latch is active.
         if enabled and state.get("ob_psu_protection", {}).get("shutdown_latched", False):
-            ui.notify("PSU is latched after a protection trip — reset the latch first.", type="warning")
-            ob_master_toggle.value = False
+            try:
+                ui.notify("PSU is latched after a protection trip — reset the latch first.", type="warning")
+            except Exception:
+                pass
+            if not try_set_element_value(ob_master_toggle, False):
+                return
             return
         mode_state = state.get("psu_mode_state") if isinstance(state.get("psu_mode_state"), dict) else state
         psu.set_psu_command_in_flight(mode_state, True)
@@ -511,7 +555,11 @@ def create_ob_master_channels_toggle(
                         int(card.channel.get("_suppress_toggle_events", 0) or 0) + 1
                     )
                     card.channel["_syncing_from_psu"] = True
-                    card.enabled_switch.value = False
+                    try:
+                        if is_ui_element_alive(card.enabled_switch):
+                            card.enabled_switch.value = False
+                    except Exception:
+                        pass
                     card.channel["_syncing_from_psu"] = False
         sync_value()
 
