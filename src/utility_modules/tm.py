@@ -136,6 +136,10 @@ class TM:
             if self.ERRORS.IPA:
                 info_log.error("OB ERROR IPA - Invalid Parity Error")
 
+    def __repr__(self) -> str:
+        fields = {k: v for k, v in vars(self).items() if k != "raw_bytes"}
+        return f"{type(self).__name__}({fields})"
+
 
 class HK(TM):
     """HK Class Definition. Reads the HK response and parses it based on the dictionary defined in tmstruct.py"""
@@ -202,12 +206,8 @@ class ACK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.ACK_LOG_FH.write(
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        )
-        const.ACK_LOG_FH.write(
-            f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n"
-        )
+        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.info(
             "TM log ACK received: %s",
             bytes.hex(self.raw_bytes, " ", 2),
@@ -234,6 +234,7 @@ class ACK(TM):
                 f"({actual_bytes * 8} bits): "
                 f"{self.raw_bytes.hex(' ')}"
             )
+
 
 class SCI(TM):
     """SCI Class Definition. Reads the SCI response and parses it based on the dictionary defined in tmstruct.py"""
