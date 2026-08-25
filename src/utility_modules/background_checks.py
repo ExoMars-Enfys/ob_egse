@@ -8,6 +8,7 @@ without the UI runtime.
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 from collections.abc import Mapping
 from contextlib import nullcontext
@@ -622,6 +623,22 @@ def _movement_peak_readings(samples: list[dict[str, tuple[float, float]]]) -> di
     return aggregate
 
 
+def _movement_stable_readings(samples: list[dict[str, tuple[float, float]]]) -> dict[str, tuple[float, float]]:
+    """Return per-rail median readings from the stable portion of a move."""
+    if not samples:
+        return {}
+    channels = sorted({channel for sample in samples for channel in sample})
+    aggregate: dict[str, tuple[float, float]] = {}
+    for channel in channels:
+        readings = [sample[channel] for sample in samples if channel in sample]
+        if readings:
+            aggregate[channel] = (
+                float(statistics.median(float(reading[0]) for reading in readings)),
+                float(statistics.median(float(reading[1]) for reading in readings)),
+            )
+    return aggregate
+
+
 def check_dark_science(hk: Any, science: Any) -> None:
     """Check dark temperatures, mechanism position, and SWIR/MWIR channels."""
     errors: list[str] = []
@@ -999,6 +1016,7 @@ class CommandChecks:
             log_result=False,
         )
         active_samples: list[dict[str, tuple[float, float]]] = []
+        active_responses: list[Any] = []
 
         def check_active_sample(current_response: Any) -> None:
             self._raise_if_aborted()
@@ -1012,13 +1030,7 @@ class CommandChecks:
             if not readings:
                 return
             active_samples.append(readings)
-            aggregate = _movement_peak_readings(active_samples)
-            self.state(
-                active_state,
-                aggregate,
-                response=current_response,
-                allow_psu_unavailable=self.current_reader is None,
-            )
+            active_responses.append(current_response)
 
         check_active_sample(response)
         progress = self.progress_factory(f"{label}: waiting for motor to stop") if self.progress_factory else None
@@ -1044,6 +1056,33 @@ class CommandChecks:
                     log_result=False,
                 )
                 check_active_sample(response)
+
+            if active_state is not None and active_samples:
+                # The first moving HK can still be paired with pre-motion PSU
+                # telemetry, while the last can see current decay before the HK
+                # moving flag clears. Exclude both transition edges whenever a
+                # middle-of-motion sample exists, then validate once using the
+                # median rail readings and a response captured while moving.
+                if len(active_samples) >= 3:
+                    stable_samples = active_samples[1:-1]
+                    stable_responses = active_responses[1:-1]
+                else:
+                    stable_samples = active_samples
+                    stable_responses = active_responses
+                aggregate = _movement_stable_readings(stable_samples)
+                representative_response = stable_responses[len(stable_responses) // 2]
+                self.state(
+                    active_state,
+                    aggregate,
+                    response=representative_response,
+                    allow_psu_unavailable=self.current_reader is None,
+                )
+                event_log.info(
+                    "%s current validated from %d stable moving sample(s) (%d total)",
+                    label,
+                    len(stable_samples),
+                    len(active_samples),
+                )
         finally:
             if progress is not None:
                 progress.finish()

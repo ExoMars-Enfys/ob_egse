@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 import math
+import re
 import statistics
 import threading
 from types import SimpleNamespace
@@ -39,6 +40,9 @@ _OB_SCI_CAPTURE_ID = 0
 _OB_SCI_CAPTURE_ACTIVE = False
 _OB_SCI_CAPTURE_CLOSING = False
 _OB_SCI_CAPTURE_LABEL = ""
+_OB_SCI_CAPTURE_CLOSE_REQUESTED_AT = 0.0
+_OB_SCI_CAPTURE_QUIET_PERIOD_S = 1.0
+_OB_SCI_STITCHED_SCANS: list[Any] = []
 _SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
 _SCI_ACQ_TRIGGER_S = 150.0
 _SCI_CONSUMPTION_CHECK_DURATION_S = 5.0
@@ -698,7 +702,8 @@ def notify_script_pause(current: int, total: int) -> None:
 
 def begin_ob_sci_capture(label: str = "OB Science Scan") -> int:
     """Start a new OB scan capture and discard pre-scan SCI queue residue."""
-    global _OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING, _OB_SCI_CAPTURE_LABEL
+    global _OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING
+    global _OB_SCI_CAPTURE_LABEL, _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT
 
     # DAC-offset calculations use the same OB SCI packet shape. They happen
     # before measurement_scan(), so clear any of their unconsumed packets at
@@ -713,6 +718,7 @@ def begin_ob_sci_capture(label: str = "OB Science Scan") -> int:
         _OB_SCI_CAPTURE_ID += 1
         _OB_SCI_CAPTURE_ACTIVE = True
         _OB_SCI_CAPTURE_CLOSING = False
+        _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT = 0.0
         _OB_SCI_CAPTURE_LABEL = str(label).strip() or "OB Science Scan"
         capture_id = _OB_SCI_CAPTURE_ID
     info_log.info("Started OB SCI capture %s: %s", capture_id, _OB_SCI_CAPTURE_LABEL)
@@ -721,19 +727,21 @@ def begin_ob_sci_capture(label: str = "OB Science Scan") -> int:
 
 def end_ob_sci_capture(capture_id: int) -> None:
     """Close a capture after the telemetry poller drains its remaining points."""
-    global _OB_SCI_CAPTURE_CLOSING
+    global _OB_SCI_CAPTURE_CLOSING, _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT
     with _OB_SCI_CAPTURE_LOCK:
         if _OB_SCI_CAPTURE_ACTIVE and capture_id == _OB_SCI_CAPTURE_ID:
             _OB_SCI_CAPTURE_CLOSING = True
+            _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT = time.monotonic()
 
 
 def cancel_ob_sci_capture(capture_id: int) -> None:
     """Cancel a failed scan without publishing its partial points as a packet."""
-    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING
+    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING, _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT
     with _OB_SCI_CAPTURE_LOCK:
         if capture_id == _OB_SCI_CAPTURE_ID:
             _OB_SCI_CAPTURE_ACTIVE = False
             _OB_SCI_CAPTURE_CLOSING = False
+            _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT = 0.0
     info_log.info("Cancelled OB SCI capture %s", capture_id)
 
 
@@ -744,18 +752,141 @@ def _ob_sci_capture_snapshot() -> tuple[int, str] | None:
         return _OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_LABEL
 
 
+def get_ob_sci_scans() -> list[Any]:
+    """Return all stitched OB scans retained for this application process."""
+    with _OB_SCI_CAPTURE_LOCK:
+        return list(_OB_SCI_STITCHED_SCANS)
+
+
 def _complete_ob_sci_capture_if_drained() -> tuple[int, str] | None:
     """Atomically complete a closing capture once no decoded points remain."""
-    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING
+    global _OB_SCI_CAPTURE_ACTIVE, _OB_SCI_CAPTURE_CLOSING, _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT
     with _OB_SCI_CAPTURE_LOCK:
         if not (_OB_SCI_CAPTURE_ACTIVE and _OB_SCI_CAPTURE_CLOSING):
             return None
         if not const.sci_queue.empty():
             return None
+        if time.monotonic() - _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT < _OB_SCI_CAPTURE_QUIET_PERIOD_S:
+            return None
         completed = (_OB_SCI_CAPTURE_ID, _OB_SCI_CAPTURE_LABEL)
         _OB_SCI_CAPTURE_ACTIVE = False
         _OB_SCI_CAPTURE_CLOSING = False
+        _OB_SCI_CAPTURE_CLOSE_REQUESTED_AT = 0.0
         return completed
+
+
+def replay_ob_sci_log(
+    log_path: str | Path,
+    *,
+    info_log_path: str | Path | None = None,
+    point_delay_s: float = 0.02,
+    label: str = "Replayed OB Science Scan",
+) -> int:
+    """Replay an OB ``*_SCI.LOG`` through the live capture/queue pipeline.
+
+    This is intended for UI integration testing: it exercises the same queue,
+    capture, stitching, and plot-button path as live OB telemetry.
+    """
+    from analysis_modules import sci_plot
+
+    timestamp_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[,.](\d{3,6})")
+
+    def _line_time(line: str) -> datetime | None:
+        match = timestamp_pattern.match(line)
+        if match is None:
+            return None
+        fraction = match.group(2).ljust(6, "0")[:6]
+        return datetime.strptime(f"{match.group(1)}.{fraction}", "%Y-%m-%d %H:%M:%S.%f")
+
+    science_points: list[tuple[datetime, tuple[int, int, int, int, int, int, int]]] = []
+    with Path(log_path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line_time = _line_time(line)
+            parsed = sci_plot._parse_sci_log_line(line)
+            if line_time is not None and parsed is not None:
+                science_points.append((line_time, parsed))
+
+    if not science_points:
+        raise ValueError(f"No valid OB science measurements found in {log_path}")
+
+    if info_log_path is None:
+        scan_windows = [(science_points[0][0], science_points[-1][0], label)]
+    else:
+        scan_windows: list[tuple[datetime, datetime, str]] = []
+        open_scan: tuple[datetime, str] | None = None
+        with Path(info_log_path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line_time = _line_time(line)
+                if line_time is None:
+                    continue
+                lower_line = line.lower()
+                if "running abu measurement scan" in lower_line:
+                    if open_scan is not None:
+                        scan_windows.append((open_scan[0], line_time, open_scan[1]))
+                    open_scan = (line_time, f"{label} {len(scan_windows) + 1}")
+                elif open_scan is not None and any(
+                    marker in lower_line for marker in ("send mtr_halt", "script failed", "running clean exit")
+                ):
+                    scan_windows.append((open_scan[0], line_time, open_scan[1]))
+                    open_scan = None
+        if open_scan is not None:
+            scan_windows.append((open_scan[0], science_points[-1][0], open_scan[1]))
+        if not scan_windows:
+            raise ValueError(f"No 'Running ABU Measurement Scan' markers found in {info_log_path}")
+
+    total_points = 0
+    replayed_scans = 0
+    for window_start, window_end, scan_label in scan_windows:
+        window_points = [point for point_time, point in science_points if window_start <= point_time <= window_end]
+        if not window_points:
+            continue
+        capture_id = begin_ob_sci_capture(scan_label)
+        try:
+            for parsed in window_points:
+                abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high = parsed
+                point = SimpleNamespace(
+                    CMD_CNT=total_points,
+                    ABS_STEPS=abs_steps,
+                    SWIR_LOW=swir_low,
+                    SWIR_MED=swir_med,
+                    SWIR_HIGH=swir_high,
+                    MWIR_LOW=mwir_low,
+                    MWIR_MED=mwir_med,
+                    MWIR_HIGH=mwir_high,
+                    TIME=datetime.now(),
+                )
+                const.sci_queue.put(point)
+                total_points += 1
+                if point_delay_s > 0:
+                    time.sleep(float(point_delay_s))
+        except BaseException:
+            cancel_ob_sci_capture(capture_id)
+            raise
+        else:
+            end_ob_sci_capture(capture_id)
+
+        deadline = time.monotonic() + 30.0
+        while (snapshot := _ob_sci_capture_snapshot()) is not None and snapshot[0] == capture_id:
+            if time.monotonic() >= deadline:
+                cancel_ob_sci_capture(capture_id)
+                raise TimeoutError(f"Timed out finalizing replayed OB scan {capture_id}")
+            time.sleep(0.05)
+        replayed_scans += 1
+
+    if replayed_scans == 0:
+        sci_range = f"{science_points[0][0]} to {science_points[-1][0]}"
+        info_range = f"{scan_windows[0][0]} to {scan_windows[-1][1]}"
+        raise ValueError(
+            f"The INFO measurement windows do not overlap the SCI log timestamps: SCI={sci_range}; INFO={info_range}"
+        )
+
+    info_log.info(
+        "Queued %s replayed OB science points across %s scan(s) from %s",
+        total_points,
+        replayed_scans,
+        log_path,
+    )
+    return total_points
 
 
 def _remove_force_pause_popup(popup: Any) -> None:
@@ -3122,7 +3253,7 @@ def create_poll_tm(
                 max_ob_recent_identities = int(state.get("ob_sci_dedupe_window", 128) or 128)
 
                 processed_sci_count = 0
-                max_sci_packets_per_tick = 5
+                max_sci_packets_per_tick = 1000 if _ob_sci_capture_snapshot() is not None else 5
                 while not const.sci_queue.empty() and processed_sci_count < max_sci_packets_per_tick:
                     candidate = const.sci_queue.get()
                     processed_sci_count += 1
@@ -3150,7 +3281,7 @@ def create_poll_tm(
                     sci_identity = (
                         "OB_SCI",
                         _field("CMD_CNT"),
-                        _field("ABS_STEPS"),
+                        _field("ABS_STEPS") or _field("MTR_ABS_STEPS") or _field("MOTOR_ABS_STEPS"),
                         _field("SWIR_HIGH"),
                         _field("SWIR_MED"),
                         _field("SWIR_LOW"),
@@ -3158,19 +3289,25 @@ def create_poll_tm(
                         _field("MWIR_MED"),
                         _field("MWIR_LOW"),
                     )
-                    if sci_identity in ob_recent_identity_set:
-                        logger.debug("Ignoring duplicate OB science packet in SCI queue")
-                        continue
+                    capture = _ob_sci_capture_snapshot()
+                    # Do not deduplicate an explicit scan capture. Repeated
+                    # points at the same motor position and intensity can be
+                    # legitimate measurements and must remain in the stitched
+                    # packet. Dedupe is retained for the ordinary latest-value
+                    # OB viewer outside capture sessions.
+                    if capture is None:
+                        if sci_identity in ob_recent_identity_set:
+                            logger.debug("Ignoring duplicate OB science packet in SCI queue")
+                            continue
 
-                    ob_recent_identities.append(sci_identity)
-                    ob_recent_identity_set.add(sci_identity)
-                    if len(ob_recent_identities) > max_ob_recent_identities:
-                        expired = ob_recent_identities.pop(0)
-                        if expired not in ob_recent_identities:
-                            ob_recent_identity_set.discard(expired)
+                        ob_recent_identities.append(sci_identity)
+                        ob_recent_identity_set.add(sci_identity)
+                        if len(ob_recent_identities) > max_ob_recent_identities:
+                            expired = ob_recent_identities.pop(0)
+                            if expired not in ob_recent_identities:
+                                ob_recent_identity_set.discard(expired)
 
                     latest_ob_sci = latest_sci
-                    capture = _ob_sci_capture_snapshot()
                     if capture is not None:
                         capture_id, capture_label = capture
                         if state.get("ob_sci_capture_id") != capture_id:
@@ -3179,8 +3316,10 @@ def create_poll_tm(
                             state["ob_sci_capture_label"] = capture_label
                             state["ob_sci_capture_active"] = True
                             state["ob_sci_stitched_packet"] = None
-                        required_plot_fields = (
-                            "ABS_STEPS",
+                            state["ob_sci_capture_seen"] = 0
+                            state["ob_sci_capture_rejected"] = 0
+                        state["ob_sci_capture_seen"] = int(state.get("ob_sci_capture_seen", 0)) + 1
+                        required_intensity_fields = (
                             "SWIR_HIGH",
                             "SWIR_MED",
                             "SWIR_LOW",
@@ -3188,14 +3327,28 @@ def create_poll_tm(
                             "MWIR_MED",
                             "MWIR_LOW",
                         )
-                        missing_plot_fields = [name for name in required_plot_fields if _field(name) is None]
+                        missing_plot_fields = [name for name in required_intensity_fields if _field(name) is None]
                         if missing_plot_fields:
+                            state["ob_sci_capture_rejected"] = int(state.get("ob_sci_capture_rejected", 0)) + 1
                             logger.debug(
                                 "Ignoring non-measurement OB SCI packet during capture; missing %s",
                                 ", ".join(missing_plot_fields),
                             )
                         else:
-                            ob_sci_packets.append(latest_sci)
+                            if isinstance(latest_sci, dict):
+                                point_data = dict(latest_sci)
+                            else:
+                                point_data = dict(vars(latest_sci))
+                            abs_steps = next(
+                                (
+                                    point_data.get(name)
+                                    for name in ("ABS_STEPS", "MTR_ABS_STEPS", "MOTOR_ABS_STEPS", "CMD_CNT")
+                                    if point_data.get(name) is not None
+                                ),
+                                len(ob_sci_packets),
+                            )
+                            point_data["ABS_STEPS"] = abs_steps
+                            ob_sci_packets.append(SimpleNamespace(**point_data))
                             max_ob_sci_packets = int(state.get("max_ob_sci_packets", 4096) or 4096)
                             if len(ob_sci_packets) > max_ob_sci_packets:
                                 del ob_sci_packets[:-max_ob_sci_packets]
@@ -3329,9 +3482,9 @@ def create_poll_tm(
                 )
                 state["ob_sci_stitched_packet"] = stitched_packet
                 state["ob_sci_capture_active"] = False
-                ob_sci_scans = state.setdefault("ob_sci_scans", [])
-                ob_sci_scans.append(stitched_packet)
-                del ob_sci_scans[:-12]
+                with _OB_SCI_CAPTURE_LOCK:
+                    _OB_SCI_STITCHED_SCANS.append(stitched_packet)
+                    state["ob_sci_scans"] = _OB_SCI_STITCHED_SCANS
                 info_log.info(
                     "Completed OB SCI capture %s with %s points: %s",
                     capture_id,
@@ -3339,7 +3492,8 @@ def create_poll_tm(
                     capture_label,
                 )
                 notify(
-                    f"OB science scan captured: {len(normalized_points)} points",
+                    f"OB science scan captured: {len(normalized_points)} points "
+                    f"({int(state.get('ob_sci_capture_rejected', 0))} rejected)",
                     color="positive" if normalized_points else "warning",
                 )
 
