@@ -33,6 +33,7 @@ info_log = logging.getLogger("info_log")
 """This module contains backend controller functions for the UI, which are responsible for handling user interactions, updating the application state, and coordinating between different UI components and the underlying data. These controllers are designed to be bound to specific UI elements and provide a clear separation of concerns between the UI layout and the logic that drives it."""
 
 _FORCE_PAUSE_EVENT = threading.Event()
+_FORCE_PAUSE_DIALOGS: dict[str, Any] = {}
 _SCRIPT_PSU_MA_WINDOW_SAMPLES = 5
 _SCI_ACQ_TRIGGER_S = 150.0
 _SCI_CONSUMPTION_CHECK_DURATION_S = 5.0
@@ -640,6 +641,7 @@ def reset_ob_fdir_simulator(state: dict[str, Any], logger: Any = None) -> None:
 def clear_force_pause() -> None:
     """Release a previously requested forced pause."""
     _FORCE_PAUSE_EVENT.clear()
+    _close_force_pause_dialogs()
 
 
 def is_force_paused() -> bool:
@@ -687,6 +689,57 @@ def notify_script_done() -> None:
 def notify_script_pause(current: int, total: int) -> None:
     """Notify the user that the script is paused, showing progress."""
     notify(f"Script paused, command {current} of {total}", color="warning")
+
+
+def _open_force_pause_dialogs(message: str) -> None:
+    """Open (or refresh) a persistent force-pause dialog for each connected client."""
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        info_log.info("[force-pause] %s", message)
+        return
+
+    def _open() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    existing = _FORCE_PAUSE_DIALOGS.get(client.id)
+                    if existing is not None:
+                        try:
+                            existing.close()
+                        except Exception:
+                            pass
+
+                    with ui.dialog().props("persistent") as dialog:
+                        with ui.card().classes("w-[34rem] max-w-full"):
+                            ui.label("Script Paused").classes("font-bold egse-title warning-text")
+                            ui.label(message).classes("egse-text whitespace-pre-wrap")
+                            ui.separator()
+                            ui.label("Press Resume in Script Controls to continue.").classes("egse-text")
+                    _FORCE_PAUSE_DIALOGS[client.id] = dialog
+                    dialog.open()
+            except Exception as exc:
+                info_log.debug("force pause dialog: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_open)
+
+
+def _close_force_pause_dialogs() -> None:
+    """Close all active force-pause dialogs."""
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        _FORCE_PAUSE_DIALOGS.clear()
+        return
+
+    def _close() -> None:
+        for client_id, dialog in list(_FORCE_PAUSE_DIALOGS.items()):
+            try:
+                dialog.close()
+            except Exception:
+                pass
+            finally:
+                _FORCE_PAUSE_DIALOGS.pop(client_id, None)
+
+    loop.call_soon_threadsafe(_close)
 
 
 _CONFIRM_EVENT = threading.Event()
@@ -754,16 +807,19 @@ def request_confirmation(
 def request_force_pause(msg: str = "") -> None:
     """Request a forced pause — blocks script execution until the user resumes or aborts.
 
-    Sets ``_FORCE_PAUSE_EVENT``, shows a notification, then polls until the event is
+    Sets ``_FORCE_PAUSE_EVENT``, shows a persistent pause dialog, then polls until the event is
     cleared by ``clear_force_pause()`` (triggered by the UI resume button) or the
     script abort event fires.
     """
-    if msg:
-        notify(msg, color="warning")
+    message = str(msg).strip() if msg is not None else ""
+    if not message:
+        message = "Execution paused. Press Resume in Script Controls to continue."
+    _open_force_pause_dialogs(message)
     _FORCE_PAUSE_EVENT.set()
     while _FORCE_PAUSE_EVENT.is_set():
         if is_aborted():
             _FORCE_PAUSE_EVENT.clear()
+            _close_force_pause_dialogs()
             raise RuntimeError("Script aborted during forced pause.")
         time.sleep(0.25)
 
