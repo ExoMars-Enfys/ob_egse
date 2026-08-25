@@ -691,8 +691,19 @@ def notify_script_pause(current: int, total: int) -> None:
     notify(f"Script paused, command {current} of {total}", color="warning")
 
 
-def _open_force_pause_dialogs(message: str) -> None:
-    """Open (or refresh) a persistent force-pause dialog for each connected client."""
+def _remove_force_pause_popup(popup: Any) -> None:
+    """Remove either the current non-modal popup or a legacy dialog safely."""
+    delete = getattr(popup, "delete", None)
+    if callable(delete):
+        delete()
+        return
+    close = getattr(popup, "close", None)
+    if callable(close):
+        close()
+
+
+def _open_force_pause_dialogs(message: str, passed: bool | None = None) -> None:
+    """Open (or refresh) a non-modal force-pause result for each client."""
     loop = _nicegui_core.loop
     if loop is None or not loop.is_running():
         info_log.info("[force-pause] %s", message)
@@ -705,18 +716,37 @@ def _open_force_pause_dialogs(message: str) -> None:
                     existing = _FORCE_PAUSE_DIALOGS.get(client.id)
                     if existing is not None:
                         try:
-                            existing.close()
+                            _remove_force_pause_popup(existing)
                         except Exception:
                             pass
 
-                    with ui.dialog().props("persistent") as dialog:
-                        with ui.card().classes("w-[34rem] max-w-full"):
-                            ui.label("Script Paused").classes("font-bold egse-title warning-text")
-                            ui.label(message).classes("egse-text whitespace-pre-wrap")
-                            ui.separator()
-                            ui.label("Press Resume in Script Controls to continue.").classes("egse-text")
-                    _FORCE_PAUSE_DIALOGS[client.id] = dialog
-                    dialog.open()
+                    if passed is None:
+                        title = "Script Paused"
+                        title_class = "warning-text"
+                        accent_color = "warning"
+                    elif passed:
+                        title = "Check Passed — Script Paused"
+                        title_class = "text-positive"
+                        accent_color = "positive"
+                    else:
+                        title = "Check Failed — Script Paused"
+                        title_class = "text-negative"
+                        accent_color = "negative"
+
+                    # A dialog adds a full-screen modal backdrop, which prevents
+                    # the operator from reaching the Resume control. A fixed card
+                    # keeps the result prominent while leaving the UI interactive.
+                    popup_card = (
+                        ui.card()
+                        .classes("fixed top-4 right-4 z-[9999] w-[34rem] max-w-[calc(100vw-2rem)] shadow-2xl border-2")
+                        .style(f"border-color: var(--q-{accent_color})")
+                    )
+                    with popup_card as popup:
+                        ui.label(title).classes(f"font-bold egse-title {title_class}")
+                        ui.label(message).classes("egse-text whitespace-pre-wrap")
+                        ui.separator()
+                        ui.label("Press Resume in Script Controls to continue.").classes("egse-text")
+                    _FORCE_PAUSE_DIALOGS[client.id] = popup
             except Exception as exc:
                 info_log.debug("force pause dialog: failed for client %s: %s", client.id, exc)
 
@@ -733,7 +763,7 @@ def _close_force_pause_dialogs() -> None:
     def _close() -> None:
         for client_id, dialog in list(_FORCE_PAUSE_DIALOGS.items()):
             try:
-                dialog.close()
+                _remove_force_pause_popup(dialog)
             except Exception:
                 pass
             finally:
@@ -804,18 +834,44 @@ def request_confirmation(
     return _CONFIRM_RESULT
 
 
-def request_force_pause(msg: str = "") -> None:
-    """Request a forced pause — blocks script execution until the user resumes or aborts.
+def request_force_pause(
+    label: str = "",
+    errors: list[str] | None = None,
+    readings: dict[str, Any] | None = None,
+    *,
+    passed: bool | None = None,
+) -> None:
+    """Report an optional check result, then pause until the user resumes or aborts.
 
-    Sets ``_FORCE_PAUSE_EVENT``, shows a persistent pause dialog, then polls until the event is
-    cleared by ``clear_force_pause()`` (triggered by the UI resume button) or the
-    script abort event fires.
+    When ``errors`` is supplied, an empty list displays a green passed result and
+    a non-empty list displays a red failed result. ``passed`` can be supplied for
+    checks which already produced a boolean result. If neither is supplied, this
+    retains the original message-only, neutral pause behaviour.
+
+    Unlike ``report_check``, a failed check is deliberately not raised here: the
+    persistent dialog remains open and execution stays blocked until Resume in
+    Script Controls clears the pause (or the script is aborted).
     """
-    message = str(msg).strip() if msg is not None else ""
-    if not message:
-        message = "Execution paused. Press Resume in Script Controls to continue."
-    _open_force_pause_dialogs(message)
+    check_label = str(label).strip() if label is not None else ""
+    check_passed = passed if passed is not None else (not errors if errors is not None else None)
+
+    if check_passed is None:
+        message = check_label or "Execution paused. Press Resume in Script Controls to continue."
+    elif check_passed:
+        message = f"{check_label or 'Check'} verification passed"
+        if readings:
+            message += f": {readings}"
+    else:
+        failure_details = [str(error).strip() for error in (errors or []) if str(error).strip()]
+        message = f"{check_label or 'Check'} verification failed"
+        if failure_details:
+            message += f": {len(failure_details)} error{'s' if len(failure_details) != 1 else ''}:\n"
+            message += "\n".join(f"{index + 1}. {error}" for index, error in enumerate(failure_details))
+        if readings:
+            message += f"\nReadings: {readings}"
+
     _FORCE_PAUSE_EVENT.set()
+    _open_force_pause_dialogs(message, check_passed)
     while _FORCE_PAUSE_EVENT.is_set():
         if is_aborted():
             _FORCE_PAUSE_EVENT.clear()
