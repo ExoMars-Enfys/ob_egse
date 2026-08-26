@@ -520,9 +520,10 @@ if __name__ == "__main__":
         try:
             f = open(args.dump, "w")
             writer = csv.writer(f)
-            writer.writerow(["Table", "Name", "Relative moves"])
+            writer.writerow(["Table", "Name", "Full", "Recommended", "Relative moves"])
             for n, t in enumerate(predefined):
-                writer.writerow([n, t.name] + t.relative_table)
+                writer.writerow([n, t.name, f"0-{len(t.relative_table)-1}",
+                    f"1-{len(t.relative_table)-2}"] + t.relative_table)
             writer.writerow([])
             writer.writerow(["Table", "Name", "Absolute Positions"])
             for n, t in enumerate(predefined):
