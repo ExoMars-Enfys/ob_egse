@@ -19,6 +19,8 @@ from utility_modules import (
     app_theme,
     eb_interface,
 )
+from utility_modules.cyclic_hk import CyclicHKController
+from utility_modules import tc
 
 # widgets
 from widget_modules import (
@@ -134,6 +136,19 @@ def build_ui(
         "port_lock": port_lock,
         "stop_event": stop_event,
     }
+
+    cyclic_hk = None
+    if ob_worker is not None:
+        # Cyclic traffic shares the single-owner transaction queue.  Priority
+        # 10 keeps user/script transactions (priority 1) responsive.
+        cyclic_hk = CyclicHKController(
+            lambda: ob_worker.submit(tc.hk_request, priority=10),
+            interval_s=1.0,
+            logger=logger,
+        )
+    state["cyclic_hk"] = cyclic_hk
+    if cyclic_hk is not None:
+        app.on_shutdown(cyclic_hk.close)
 
     set_mode = ui_runtime_controller.create_set_mode(app=app, state=state)
     set_psu_log_path = ui_runtime_controller.create_set_psu_log_path(state=state, logger=logger)

@@ -170,7 +170,10 @@ def main() -> None:
         info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
         ob_port = None
 
-    ob_worker = OBSerialWorker(ob_port) if ob_port is not None else None
+    # One lock protects transactions initiated both by the serial worker and
+    # by legacy script paths which still receive the raw OB port.
+    port_lock = threading.Lock()
+    ob_worker = OBSerialWorker(ob_port, port_lock=port_lock) if ob_port is not None else None
 
     # 4. NOW register your unified clean_exit since ALL variables are fully defined
     atexit.register(clean_exit, ob_port, psu_port, event_log, stop_event, psu_thread)
@@ -188,8 +191,6 @@ def main() -> None:
     )
 
     hk_thread = None
-    port_lock = threading.Lock()
-
     if args.script:
         info_log.info("Running Script")
         const.hk_queue = None

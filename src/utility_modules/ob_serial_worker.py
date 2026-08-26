@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import Future
+from contextlib import nullcontext
 from queue import PriorityQueue
 from typing import Any, Callable
 
@@ -11,8 +12,9 @@ from typing import Any, Callable
 class OBSerialWorker:
     """Own one OB port and execute complete command/response transactions."""
 
-    def __init__(self, port: Any) -> None:
+    def __init__(self, port: Any, port_lock: Any = None) -> None:
         self.port = port
+        self.port_lock = port_lock
         self._queue: PriorityQueue[tuple[int, int, Future, Callable[..., Any], tuple[Any, ...], dict[str, Any]]] = (
             PriorityQueue()
         )
@@ -46,9 +48,12 @@ class OBSerialWorker:
             except Exception:
                 continue
             if future.cancelled():
+                self._queue.task_done()
                 continue
             try:
-                future.set_result(function(self.port, *args, **kwargs))
+                lock_ctx = self.port_lock if self.port_lock is not None else nullcontext()
+                with lock_ctx:
+                    future.set_result(function(self.port, *args, **kwargs))
             except BaseException as exc:
                 future.set_exception(exc)
             finally:
