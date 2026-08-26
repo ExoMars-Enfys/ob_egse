@@ -55,3 +55,4 @@ def test_interval_validation():
         pass
     else:
         raise AssertionError("Expected an interval validation error")
+

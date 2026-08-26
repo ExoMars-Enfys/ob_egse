@@ -24,6 +24,35 @@ from utility_modules.send_cmd import cmd_repeat as repeat
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
 
+POWER_TRANSITION_TIMEOUT_S = 6.0
+POWER_TRANSITION_POLL_S = 2.0
+
+
+def _power_transition_transaction(port: Any, command: int) -> Any:
+    """Own the OB link from power-command ACK through a confirming HK sample."""
+    result = repeat(port, tc.power_control, command)
+    if result == "ERROR":
+        return "ERROR"
+
+    deadline = time.monotonic() + POWER_TRANSITION_TIMEOUT_S
+    time.sleep(POWER_TRANSITION_POLL_S)
+    last_response = None
+    while True:
+        last_response = repeat(port, tc.hk_request)
+        if last_response not in (None, "ERROR"):
+            info_log.info(
+                "Power transition target=%s observed PWR_STAT=%s CMD_CNT=%s ERROR_BYTE=%s",
+                command,
+                getattr(last_response, "PWR_STAT", None),
+                getattr(last_response, "CMD_CNT", None),
+                getattr(last_response, "ERROR_BYTE", None),
+            )
+        if last_response not in (None, "ERROR") and getattr(last_response, "PWR_STAT", None) == command:
+            return last_response
+        if time.monotonic() >= deadline:
+            return last_response
+        time.sleep(POWER_TRANSITION_POLL_S)
+
 
 def calculate_ob_current_profile(state: Any, motor_current: int | None = None) -> dict[str, float]:
     """Calculate rail totals from an HK response or named expected state."""
@@ -59,7 +88,9 @@ def calculate_ob_current_profile(state: Any, motor_current: int | None = None) -
         components.append("MechanismHeater")
     if heater[0] or heater[1]:
         components.append("DetectorHeater")
-    if not moving and power & 0x03 and any(heater):
+    # When both mechanism and detector boards are powered, their shared +5 V
+    # support load is present whether or not either heater output is enabled.
+    if (power & 0x03) == 0x03:
         components.append("PoweredHeatedBoards")
     expected = {f"CH{channel}": 0.0 for channel in range(1, 4)}
     for component in components:
@@ -211,6 +242,7 @@ def report_check(
     *,
     notify_negative: Callable[[str], Any] | None = None,
     notify_positive: Callable[[str], Any] | None = None,
+    on_failure: Callable[[str, list[str], dict[str, Any] | None], bool] | None = None,
 ) -> None:
     """Report a grouped check result, optionally using injected UI notifications."""
     if errors:
@@ -220,6 +252,8 @@ def report_check(
         )
         if notify_negative is not None:
             notify_negative(message)
+        if on_failure is not None and on_failure(label, list(errors), readings):
+            return
         raise AssertionError(message)
     message = f"{label} verification passed" + (f": {readings}" if readings else "")
     info_log.info(message)
@@ -681,6 +715,8 @@ class CommandChecks:
     last_heater: tuple[bool, bool, bool, bool, bool] = (False, False, False, False, False)
     last_power: int = 0
     last_motor_params: tuple[int, int, int, int] = limits.MOTOR_BOOT_PARAMS
+    last_state_readings: dict[str, float] | None = None
+    last_motion_report: dict[str, float | int] | None = None
 
     def _repeat(self, cmd_func: Callable[..., Any], *args: Any) -> Any:
         """Issue a command through cmd_repeat, serialized against self.port_lock."""
@@ -698,6 +734,7 @@ class CommandChecks:
         nominal_motor: bool = False,
         expected_motor_params: tuple[int, int, int, int] | None = None,
         log_result: bool = True,
+        check_power_state: bool = True,
     ) -> Any:
         if self.transaction_runner is not None:
             hk_response = self.transaction_runner(repeat, self.hk_request)
@@ -705,13 +742,36 @@ class CommandChecks:
             lock_ctx = self.port_lock if self.port_lock is not None else nullcontext()
             with lock_ctx:
                 hk_response = repeat(self.port, self.hk_request)
+        return self._validate_hk(
+            hk_response,
+            label=label,
+            check_model=check_model,
+            nominal_motor=nominal_motor,
+            expected_motor_params=expected_motor_params,
+            log_result=log_result,
+            check_power_state=check_power_state,
+        )
+
+    def _validate_hk(
+        self,
+        hk_response: Any,
+        *,
+        label: str,
+        check_model: bool = False,
+        nominal_motor: bool = False,
+        expected_motor_params: tuple[int, int, int, int] | None = None,
+        log_result: bool = True,
+        check_power_state: bool = True,
+    ) -> Any:
+        """Validate an HK response already obtained by an owned transaction."""
         response = check_hk(hk_response, label=label, check_model=check_model, log_result=log_result)
         errors: list[str] = []
         check_ob_V_rails(response, errors)
         check_ob_trps(response, errors)
         _assert_no_errors(label, errors)
         check_thermal(response, self.last_heater)
-        check_powered(response, self.last_power)
+        if check_power_state:
+            check_powered(response, self.last_power)
         if expected_motor_params is not None:
             check_motor_params(response, expected_motor_params)
         elif nominal_motor:
@@ -729,9 +789,23 @@ class CommandChecks:
 
     def power(self, command: int, *, label: str) -> Any:
         self.last_power = command
-        self._repeat(tc.power_control, command)
-        time.sleep(2)
-        return self.hk(label)
+        self._raise_if_aborted()
+        if self.transaction_runner is not None:
+            last_response = self.transaction_runner(_power_transition_transaction, command)
+        else:
+            lock_ctx = self.port_lock if self.port_lock is not None else nullcontext()
+            with lock_ctx:
+                last_response = _power_transition_transaction(self.port, command)
+
+        actual = getattr(last_response, "PWR_STAT", None) if last_response not in (None, "ERROR") else None
+        if actual != command:
+            raise AssertionError(
+                f"{label}: PWR_STAT did not reach {command} within "
+                f"{POWER_TRANSITION_TIMEOUT_S:.1f} s (last value {actual})"
+            )
+        response = self._validate_hk(last_response, label=label, log_result=False)
+        info_log.info("%s: PWR_STAT reached %s", label, command)
+        return response
 
     def set_nominal_motor_params(self) -> Any:
         self._repeat(tc.set_mtr_param, *limits.MOTOR_NOMINAL_PARAMS)
@@ -791,13 +865,15 @@ class CommandChecks:
         """Validate HK state and OB rail currents through one uniform API."""
         if response is None:
             response = self.hk(f"{state} state sample")
-        return check_ob_state(
+        measured = check_ob_state(
             response,
             readings,
             state,
             allow_psu_unavailable=allow_psu_unavailable,
             expected_motor_params=self.last_motor_params,
         )
+        self.last_state_readings = measured
+        return measured
 
     def move(
         self,
@@ -851,6 +927,12 @@ class CommandChecks:
             self._assert_elapsed_within_tolerance(label, elapsed, max_duration_s, tolerance_s=2.0)
         relative_steps = int(getattr(finished, "MTR_REL_STEPS", 0) or 0)
         speed_mm_s = self._movement_speed_mm_s(relative_steps, elapsed)
+        self.last_motion_report = {
+            "absolute_steps": int(getattr(finished, "MTR_ABS_STEPS", 0) or 0),
+            "relative_steps": relative_steps,
+            "elapsed_s": elapsed,
+            "speed_mm_s": speed_mm_s,
+        }
         event_log.info(
             "%s movement complete in %.2f s; travelled %.3f mm; speed %.3f mm/s",
             label,
@@ -948,6 +1030,12 @@ class CommandChecks:
             errors.append(f"position={finished.MTR_ABS_STEPS}, expected {expected_position}")
         _assert_no_errors(label, errors)
         relative = getattr(finished, "MTR_REL_STEPS", finished.MTR_ABS_STEPS - before.MTR_ABS_STEPS)
+        self.last_motion_report = {
+            "absolute_steps": int(getattr(finished, "MTR_ABS_STEPS", 0) or 0),
+            "relative_steps": int(relative or 0),
+            "elapsed_s": elapsed,
+            "speed_mm_s": speed_mm_s,
+        }
         event_log.info(
             "%s homing completed in %.2f s; relative steps=%s; absolute steps=%s",
             label,
@@ -1027,8 +1115,6 @@ class CommandChecks:
             ):
                 return
             readings = self.current_reader() if self.current_reader is not None else {}
-            if not readings:
-                return
             active_samples.append(readings)
             active_responses.append(current_response)
 
@@ -1057,7 +1143,9 @@ class CommandChecks:
                 )
                 check_active_sample(response)
 
-            if active_state is not None and active_samples:
+            if active_state is not None:
+                if not active_samples:
+                    raise AssertionError(f"{label}: no moving HK/PSU sample captured for {active_state} validation")
                 # The first moving HK can still be paired with pre-motion PSU
                 # telemetry, while the last can see current decay before the HK
                 # moving flag clears. Exclude both transition edges whenever a

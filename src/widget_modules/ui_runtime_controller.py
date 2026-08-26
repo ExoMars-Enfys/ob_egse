@@ -1053,12 +1053,27 @@ def request_force_pause(
     check_label = str(label).strip() if label is not None else ""
     check_passed = passed if passed is not None else (not errors if errors is not None else None)
 
+    def format_psu_currents(values: dict[str, Any]) -> str:
+        lines: list[str] = []
+        for channel in ("CH1", "CH2", "CH3", "CH4"):
+            if channel not in values:
+                continue
+            value = values[channel]
+            try:
+                lines.append(f"{channel}: {float(value):.1f} mA")
+            except (TypeError, ValueError):
+                lines.append(f"{channel}: {value} mA")
+        return "\n".join(lines)
+
     if check_passed is None:
         message = check_label or "Execution paused. Press Resume in Script Controls to continue."
     elif check_passed:
-        message = f"{check_label or 'Check'} verification passed"
+        message = f"{check_label or 'Test'} passed."
         if readings:
-            message += f": {readings}"
+            current_lines = format_psu_currents(readings)
+            message += "\n\nPSU check passed."
+            if current_lines:
+                message += f"\n\nPSU currents:\n{current_lines}"
     else:
         failure_details = [str(error).strip() for error in (errors or []) if str(error).strip()]
         message = f"{check_label or 'Check'} verification failed"
@@ -1066,7 +1081,9 @@ def request_force_pause(
             message += f": {len(failure_details)} error{'s' if len(failure_details) != 1 else ''}:\n"
             message += "\n".join(f"{index + 1}. {error}" for index, error in enumerate(failure_details))
         if readings:
-            message += f"\nReadings: {readings}"
+            current_lines = format_psu_currents(readings)
+            if current_lines:
+                message += f"\n\nPSU currents:\n{current_lines}"
 
     _FORCE_PAUSE_EVENT.set()
     _open_force_pause_dialogs(message, check_passed)
@@ -1076,6 +1093,31 @@ def request_force_pause(
             _close_force_pause_dialogs()
             raise RuntimeError("Script aborted during forced pause.")
         time.sleep(0.25)
+
+
+def handle_script_check_failure(
+    label: str,
+    errors: list[str],
+    readings: dict[str, Any] | None = None,
+) -> bool:
+    """Ask whether to continue after a failed check, then force-pause if approved."""
+    details = "\n".join(f"{index + 1}. {error}" for index, error in enumerate(errors))
+    message = f"{label} failed.\n\nDo you want to keep the script running?"
+    if details:
+        message += f"\n\nFailure details:\n{details}"
+
+    continue_script = request_confirmation(
+        message,
+        title="Script check failed",
+        confirm_label="Continue script",
+        cancel_label="Abort script",
+    )
+    if not continue_script:
+        request_abort()
+        raise ScriptAbortRequested(f"Operator aborted after failed check: {label}")
+
+    request_force_pause(label, errors=errors, readings=readings, passed=False)
+    return True
 
 
 # endregion

@@ -47,7 +47,10 @@ class OBSerialWorker:
                 _, _, future, function, args, kwargs = self._queue.get(timeout=0.1)
             except Exception:
                 continue
-            if future.cancelled():
+            # Atomically claim the future before touching the serial port. This
+            # prevents a cyclic disable/close from cancelling a transaction
+            # after it has started and killing the worker on set_result().
+            if not future.set_running_or_notify_cancel():
                 self._queue.task_done()
                 continue
             try:

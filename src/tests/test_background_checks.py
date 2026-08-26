@@ -189,9 +189,11 @@ def test_check_ob_state_uses_idle_threshold_for_state5():
 
     assert check_ob_state(
         response,
-        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.0), "CH3": (5.0, 0.060)},
+        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.0), "CH3": (5.0, 0.075)},
         "State5",
-    ) == {"CH1": 18.0, "CH2": 0.0, "CH3": 60.0}
+    ) == {"CH1": 18.0, "CH2": 0.0, "CH3": 75.0}
+
+    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 70.0}
 
 
 def test_motor_hold_current_accepts_phase_dependent_nonzero_current():
@@ -458,6 +460,14 @@ def test_ob_current_profile_sums_active_components():
     assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
 
 
+def test_all_reported_state_profiles_include_every_active_component():
+    assert calculate_ob_current_profile("State1") == {"CH1": 0.0, "CH2": 0.0, "CH3": 60.0}
+    assert calculate_ob_current_profile("State2") == {"CH1": 0.0, "CH2": 124.0, "CH3": 60.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
+    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 70.0}
+    assert calculate_ob_current_profile("State7") == {"CH1": 102.4, "CH2": 129.7, "CH3": 77.0}
+
+
 def test_ob_current_profile_includes_movement_component():
     moving_state = _hk(
         PWR_STAT=3,
@@ -467,7 +477,7 @@ def test_ob_current_profile_includes_movement_component():
     assert calculate_ob_current_profile(moving_state) == {
         "CH1": 102.4,
         "CH2": 129.7,
-        "CH3": 67.0,
+        "CH3": 77.0,
     }
 
 

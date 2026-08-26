@@ -26,11 +26,11 @@ MODEL_BITMAPS = {
     "FS": "110",
     "CMOD EGSE": "111",
 }
-DEFAULT_COM_PORT = 9
+DEFAULT_COM_PORT = 6
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
-PSU_COM_PORT = 8
+PSU_COM_PORT = 10
 PSU_LOGGING_FREQ = 10  # in HZ
 
 # Scope Config (Tektronix MSO44B, direct-cabled LAN link — see tek_scope_api)
