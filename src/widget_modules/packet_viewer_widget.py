@@ -153,9 +153,14 @@ class PacketViewerController:
         is_ob_science = self.packet_type == "OB_SCI"
         ob_stitched_mode = False
         if is_ob_science:
-            capture_active = bool(self.app_state.get("ob_sci_capture_active"))
             stitched_scans = ui_runtime_controller.get_ob_sci_scans()
-            if stitched_scans and not capture_active:
+            # Completed scans are controller-owned and authoritative.  Do not
+            # hide them because a viewer-local capture flag can remain true
+            # briefly (or belong to a newly started capture) after a scan has
+            # already been finalized.  Once one completed scan exists, always
+            # present the scan navigator; an in-progress point list is only a
+            # fallback before the first completed scan.
+            if stitched_scans:
                 packets = stitched_scans
                 ob_stitched_mode = True
             else:

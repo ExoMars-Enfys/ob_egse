@@ -24,10 +24,10 @@ def run_OB_sci_replay(
 
     Args:
         log_path: Path to the OB science log to replay.
-        info_log_path: Optional matching INFO log. When supplied, every
-            ``Running ABU Measurement Scan`` through ``Send MTR_Halt`` window
-            becomes a separate stitched scan and DAC-offset readings outside
-            those windows are excluded.
+        info_log_path: Optional matching INFO log. If omitted, the matching
+            ``*_INFO.log`` beside the SCI log is selected automatically.
+            Completed OB SCI capture windows become separate stitched scans;
+            DAC-offset readings outside those windows are excluded.
         point_delay_s: Delay between points, allowing the UI to update as if
             telemetry were arriving live. Use ``0`` for the fastest replay.
         label: Name stored on the resulting stitched scan packet.

@@ -810,29 +810,68 @@ def replay_ob_sci_log(
         raise ValueError(f"No valid OB science measurements found in {log_path}")
 
     if info_log_path is None:
+        sci_path = Path(log_path)
+        sci_name_lower = sci_path.name.lower()
+        if sci_name_lower.endswith("_sci.log"):
+            expected_info_name = f"{sci_path.name[:-8]}_INFO.log".lower()
+            info_log_path = next(
+                (candidate for candidate in sci_path.parent.iterdir() if candidate.name.lower() == expected_info_name),
+                None,
+            )
+            if info_log_path is not None:
+                info_log.info("Auto-selected matching INFO log for OB SCI replay: %s", info_log_path)
+
+    if info_log_path is None:
         scan_windows = [(science_points[0][0], science_points[-1][0], label)]
+        info_log.warning(
+            "No matching INFO log found for %s; replaying all %s SCI records as one scan",
+            log_path,
+            len(science_points),
+        )
     else:
-        scan_windows: list[tuple[datetime, datetime, str]] = []
-        open_scan: tuple[datetime, str] | None = None
+        explicit_windows: list[tuple[datetime, datetime, str]] = []
+        legacy_windows: list[tuple[datetime, datetime, str]] = []
+        explicit_open: tuple[datetime, str] | None = None
+        legacy_open: tuple[datetime, str] | None = None
+        started_capture_pattern = re.compile(r"started ob sci capture\s+\d+\s*:\s*(.+)", re.IGNORECASE)
         with Path(info_log_path).open("r", encoding="utf-8") as handle:
             for line in handle:
                 line_time = _line_time(line)
                 if line_time is None:
                     continue
                 lower_line = line.lower()
+                started_match = started_capture_pattern.search(line)
+                if started_match is not None:
+                    explicit_open = (line_time, started_match.group(1).strip())
+                elif "completed ob sci capture" in lower_line and explicit_open is not None:
+                    explicit_windows.append((explicit_open[0], line_time, explicit_open[1]))
+                    explicit_open = None
+
                 if "running abu measurement scan" in lower_line:
-                    if open_scan is not None:
-                        scan_windows.append((open_scan[0], line_time, open_scan[1]))
-                    open_scan = (line_time, f"{label} {len(scan_windows) + 1}")
-                elif open_scan is not None and any(
+                    # begin_ob_sci_capture is logged immediately before the
+                    # actual scan command.  A final DAC-offset response can
+                    # arrive in that small gap, so use the later command time
+                    # as the inclusive SCI-window boundary.
+                    if explicit_open is not None:
+                        explicit_open = (line_time, explicit_open[1])
+                    if legacy_open is not None:
+                        legacy_windows.append((legacy_open[0], line_time, legacy_open[1]))
+                    legacy_open = (line_time, f"{label} {len(legacy_windows) + 1}")
+                elif legacy_open is not None and any(
                     marker in lower_line for marker in ("send mtr_halt", "script failed", "running clean exit")
                 ):
-                    scan_windows.append((open_scan[0], line_time, open_scan[1]))
-                    open_scan = None
-        if open_scan is not None:
-            scan_windows.append((open_scan[0], science_points[-1][0], open_scan[1]))
+                    legacy_windows.append((legacy_open[0], line_time, legacy_open[1]))
+                    legacy_open = None
+
+        scan_windows = explicit_windows
         if not scan_windows:
-            raise ValueError(f"No 'Running ABU Measurement Scan' markers found in {info_log_path}")
+            if legacy_open is not None:
+                legacy_windows.append((legacy_open[0], science_points[-1][0], legacy_open[1]))
+            scan_windows = legacy_windows
+        if not scan_windows:
+            raise ValueError(
+                f"No completed OB SCI capture or 'Running ABU Measurement Scan' windows found in {info_log_path}"
+            )
 
     total_points = 0
     replayed_scans = 0
@@ -1053,27 +1092,12 @@ def request_force_pause(
     check_label = str(label).strip() if label is not None else ""
     check_passed = passed if passed is not None else (not errors if errors is not None else None)
 
-    def format_psu_currents(values: dict[str, Any]) -> str:
-        lines: list[str] = []
-        for channel in ("CH1", "CH2", "CH3", "CH4"):
-            if channel not in values:
-                continue
-            value = values[channel]
-            try:
-                lines.append(f"{channel}: {float(value):.1f} mA")
-            except (TypeError, ValueError):
-                lines.append(f"{channel}: {value} mA")
-        return "\n".join(lines)
-
     if check_passed is None:
         message = check_label or "Execution paused. Press Resume in Script Controls to continue."
     elif check_passed:
-        message = f"{check_label or 'Test'} passed."
+        message = f"{check_label or 'Check'} verification passed"
         if readings:
-            current_lines = format_psu_currents(readings)
-            message += "\n\nPSU check passed."
-            if current_lines:
-                message += f"\n\nPSU currents:\n{current_lines}"
+            message += f": {readings}"
     else:
         failure_details = [str(error).strip() for error in (errors or []) if str(error).strip()]
         message = f"{check_label or 'Check'} verification failed"
@@ -1081,9 +1105,7 @@ def request_force_pause(
             message += f": {len(failure_details)} error{'s' if len(failure_details) != 1 else ''}:\n"
             message += "\n".join(f"{index + 1}. {error}" for index, error in enumerate(failure_details))
         if readings:
-            current_lines = format_psu_currents(readings)
-            if current_lines:
-                message += f"\n\nPSU currents:\n{current_lines}"
+            message += f"\nReadings: {readings}"
 
     _FORCE_PAUSE_EVENT.set()
     _open_force_pause_dialogs(message, check_passed)
@@ -1093,31 +1115,6 @@ def request_force_pause(
             _close_force_pause_dialogs()
             raise RuntimeError("Script aborted during forced pause.")
         time.sleep(0.25)
-
-
-def handle_script_check_failure(
-    label: str,
-    errors: list[str],
-    readings: dict[str, Any] | None = None,
-) -> bool:
-    """Ask whether to continue after a failed check, then force-pause if approved."""
-    details = "\n".join(f"{index + 1}. {error}" for index, error in enumerate(errors))
-    message = f"{label} failed.\n\nDo you want to keep the script running?"
-    if details:
-        message += f"\n\nFailure details:\n{details}"
-
-    continue_script = request_confirmation(
-        message,
-        title="Script check failed",
-        confirm_label="Continue script",
-        cancel_label="Abort script",
-    )
-    if not continue_script:
-        request_abort()
-        raise ScriptAbortRequested(f"Operator aborted after failed check: {label}")
-
-    request_force_pause(label, errors=errors, readings=readings, passed=False)
-    return True
 
 
 # endregion
@@ -3745,6 +3742,7 @@ def dispatch_eb_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: An
 def render_sci_plotly_figures(
     sci_packets: list[Any],
     title_prefix: str = "SCI Buffer",
+    adc_right_shift: int = 0,
 ) -> list[Any]:
     """Build interactive SCI figures for EB packets or accumulated OB points.
 
