@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import weakref
+from collections import deque
 
 # Std library
 from dataclasses import dataclass
@@ -297,6 +299,39 @@ def create_plot_card(
 
     active_y_limits = _selected_y_limits()
     limits_user_visible = True
+    rolling_y_values = [deque(maxlen=limit) for _ in series]
+
+    def _rolling_auto_limits() -> tuple[float, float] | None:
+        values: list[float] = []
+        for index, history in enumerate(rolling_y_values):
+            if not series_user_visible[index] or not _series_allowed(index):
+                continue
+            values.extend(value for value in history if math.isfinite(value))
+        if not values:
+            return None
+        low = min(values)
+        high = max(values)
+        if low == high:
+            padding = max(abs(low) * 0.02, 0.01)
+        else:
+            padding = (high - low) * 0.08
+        return low - padding, high + padding
+
+    def _apply_y_axis_policy() -> None:
+        """Use engineering bounds with limits shown, visible-data autoscale otherwise."""
+        nonlocal active_y_limits
+        active_y_limits = _selected_y_limits() if limits_user_visible else None
+        if active_y_limits is not None:
+            ax.set_autoscaley_on(False)
+            ax.set_ylim(*active_y_limits)
+            return
+
+        # Reference lines were added with autolim=False, so only visible live
+        # telemetry series contribute to this data-driven view.
+        ax.set_autoscaley_on(True)
+        ax.relim(visible_only=True)
+        ax.autoscale_view(scalex=False, scaley=True)
+        ax.margins(y=0.08)
 
     def _update_limit_lines() -> None:
         for group in limit_line_groups:
@@ -436,17 +471,22 @@ def create_plot_card(
     def _reset_series() -> None:
         for line in lines:
             line.set_data([], [])
+        for history in rolling_y_values:
+            history.clear()
         ax.relim()
         ax.autoscale_view(scalex=True, scaley=False)
         _redraw_plot()
 
-    if active_y_limits is not None:
-        ax.set_ylim(*active_y_limits)
+    _apply_y_axis_policy()
     ax.set_ylabel("ADU" if current_display_mode == "ADU" else y_label)
     _update_limit_lines()
     top = 0.92 if show_title else 0.98
     # Keep a little bottom room for footer timestamp while maximizing plot area.
-    fig.subplots_adjust(left=0.01, right=0.999, top=top, bottom=0.12)
+    # Keep tick labels and the Y-axis unit inside the rendered canvas.  A near-
+    # zero left margin clips them at the NiceGUI image boundary, especially for
+    # three/four-digit ADU and mA ranges.  Use a fixed in-canvas gutter rather
+    # than tight_layout, which is too expensive for live plots.
+    fig.subplots_adjust(left=0.065, right=0.995, top=top, bottom=0.14)
     footer_text_right = fig.text(
         0.992,
         0.02,
@@ -513,6 +553,8 @@ def create_plot_card(
             def _handler(e: Any) -> None:
                 series_user_visible[index] = bool(e.value)
                 _apply_series_visibility()
+                if not limits_user_visible:
+                    _apply_y_axis_policy()
                 _refresh_legend()
 
             return _handler
@@ -526,6 +568,7 @@ def create_plot_card(
             nonlocal limits_user_visible
             limits_user_visible = bool(e.value)
             _update_limit_lines()
+            _apply_y_axis_policy()
             _refresh_legend()
 
         limits_checkbox.on_value_change(_handle_limits_toggle)
@@ -533,10 +576,7 @@ def create_plot_card(
     _apply_series_visibility()
 
     def _apply_display_configuration() -> None:
-        nonlocal active_y_limits
-        active_y_limits = _selected_y_limits()
-        if active_y_limits is not None:
-            ax.set_ylim(*active_y_limits)
+        _apply_y_axis_policy()
         ax.set_ylabel("ADU" if current_display_mode == "ADU" else y_label)
         _update_limit_lines()
 
@@ -579,10 +619,23 @@ def create_plot_card(
         """Push one sample per series.  series_values[i] is the list of y-values
         for series i at the corresponding time_points."""
         if stream_enabled and time_points:
+            for index, values in enumerate(series_values[: len(rolling_y_values)]):
+                for value in values:
+                    try:
+                        rolling_y_values[index].append(float(value))
+                    except (TypeError, ValueError):
+                        continue
+            push_y_limits: tuple[float, float] | str
+            if active_y_limits is not None:
+                push_y_limits = active_y_limits
+            else:
+                # Compute a bounded rolling range here instead of asking
+                # NiceGUI/Matplotlib to perform a full autoscale on every tick.
+                push_y_limits = _rolling_auto_limits() or ax.get_ylim()
             plot.push(
                 time_points,
                 series_values,
-                y_limits=active_y_limits if active_y_limits is not None else "auto",
+                y_limits=push_y_limits,
             )
 
     return PlotCardController(
