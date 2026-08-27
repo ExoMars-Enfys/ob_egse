@@ -6,7 +6,7 @@ from queue import Empty
 
 from core_modules import constants as const
 from utility_modules import eb_interface, ebtcs
-from utility_modules.eb_packet_utility import get_latest_hk
+from utility_modules.eb_packet_utility import get_latest_hk, get_smoothed_latest_psu, wait_for_fresh_psu
 from widget_modules import ui_runtime_controller
 
 info_log = logging.getLogger("info_log")
@@ -50,7 +50,7 @@ def run_emc_init(verification: bool = True) -> None:
         errors = []
         try:
             latest_hk = get_latest_hk()
-            latest_psu = const.psu_queue.get(timeout=2.0)
+            latest_psu = get_smoothed_latest_psu(5) if wait_for_fresh_psu(timeout=2.0) is not None else None
         except Empty:
             errors.append("Missing HK or PSU queue data (mech ON, det ON)")
             latest_hk = None

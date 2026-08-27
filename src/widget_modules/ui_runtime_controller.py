@@ -21,7 +21,14 @@ from nicegui.client import Client as _NiceGuiClient
 
 # utilities
 from utility_modules import app_theme, eb_interface, eb_packet_utility, ebtcs, hk_conversions, psu, psu_log_utility
-from utility_modules.eb_packet_utility import get_latest_hk, get_latest_psu, set_latest_psu, wait_for_fresh_hk
+from utility_modules.eb_packet_utility import (
+    get_latest_hk,
+    get_latest_psu,
+    get_smoothed_latest_psu,
+    set_latest_psu,
+    wait_for_fresh_hk,
+    wait_for_fresh_psu,
+)
 
 # core
 from core_modules import tmstruct, constants as const, config
@@ -1071,6 +1078,37 @@ def request_confirmation(
     return _CONFIRM_RESULT
 
 
+def handle_script_check_failure(
+    label: str,
+    errors: list[str],
+    readings: dict[str, Any] | None = None,
+) -> bool:
+    """Ask the operator whether an OB FFT check failure should be overridden.
+
+    This is the callback expected by ``scripts_modules.OB_FFT.report_check``.
+    Return ``True`` to continue the script despite the failed check, or ``False``
+    to let ``background_checks.report_check`` raise and stop the script.
+    """
+    numbered = "\n".join(f"{index + 1}. {error.strip()}" for index, error in enumerate(errors))
+    message = f"{label} verification failed:\n{numbered}"
+    if readings:
+        reading_lines = "\n".join(f"- {name}: {value}" for name, value in readings.items())
+        message += f"\n\nMeasured readings:\n{reading_lines}"
+    message += "\n\nContinue the OB FFT despite this failed check?"
+
+    continue_run = request_confirmation(
+        message,
+        title=f"{label} check failed",
+        confirm_label="Continue",
+        cancel_label="Abort",
+    )
+    if continue_run:
+        info_log.warning("Operator overrode failed OB FFT check: %s — %s", label, errors)
+    else:
+        info_log.error("Operator aborted after failed OB FFT check: %s — %s", label, errors)
+    return continue_run
+
+
 def request_force_pause(
     label: str = "",
     errors: list[str] | None = None,
@@ -1306,10 +1344,10 @@ def windowed_consumption_check(
     moving_true_count = 0
 
     while time.monotonic() < deadline:
-        try:
-            sample = get_smoothed_psu_sample(const.psu_queue, timeout=per_sample_timeout_s)
-        except Empty:
+        fresh = wait_for_fresh_psu(timeout=per_sample_timeout_s)
+        if fresh is None:
             continue
+        sample = get_smoothed_latest_psu(_SCRIPT_PSU_MA_WINDOW_SAMPLES)
         if not isinstance(sample, dict):
             continue
         measured_current_ma = float(sample.get("PSU_EB_I") or 0.0) * 1000.0
@@ -1885,7 +1923,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         for val, name in value_fields:
             if val is None:
                 result["passed"] = False
-                result["details"].append(f"{name} is None")
+                result["details"].append(f"{name}. Got: None, Expected: numeric HK value")
 
         # Only check ranges if all values are present
         if all(val is not None for val, _ in value_fields):
@@ -1897,39 +1935,32 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             eb_0v = eb_0v_raw * 0.0000763
             eb_tec_i = eb_tec_i_raw * 0.0000162
             checks = [
-                (11.0 <= eb_12v <= 13.0, f"EB 12V out of range: {eb_12v:.2f} V"),
-                (-13.0 <= eb_neg12v <= -11.0, f"EB -12V out of range: {eb_neg12v:.2f} V"),
-                (4.5 <= eb_5v <= 5.5, f"EB 5V out of range: {eb_5v:.2f} V"),
-                (2.8 <= eb_3v3 <= 3.8, f"EB 3V3 out of range: {eb_3v3:.2f} V"),
-                (-0.5 <= eb_tec_v <= 0.5, f"EB TEC V out of range: {eb_tec_v:.2f} V"),
-                (-0.5 <= eb_0v <= 0.5, f"EB 0V out of range: {eb_0v:.2f} V"),
-                (-0.1 <= eb_tec_i <= 0.1, f"EB TEC I out of range: {eb_tec_i:.4f} A"),
+                (11.0 <= eb_12v <= 13.0, f"EB 12V out of range. Got: {eb_12v:.2f} V, Expected: 11.00 to 13.00 V"),
+                (-13.0 <= eb_neg12v <= -11.0, f"EB -12V out of range. Got: {eb_neg12v:.2f} V, Expected: -13.00 to -11.00 V"),
+                (4.5 <= eb_5v <= 5.5, f"EB 5V out of range. Got: {eb_5v:.2f} V, Expected: 4.50 to 5.50 V"),
+                (2.8 <= eb_3v3 <= 3.8, f"EB 3V3 out of range. Got: {eb_3v3:.2f} V, Expected: 2.80 to 3.80 V"),
+                (-0.5 <= eb_tec_v <= 0.5, f"EB TEC V out of range. Got: {eb_tec_v:.2f} V, Expected: -0.50 to 0.50 V"),
+                (-0.5 <= eb_0v <= 0.5, f"EB 0V out of range. Got: {eb_0v:.2f} V, Expected: -0.50 to 0.50 V"),
+                (-0.1 <= eb_tec_i <= 0.1, f"EB TEC I out of range. Got: {eb_tec_i:.4f} A, Expected: -0.1000 to 0.1000 A"),
             ]
             for ok, msg in checks:
                 if not ok:
                     result["passed"] = False
                     result["details"].append(msg)
 
-        if getattr(hk, "TCS_REJECTED", None) != 0:
-            result["passed"] = False
-            result["details"].append(f"TCS_REJECTED not 0: {getattr(hk, 'TCS_REJECTED', None)}")
-        if getattr(hk, "INSTRUMENT_STATUS_FLAGS", None) != 25604:
-            result["passed"] = False
-            result["details"].append(
-                f"INSTRUMENT_STATUS_FLAGS not 25604: {getattr(hk, 'INSTRUMENT_STATUS_FLAGS', None)}"
-            )
-        if getattr(hk, "ERROR_FLAGS", None) != 0:
-            result["passed"] = False
-            result["details"].append(f"ERROR_FLAGS not 0: {getattr(hk, 'ERROR_FLAGS', None)}")
-        if getattr(hk, "WARNING_FLAGS", None) != 0:
-            result["passed"] = False
-            result["details"].append(f"WARNING_FLAGS not 0: {getattr(hk, 'WARNING_FLAGS', None)}")
-        if getattr(hk, "FDIR_ALARM_FLAGS", None) != 0:
-            result["passed"] = False
-            result["details"].append(f"FDIR_ALARM_FLAGS not 0: {getattr(hk, 'FDIR_ALARM_FLAGS', None)}")
-        if getattr(hk, "FDIR_WARNING_FLAGS", None) != 0:
-            result["passed"] = False
-            result["details"].append(f"FDIR_WARNING_FLAGS not 0: {getattr(hk, 'FDIR_WARNING_FLAGS', None)}")
+        scalar_checks = (
+            ("TCS_REJECTED", 0),
+            ("INSTRUMENT_STATUS_FLAGS", 25604),
+            ("ERROR_FLAGS", 0),
+            ("WARNING_FLAGS", 0),
+            ("FDIR_ALARM_FLAGS", 0),
+            ("FDIR_WARNING_FLAGS", 0),
+        )
+        for field, expected in scalar_checks:
+            actual = getattr(hk, field, None)
+            if actual != expected:
+                result["passed"] = False
+                result["details"].append(f"{field} mismatch. Got: {actual}, Expected: {expected}")
         return result
 
     elif hk_type == "post":
@@ -1965,31 +1996,46 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
         if not all_post_passed:
             result["passed"] = False
             # Add details for each failed check
-            if getattr(post, "POST_WARNING_FLAGS", None) != 0:
-                result["details"].append(f"POST_WARNING_FLAGS: {getattr(post, 'POST_WARNING_FLAGS', None)}")
-            if getattr(post, "POST_ERROR_FLAGS", None) != 0:
-                result["details"].append(f"POST_ERROR_FLAGS: {getattr(post, 'POST_ERROR_FLAGS', None)}")
-            if getattr(post, "NUM_BAD_FLASH_BLOCKS", None) != 0:
-                result["details"].append(f"NUM_BAD_FLASH_BLOCKS: {getattr(post, 'NUM_BAD_FLASH_BLOCKS', None)}")
-            if getattr(post, "NUM_BAD_SRAM_BLOCKS", None) != 0:
-                result["details"].append(f"NUM_BAD_SRAM_BLOCKS: {getattr(post, 'NUM_BAD_SRAM_BLOCKS', None)}")
+            post_zero_checks = (
+                "POST_WARNING_FLAGS",
+                "POST_ERROR_FLAGS",
+                "NUM_BAD_FLASH_BLOCKS",
+                "NUM_BAD_SRAM_BLOCKS",
+            )
+            for field in post_zero_checks:
+                actual = getattr(post, field, None)
+                if actual != 0:
+                    result["details"].append(f"{field} mismatch. Got: {actual}, Expected: 0")
             for field, expected in config.POST_EXPECTED_CRC.items():
                 actual = getattr(post, field, None)
                 if actual != expected:
-                    result["details"].append(f"{field}: {actual:#06x}" if actual is not None else f"{field}: None")
-            # Optionally, add converted values to details for debugging
-            if tm_12v is not None:
-                result["details"].append(f"TM_12V: {tm_12v:.2f} V")
-            if tm_neg12v is not None:
-                result["details"].append(f"TM_NEG12V: {tm_neg12v:.2f} V")
-            if tm_5v is not None:
-                result["details"].append(f"TM_5V: {tm_5v:.2f} V")
-            if tm_3v3 is not None:
-                result["details"].append(f"TM_3V3: {tm_3v3:.2f} V")
-            if eb_processor_temp is not None:
-                result["details"].append(f"EB_PROCESSOR_TEMP: {eb_processor_temp:.2f} C")
-            if tec_detector_temp is not None:
-                result["details"].append(f"TEC_DETECTOR_TEMP: {tec_detector_temp:.2f} C")
+                    actual_text = f"0x{actual:04X}" if isinstance(actual, int) else str(actual)
+                    expected_text = f"0x{expected:04X}" if isinstance(expected, int) else str(expected)
+                    result["details"].append(
+                        f"{field} mismatch. Got: {actual_text}, Expected: {expected_text}"
+                    )
+            # Keep converted engineering values separate from actual POST failures.
+            # They are diagnostic context only and must not inflate the error count.
+            post_engineering_values = (
+                ("TM_12V", tm_12v, const.WLIM_EB_12V, "V"),
+                ("TM_NEG12V", tm_neg12v, const.WLIM_EB_NEG12V, "V"),
+                ("TM_5V", tm_5v, const.WLIM_EB_5V, "V"),
+                ("TM_3V3", tm_3v3, const.WLIM_EB_3V3, "V"),
+                ("EB_PROCESSOR_TEMP", eb_processor_temp, const.WLIM_EB_MCU_INTERNAL_TEMP, "C"),
+                ("TEC_DETECTOR_TEMP", tec_detector_temp, const.WLIM_TPR, "C"),
+            )
+            diagnostics = []
+            for field, actual, expected_range, unit in post_engineering_values:
+                if actual is None:
+                    continue
+                low, high = expected_range
+                status = "PASS" if low <= actual <= high else "OUT OF RANGE"
+                diagnostics.append(
+                    f"{field}: Got: {actual:.2f} {unit}, "
+                    f"Expected: {low:.2f} to {high:.2f} {unit} [{status}]"
+                )
+            if diagnostics:
+                result["diagnostics"] = diagnostics
         return result
 
     else:
@@ -2281,20 +2327,12 @@ def pull_post_after_ret(timeout_s: float = 6.0, poll_s: float = 0.2) -> Any | No
 
 
 def pull_psu_after_ret(timeout_s: float = 6.0, poll_timeout_s: float = 0.5) -> dict[str, Any] | None:
-    """Return a smoothed PSU sample after RET, with fallback to cached latest sample."""
-    deadline = time.monotonic() + max(0.1, timeout_s)
-    while time.monotonic() < deadline:
-        try:
-            sample = get_smoothed_psu_sample(const.psu_queue, timeout=poll_timeout_s)
-            if isinstance(sample, dict):
-                set_latest_psu(sample)
-                return sample
-        except Empty:
-            cached = get_latest_psu()
-            if isinstance(cached, dict):
-                return cached
-        time.sleep(0.1)
-
+    """Return a fresh PSU monitor sample after RET without draining the plot queue."""
+    sample = wait_for_fresh_psu(timeout=timeout_s)
+    if isinstance(sample, dict):
+        # Use the recent cache window for current smoothing, but preserve freshness.
+        smoothed = get_smoothed_latest_psu(_SCRIPT_PSU_MA_WINDOW_SAMPLES)
+        return smoothed if isinstance(smoothed, dict) else sample
     cached = get_latest_psu()
     return cached if isinstance(cached, dict) else None
 
@@ -2308,8 +2346,8 @@ def verify_power_state(state: str) -> tuple[str, bool]:
 
     State2  — OB Heating:           heater verification (via consumption_check)
     State3  — OB Heating + Boards:  State2 checks + mech/det boards enabled
-    State4  — OB Heating + TEC 1A:  State3 checks + TEC current > 1 A
-    State5  — Boards + TEC 1A:      boards enabled + TEC current > 1 A
+    State4  — OB Heating + TEC:      State3 checks + configured TEC current check
+    State5  — Boards + TEC:          boards enabled + configured TEC current check
     State7  — All Active:           State4 checks + motor moving
 
     Returns (msg, passed) — the same contract as verify_safe_ret / verify_standby_ret.
@@ -2320,13 +2358,13 @@ def verify_power_state(state: str) -> tuple[str, bool]:
     errors: list[str] = []
     ch4_current_ma: float | None = None
 
-    try:
-        latest_hk = get_latest_hk()
-        latest_psu = get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-    except Empty:
-        errors.append(f"Missing HK or PSU queue data for {state} verification")
-        latest_hk = None
-        latest_psu = None
+    latest_hk = get_latest_hk()
+    fresh_psu = wait_for_fresh_psu(timeout=2.0)
+    latest_psu = get_smoothed_latest_psu(_SCRIPT_PSU_MA_WINDOW_SAMPLES) if fresh_psu is not None else None
+    if latest_hk is None:
+        errors.append(f"Missing HK data for {state} verification")
+    if latest_psu is None:
+        errors.append(f"Missing fresh PSU monitor data for {state} verification")
 
     # --- PSU consumption + heater check ---
     if latest_psu is not None:
@@ -2344,13 +2382,16 @@ def verify_power_state(state: str) -> tuple[str, bool]:
             if not det_board:
                 errors.append("Det board not enabled (INSTR_STATUS_FLAGS.OB_DETECTOR_BOARD_ENABLED=0)")
 
-        # --- TEC at 1 A (State4 / State5 / State7) ---
+        # --- TEC clamped at configured current +/- tolerance (State4 / State5 / State7) ---
         if state in _TEC_STATES:
+            tec_target_a = float(config.TEC_EXPECTED_CURRENT_A)
+            tec_tolerance_a = float(config.TEC_CURRENT_TOLERANCE_A)
             tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
-            if tec_current <= 1.0:
-                # TEC may still be ramping — poll for up to 30 s before failing
+            if abs(tec_current - tec_target_a) > tec_tolerance_a:
+                # TEC may still be ramping — poll for up to 30 s before failing.
                 info_log.debug(
-                    "%s TEC current %.3f A <= 1.0 A, waiting for ramp-up (up to 30 s)...", state, tec_current
+                    "%s TEC current %.3f A outside %.2f +/- %.2f A; waiting up to 30 s...",
+                    state, tec_current, tec_target_a, tec_tolerance_a
                 )
                 _tec_ramped = False
                 for _ in range(30):
@@ -2358,12 +2399,15 @@ def verify_power_state(state: str) -> tuple[str, bool]:
                     _poll_hk = get_latest_hk()
                     if _poll_hk is not None:
                         tec_current = getattr(_poll_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
-                        if tec_current > 1.0:
+                        if abs(tec_current - tec_target_a) <= tec_tolerance_a:
                             latest_hk = _poll_hk  # use the fresher HK for remaining checks
                             _tec_ramped = True
                             break
                 if not _tec_ramped:
-                    errors.append(f"TEC current not at 1 A: {tec_current:.3f} A (expected > 1.0 A)")
+                    errors.append(
+                        f"TEC current not clamped at {tec_target_a:.2f} A: {tec_current:.3f} A "
+                        f"(allowed {tec_target_a - tec_tolerance_a:.2f} to {tec_target_a + tec_tolerance_a:.2f} A)"
+                    )
 
         # --- Motor moving (State7) ---
         if state == "State7":
@@ -2401,9 +2445,9 @@ def verify_safe_ret():
     latest_psu = pull_psu_after_ret(timeout_s=6.0)
 
     if latest_post is None:
-        errors.append("\nMissing POST queue data after RET")
+        errors.append("POST packet availability. Got: no POST packet, Expected: POST packet after RET")
     if latest_psu is None:
-        errors.append("\nMissing PSU queue data after RET")
+        errors.append("PSU sample availability. Got: no PSU sample, Expected: PSU sample after RET")
 
     ch4_current_ma = None
     if latest_psu is not None:
@@ -2424,7 +2468,12 @@ def verify_safe_ret():
         count = len(errors)
         numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
         info_log.error(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
-        msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''} :\n" + "\n".join(numbered)
+        msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
+        diagnostics = result.get("diagnostics", []) if isinstance(result, dict) else []
+        if diagnostics:
+            msg += "\n\nPOST diagnostics (informational):\n" + "\n".join(
+                f"- {line}" for line in diagnostics
+            )
         notify_negative(msg)
         return msg, False
     else:
@@ -2434,17 +2483,31 @@ def verify_safe_ret():
         return msg, True
 
 
-def verify_standby_ret():
+def verify_standby_ret(
+    after_hk_sequence: int | None = None,
+    after_psu_sequence: int | None = None,
+):
     errors = []
-    # Wait for a fresh HK packet that arrives after the standby TC, not a cached one
-    try:
-        latest_hk = wait_for_fresh_hk(timeout=5.0)
-        if latest_hk is None:
-            errors.append("Timed out waiting for fresh HK after STANDBY")
-        latest_psu = get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-    except Empty:
-        errors.append("\nMissing PSU queue data after STANDBY")
-        latest_psu = None
+    # Wait for telemetry newer than the markers captured before STANDBY. This
+    # accepts data that arrived during the normal settling delay instead of
+    # accidentally demanding another packet after verification starts.
+    latest_hk = wait_for_fresh_hk(timeout=5.0, after_sequence=after_hk_sequence)
+    if latest_hk is None:
+        hk_age = eb_packet_utility.get_latest_hk_age_s()
+        age_text = "no HK cached" if hk_age is None else f"latest HK is {hk_age:.2f} s old"
+        errors.append(
+            f"HK packet availability. Got: no HK newer than the STANDBY marker within 5.0 s ({age_text}), "
+            "Expected: HK packet after STANDBY"
+        )
+    fresh_psu = wait_for_fresh_psu(timeout=2.0, after_sequence=after_psu_sequence)
+    latest_psu = get_smoothed_latest_psu(_SCRIPT_PSU_MA_WINDOW_SAMPLES) if fresh_psu is not None else None
+    if latest_psu is None:
+        psu_age = eb_packet_utility.get_latest_psu_age_s()
+        age_text = "no PSU sample cached" if psu_age is None else f"latest PSU sample is {psu_age:.2f} s old"
+        errors.append(
+            f"PSU sample availability. Got: no PSU sample newer than the STANDBY marker within 2.0 s ({age_text}), "
+            "Expected: PSU monitor sample after STANDBY"
+        )
 
     ch4_current_ma = None
     if latest_psu is not None:
@@ -3112,7 +3175,7 @@ def create_poll_tm(
 ) -> Any:
     """Create TM polling callback bound to current controllers and state."""
 
-    def poll_tm() -> None:
+    async def poll_tm() -> None:
         # Independent packet counters
         counts = state.setdefault("packet_counts", {"hk": 0, "post": 0, "sci": 0})
         mode = state.get("mode", "EB")
@@ -3129,12 +3192,21 @@ def create_poll_tm(
                 return
 
             # EB mode packets are sourced from the RS422 decode path.
-            # Only re-read when file mtime changes.
+            # Only re-read when file mtime changes. A parse can take longer as the
+            # session log grows, so never allow timer ticks to stack parse jobs.
+            if state.get("_rs422_parse_busy", False):
+                return
             if eb_interface.rs422_log_changed(Path(rs422_log_path)):
+                state["_rs422_parse_busy"] = True
                 try:
-                    eb_packet_utility.read_pkt(rs422_log_path, latest_only=True)
+                    # read_pkt scans the RS422 log. Logs grow throughout a run, so doing
+                    # this on the UI event loop eventually stalls every NiceGUI timer
+                    # (including the PSU display). Parse it in the I/O worker pool.
+                    await run.io_bound(eb_packet_utility.read_pkt, rs422_log_path, True)
                 except Exception as e:
                     logger.error(f"Failed to read packet log: {e}")
+                finally:
+                    state["_rs422_parse_busy"] = False
 
         processed_hk = False
         last_hk_time = state.setdefault("latest_hk_time", None)

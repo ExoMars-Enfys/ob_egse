@@ -42,7 +42,7 @@ def run_emc_hs(verification : bool = False) -> None:
         errors = []
         try:
             latest_hk = ebpu.get_latest_hk()
-            latest_psu = const.psu_queue.get(timeout=2.0)
+            latest_psu = ebpu.get_smoothed_latest_psu(5) if ebpu.wait_for_fresh_psu(timeout=2.0) is not None else None
         except Empty:
             errors.append("Missing HK or PSU queue data (mech ON, det ON)")
             latest_hk = None

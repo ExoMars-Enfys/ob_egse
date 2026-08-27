@@ -85,10 +85,11 @@ def run_tec_test(verification: bool = False, scope_setup_file: str | None = None
 
         psu_sample = None
         if const.psu_queue is not None:
-            try:
-                psu_sample = ui_runtime_controller.get_smoothed_psu_sample(const.psu_queue, timeout=2.0)
-            except Empty:
-                info_log.warning("TEC current report: no PSU sample received at setpoint %d", current)
+            fresh_psu = ebpu.wait_for_fresh_psu(timeout=2.0)
+            if fresh_psu is not None:
+                psu_sample = ebpu.get_smoothed_latest_psu(5)
+            else:
+                info_log.warning("TEC current report: no fresh PSU monitor sample received at setpoint %d", current)
 
         measured_current_ma = None
         if isinstance(psu_sample, dict) and psu_sample.get("PSU_EB_I") is not None:

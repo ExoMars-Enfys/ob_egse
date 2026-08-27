@@ -91,7 +91,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):
@@ -599,7 +599,7 @@ def fft_stage_2(
     # region SCI ACQ with TEC
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
-    sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
+    # sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
     capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
     try:
         sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)

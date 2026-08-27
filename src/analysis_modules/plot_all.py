@@ -12,8 +12,10 @@ import sys
 import tkinter as tk
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from tkinter import filedialog, messagebox
 
+import bitstruct
 import matplotlib as mpl
 import numpy as np
 
@@ -28,6 +30,7 @@ from matplotlib.widgets import Button
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core_modules import tmstruct
 from utility_modules import eb_packet_utility
 from utility_modules.eb_packet_utility import adu_to_temp, decode_eb_trps, parse_eb_hk
 from utility_modules.psu_log_utility import load_psu_channel_samples
@@ -53,6 +56,259 @@ def _parse_rs422_timestamp(line, offset):
     except Exception:
         return None
 
+
+
+_NATIVE_LOG_SUFFIX_RE = re.compile(r"^(?P<prefix>.+)_(?P<kind>HK|SCI|PSU)\.(?:log|txt)$", re.IGNORECASE)
+_NATIVE_TIMESTAMP_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S,%f",
+    "%Y-%m-%d %H:%M:%S",
+)
+
+
+def _parse_native_timestamp(text):
+    for fmt in _NATIVE_TIMESTAMP_FORMATS:
+        try:
+            return datetime.strptime(text.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _native_log_line_bytes(line):
+    """Return ``(timestamp, payload_bytes)`` for native OB byte-log lines."""
+    parts = line.strip().split(" - ", 1)
+    if len(parts) != 2:
+        return None, None
+    timestamp = _parse_native_timestamp(parts[0])
+    if timestamp is None:
+        return None, None
+    words = re.findall(r"\b(?:[0-9A-Fa-f]{4}|[0-9A-Fa-f]{2})\b", parts[1])
+    if not words:
+        return timestamp, None
+    try:
+        return timestamp, bytes.fromhex("".join(words))
+    except ValueError:
+        return timestamp, None
+
+
+def _unpack_struct(raw_bytes, struct):
+    fmt = "".join(field_fmt for _name, field_fmt in struct)
+    names = [name for name, _field_fmt in struct]
+    expected_bits = bitstruct.calcsize(fmt)
+    expected_bytes = (expected_bits + 7) // 8
+    if len(raw_bytes) != expected_bytes:
+        return None
+    try:
+        return bitstruct.unpack_dict(fmt, names, raw_bytes)
+    except Exception:
+        return None
+
+
+def _decode_native_flag_byte(value, struct):
+    try:
+        unpacked = bitstruct.unpack_dict(
+            "".join(field_fmt for _name, field_fmt in struct),
+            [name for name, _field_fmt in struct],
+            bytes([int(value) & 0xFF]),
+        )
+        return SimpleNamespace(**unpacked)
+    except Exception:
+        return None
+
+
+def _native_ob_adc12(raw):
+    """Normalise native OB ADC values to a 12-bit ADU value."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= value <= 0x0FFF:
+        return value
+    if 0 <= value <= 0xFFFF:
+        return (value >> 4) & 0x0FFF
+    return None
+
+
+def extract_ob_hk_packets(log_path):
+    """Read the application's native ``*_HK.LOG`` format."""
+    packets = []
+    path = Path(log_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        print(f"Error reading OB HK log {path}: {exc}")
+        return packets
+
+    for line in lines:
+        timestamp, raw_bytes = _native_log_line_bytes(line)
+        if timestamp is None or raw_bytes is None:
+            continue
+        values = _unpack_struct(raw_bytes, tmstruct.hk)
+        if values is None:
+            continue
+
+        hk = SimpleNamespace(**values)
+        hk.TIME = timestamp
+        hk.LOG_SOURCE = "OB"
+
+        # Aliases used by the combined EB/OB plotting and error machinery.
+        hk.OB_LAST_ERROR = int(getattr(hk, "ERROR_BYTE", 0))
+        hk.OB_MOTOR_ERROR = int(getattr(hk, "ERROR_MTR", 0))
+        hk.ERRORS = _decode_native_flag_byte(hk.OB_LAST_ERROR, tmstruct.error_struct)
+        hk.MTR_ERRORS = _decode_native_flag_byte(hk.OB_MOTOR_ERROR, tmstruct.mtr_error_struct)
+
+        packets.append(hk)
+
+    return packets
+
+
+def extract_ob_sci_packets(log_path):
+    """Read native ``*_SCI.LOG`` packets into plot_all's common SCI representation."""
+    packets = []
+    path = Path(log_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        print(f"Error reading OB SCI log {path}: {exc}")
+        return packets
+
+    for line in lines:
+        timestamp, raw_bytes = _native_log_line_bytes(line)
+        if timestamp is None or raw_bytes is None:
+            continue
+        values = _unpack_struct(raw_bytes, tmstruct.sci)
+        if values is None:
+            continue
+        try:
+            series = {
+                "abs_steps": [int(values["MTR_ABS_STEPS"])],
+                "swir_low": [int(values["SWIR_LOW"])],
+                "swir_med": [int(values["SWIR_MED"])],
+                "swir_high": [int(values["SWIR_HIGH"])],
+                "mwir_low": [int(values["MWIR_LOW"])],
+                "mwir_med": [int(values["MWIR_MED"])],
+                "mwir_high": [int(values["MWIR_HIGH"])],
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+        packets.append(
+            {
+                "timestamp": timestamp,
+                "tm_type_id": None,
+                "source_type": "ob",
+                "series": series,
+                # Keep the complete native SCI packet available for dynamic
+                # parameter plotting (MOD_ID, offsets, temperatures, etc.).
+                "raw_fields": dict(values),
+            }
+        )
+    return packets
+
+
+def discover_ob_log_sets(inputs):
+    """Discover matching native HK/SCI/PSU files from selected files or folders.
+
+    Selecting any one of ``<prefix>_HK.LOG``, ``<prefix>_SCI.LOG`` or
+    ``<prefix>_PSU.log`` discovers the siblings with the same prefix.  Passing a
+    directory discovers every session prefix beneath that directory.
+    """
+    groups = {}
+
+    def add_file(candidate, required_prefix=None):
+        candidate = Path(candidate)
+        if not candidate.is_file():
+            return
+        match = _NATIVE_LOG_SUFFIX_RE.match(candidate.name)
+        if match is None:
+            return
+        prefix = match.group("prefix")
+        if required_prefix is not None and prefix.lower() != required_prefix.lower():
+            return
+        key = (candidate.parent.resolve(), prefix.lower())
+        group = groups.setdefault(key, {"prefix": prefix, "directory": candidate.parent, "hk": None, "sci": None, "psu": None})
+        group[match.group("kind").lower()] = candidate
+
+    for selected in inputs or []:
+        selected = Path(selected)
+        if selected.is_dir():
+            for candidate in selected.rglob("*"):
+                add_file(candidate)
+            continue
+        if not selected.exists():
+            print(f"Warning: OB log path not found: {selected}")
+            continue
+
+        selected_match = _NATIVE_LOG_SUFFIX_RE.match(selected.name)
+        if selected_match is None:
+            # Allow selecting another file from the session (for example INFO);
+            # discover native byte logs beside it rather than rejecting it.
+            before = len(groups)
+            for candidate in selected.parent.iterdir():
+                add_file(candidate)
+            if len(groups) == before:
+                print(f"Warning: no native OB HK/SCI/PSU logs found beside: {selected}")
+            continue
+        prefix = selected_match.group("prefix")
+        for candidate in selected.parent.iterdir():
+            add_file(candidate, required_prefix=prefix)
+
+    # ``main.py`` normally uses the same prefix for all three files, but a
+    # custom -prefix can make PSU differ from the byte-log prefix.  If a
+    # session directory contains exactly one candidate of a missing kind, use
+    # it as a safe fallback.
+    groups_by_dir = {}
+    for group in groups.values():
+        groups_by_dir.setdefault(Path(group["directory"]).resolve(), []).append(group)
+    for directory, directory_groups in groups_by_dir.items():
+        candidates = {kind: [] for kind in ("hk", "sci", "psu")}
+        for candidate in Path(directory).iterdir():
+            match = _NATIVE_LOG_SUFFIX_RE.match(candidate.name) if candidate.is_file() else None
+            if match is not None:
+                candidates[match.group("kind").lower()].append(candidate)
+        for group in directory_groups:
+            for kind in ("hk", "sci", "psu"):
+                if group.get(kind) is None and len(candidates[kind]) == 1:
+                    group[kind] = candidates[kind][0]
+
+    # Selecting multiple sibling files can discover the same physical session
+    # more than once when custom prefixes are in use.  Keep only unique file
+    # combinations.
+    unique = []
+    seen = set()
+    for group in sorted(groups.values(), key=lambda item: (str(item["directory"]), str(item["prefix"]))):
+        signature = tuple(str(group.get(kind) or "") for kind in ("hk", "sci", "psu"))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append(group)
+    return unique
+
+
+def merge_psu_arrays(psu_log_paths):
+    """Merge one or more PSU logs into one chronologically sorted plot structure."""
+    merged = {
+        "CH3": {"times": [], "v": [], "i": []},
+        "CH4": {"times": [], "v": [], "i": []},
+    }
+    for path in psu_log_paths:
+        one = build_psu_arrays(path)
+        for channel in ("CH3", "CH4"):
+            merged[channel]["times"].extend(one[channel]["times"])
+            merged[channel]["v"].extend(one[channel]["v"])
+            merged[channel]["i"].extend(one[channel]["i"])
+
+    for channel in ("CH3", "CH4"):
+        rows = sorted(
+            zip(merged[channel]["times"], merged[channel]["v"], merged[channel]["i"]),
+            key=lambda row: row[0],
+        )
+        if rows:
+            times, volts, currents = zip(*rows)
+            merged[channel]["times"] = list(times)
+            merged[channel]["v"] = list(volts)
+            merged[channel]["i"] = list(currents)
+    return merged
 
 def build_psu_arrays(psu_log_path):
     """Load PSU CH3/CH4 voltage and current samples for plotting."""
@@ -133,40 +389,76 @@ def extract_hk_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET_
 
 def _extract_temperatures(hk):
     temps = {}
-    try:
-        temps["OB_DIGITAL"] = adu_to_temp(hk.OB_DIGITAL_TRP)
-        temps["OB_DETECTOR"] = adu_to_temp(hk.OB_DETECTOR_TRP)
-        temps["OB_MECHANISM"] = adu_to_temp(hk.OB_MECHANISM_TRP)
-        temps["OB_MOTOR"] = adu_to_temp(hk.OB_MOTOR_TRP)
-        temps["EB_MCU"] = hk.EB_MCU_INTERNAL_TEMP * 0.01637198 - 273.0
-        temps["EB_PSU_BOARD"] = decode_eb_trps(hk.EB_PSU_BOARD_TEMP)
-        temps["EB_INTERNAL_TRP"] = decode_eb_trps(hk.EB_INTERNAL_TRP_TEMP)
+
+    # OB thermistors can arrive either inside EB HK or in the native OB HK log.
+    ob_fields = {
+        "OB_DIGITAL": ("OB_DIGITAL_TRP", "DIGITAL_TRP"),
+        "OB_DETECTOR": ("OB_DETECTOR_TRP", "DETEC_TRP"),
+        "OB_MECHANISM": ("OB_MECHANISM_TRP", "MECH_TRP"),
+        "OB_MOTOR": ("OB_MOTOR_TRP", "MOTOR_TRP"),
+    }
+    for output_name, (eb_field, native_field) in ob_fields.items():
+        raw = getattr(hk, eb_field, None)
+        native = False
+        if raw is None:
+            raw = getattr(hk, native_field, None)
+            native = raw is not None
+        if raw is None:
+            continue
+        if native:
+            raw = _native_ob_adc12(raw)
+            if raw is None:
+                continue
         try:
-            temps["EB_PELTIER"] = hk.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
+            temps[output_name] = adu_to_temp(int(raw))
         except Exception:
             pass
-    except Exception as e:
-        print(f"Error extracting temperatures: {e}")
+
+    scalar_conversions = (
+        ("EB_MCU", "EB_MCU_INTERNAL_TEMP", lambda raw: raw * 0.01637198 - 273.0),
+        ("EB_PSU_BOARD", "EB_PSU_BOARD_TEMP", decode_eb_trps),
+        ("EB_INTERNAL_TRP", "EB_INTERNAL_TRP_TEMP", decode_eb_trps),
+        ("EB_PELTIER", "EB_PELTIER_TEMP", lambda raw: raw * -0.001830011 + 51.27039922),
+    )
+    for output_name, field_name, convert in scalar_conversions:
+        raw = getattr(hk, field_name, None)
+        if raw is None:
+            continue
+        try:
+            temps[output_name] = float(convert(raw))
+        except Exception:
+            pass
     return temps
 
 
 def _extract_voltages(hk):
     volts = {}
-    try:
-        volts["EB_12V"] = hk.EB_MEAS_MAIN_12V * 0.000400543
-        volts["EB_NEG12V"] = abs(hk.EB_MEAS_MAIN_NEG12V * -0.00038147)
-        volts["EB_5V"] = hk.EB_MEAS_5V * 0.000152829
-        volts["EB_3V3"] = hk.EB_MEAS_3V3 * 0.0000763
+    eb_conversions = (
+        ("EB_12V", "EB_MEAS_MAIN_12V", lambda raw: raw * 0.000400543),
+        ("EB_NEG12V", "EB_MEAS_MAIN_NEG12V", lambda raw: abs(raw * -0.00038147)),
+        ("EB_5V", "EB_MEAS_5V", lambda raw: raw * 0.000152829),
+        ("EB_3V3", "EB_MEAS_3V3", lambda raw: raw * 0.0000763),
+        ("EB_TEC_RAIL", "EB_MEAS_TEC_RAIL", lambda raw: raw * 0.0000763),
+        ("OB_3V3", "OB_3V3_VOLTAGE", lambda raw: (raw * 2) / 1000.0),
+        ("OB_1V5", "OB_1V5_VOLTAGE", lambda raw: raw / 1000.0),
+    )
+    for output_name, field_name, convert in eb_conversions:
+        raw = getattr(hk, field_name, None)
+        if raw is None:
+            continue
         try:
-            volts["EB_TEC_RAIL"] = hk.EB_MEAS_TEC_RAIL * 0.0000763
+            volts[output_name] = float(convert(raw))
         except Exception:
             pass
-        volts["OB_3V3"] = (hk.OB_3V3_VOLTAGE * 2) / 1000.0
-        volts["OB_1V5"] = hk.OB_1V5_VOLTAGE / 1000.0
-    except Exception as e:
-        print(f"Error extracting voltages: {e}")
-    return volts
 
+    # Native OB HK stores the two rail measurements as 12-bit ADC values.
+    native_3v3 = _native_ob_adc12(getattr(hk, "HK_V_3V3", None))
+    if native_3v3 is not None:
+        volts["OB_3V3"] = native_3v3 * 4.05 / 4095.0 * 2.0
+    native_1v5 = _native_ob_adc12(getattr(hk, "HK_V_1V5", None))
+    if native_1v5 is not None:
+        volts["OB_1V5"] = native_1v5 * 4.05 / 4095.0
+    return volts
 
 def build_hk_arrays(hk_packets):
     temp_keys = [
@@ -224,6 +516,114 @@ def build_hk_field_series(hk_packets, field_name):
         except Exception:
             vals.append(np.nan)
     return ts, vals
+
+
+_SCI_SAMPLE_FIELDS = {
+    "MTR_ABS_STEPS": "abs_steps",
+    "SWIR_LOW": "swir_low",
+    "SWIR_MED": "swir_med",
+    "SWIR_HIGH": "swir_high",
+    "MWIR_LOW": "mwir_low",
+    "MWIR_MED": "mwir_med",
+    "MWIR_HIGH": "mwir_high",
+}
+
+
+def list_numeric_sci_fields(sci_packets):
+    """Return numeric SCI parameters available for dynamic plotting.
+
+    The standard detector/motor sample fields are available for both RS422 and
+    native OB science.  Native OB logs additionally expose every numeric field
+    decoded from ``tmstruct.sci`` (offsets, status, temperatures, CRC, etc.).
+    """
+    names = set(_SCI_SAMPLE_FIELDS)
+    have_science = False
+    for packet in sci_packets:
+        if not isinstance(packet, dict):
+            continue
+        series = packet.get("series")
+        if isinstance(series, dict) and series:
+            have_science = True
+        raw_fields = packet.get("raw_fields")
+        if not isinstance(raw_fields, dict):
+            continue
+        for key, value in raw_fields.items():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float, np.number)):
+                names.add(str(key))
+    return sorted(names) if have_science else []
+
+
+def build_sci_field_series(sci_packets, field_name, sci_datetimes=None):
+    """Build timestamp/value arrays for one SCI parameter.
+
+    Sample-level detector channels and motor steps are flattened across packets
+    and use the same reconstructed sample timestamps as the main SCI plots.
+    Other native OB SCI fields are packet-level values plotted at packet receive
+    timestamps.
+    """
+    sample_key = _SCI_SAMPLE_FIELDS.get(field_name)
+    if sample_key is not None:
+        values = []
+        for packet in sci_packets:
+            series = packet.get("series") if isinstance(packet, dict) else None
+            if not isinstance(series, dict):
+                continue
+            packet_values = series.get(sample_key, [])
+            for value in packet_values:
+                try:
+                    values.append(float(value))
+                except Exception:
+                    values.append(np.nan)
+        times = list(sci_datetimes or [])
+        count = min(len(times), len(values))
+        return times[:count], values[:count]
+
+    times = []
+    values = []
+    for packet in sci_packets:
+        if not isinstance(packet, dict):
+            continue
+        raw_fields = packet.get("raw_fields")
+        if not isinstance(raw_fields, dict) or field_name not in raw_fields:
+            continue
+        timestamp = packet.get("timestamp")
+        if not isinstance(timestamp, datetime):
+            continue
+        value = raw_fields.get(field_name)
+        if isinstance(value, bool):
+            continue
+        try:
+            numeric = float(value)
+        except Exception:
+            continue
+        times.append(timestamp)
+        values.append(numeric)
+    return times, values
+
+
+def _custom_field_key(source, field_name):
+    return f"{str(source).upper()}::{field_name}"
+
+
+def _split_custom_field_key(field_key):
+    """Return (source, field) while keeping legacy unprefixed HK keys valid."""
+    if field_key in ("__REPLAY_STATE__", "__REPLAY_MOVING__"):
+        return "REPLAY", field_key
+    text = str(field_key)
+    if "::" in text:
+        source, field_name = text.split("::", 1)
+        if source.upper() in ("HK", "SCI"):
+            return source.upper(), field_name
+    return "HK", text
+
+
+def _custom_field_label(field_key):
+    source, field_name = _split_custom_field_key(field_key)
+    if source == "REPLAY":
+        return field_name
+    return f"{source}: {field_name}"
 
 
 # ── Acquisition window extraction ───────────────────────────────────────────
@@ -446,7 +846,14 @@ def extract_sci_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET
             series = _extract_sci_series(sci_data)
             if series is None:
                 continue
-            sci_packets.append({"timestamp": last_timestamp, "tm_type_id": tm_type_id, "series": series})
+            sci_packets.append(
+                {
+                    "timestamp": last_timestamp,
+                    "tm_type_id": tm_type_id,
+                    "source_type": "rs422",
+                    "series": series,
+                }
+            )
 
     return sci_packets
 
@@ -474,11 +881,18 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
         packet_timestamp = packet["timestamp"]
         series = packet["series"]
         num_points = len(series["abs_steps"])
-        packet_type = ["dump", "critical", "noncritical"][[0x4, 0x5, 0x6].index(packet["tm_type_id"])]
+        if packet.get("source_type") == "ob":
+            packet_type = "OB SCI"
+        else:
+            packet_type = ["dump", "critical", "noncritical"][[0x4, 0x5, 0x6].index(packet["tm_type_id"])]
 
         # Determine spacing from set_acq_configs if available
         spacing_source = "estimated"
-        cfg = _find_preceding_acq_config(packet_timestamp, acq_configs_list) if acq_configs_list else None
+        cfg = (
+            _find_preceding_acq_config(packet_timestamp, acq_configs_list)
+            if acq_configs_list and packet.get("source_type") != "ob" and packet_timestamp is not None
+            else None
+        )
 
         packet_mode = cfg["mode"] if cfg is not None else None
         packet_modes.append(packet_mode)
@@ -523,7 +937,16 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
             sci_datetimes.append(packet_timestamp - timedelta(milliseconds=offset_ms))
 
         end_idx = len(sci_datetimes) - 1
-        packet_boundaries.append((start_idx, end_idx, packet_num, packet_timestamp, packet_mode))
+        packet_boundaries.append(
+            (
+                start_idx,
+                end_idx,
+                packet_num,
+                packet_timestamp,
+                packet_mode,
+                packet.get("source_type", "rs422"),
+            )
+        )
 
     unique_modes = {mode for mode in packet_modes if mode in (0x00, 0x01)}
     sci_axis_mode = "abs_steps" if unique_modes == {0x00} else "time"
@@ -756,7 +1179,8 @@ class ClickHandler:
 
         # Which packet?
         packet_info = "Unknown packet"
-        for start_idx, end_idx, packet_num, ts, _packet_mode in self.packet_boundaries:
+        for boundary in self.packet_boundaries:
+            start_idx, end_idx, packet_num, ts, _packet_mode = boundary[:5]
             if start_idx <= idx <= end_idx:
                 packet_info = f"Packet {packet_num} (received {ts})"
                 break
@@ -1396,7 +1820,14 @@ def _draw_all_axes(
                 plotted_swir += 1
             if plotted_swir > 0:
                 if sci_axis_mode == "time":
-                    for _start, _end, packet_num, packet_rx_ts, _packet_mode in packet_boundaries:
+                    for boundary in packet_boundaries:
+                        _start, _end, packet_num, packet_rx_ts, _packet_mode = boundary[:5]
+                        source_type = boundary[5] if len(boundary) > 5 else "rs422"
+                        # Native OB SCI logs contain one sample per packet.  A
+                        # packet marker at every sample obscures the science
+                        # trace, so keep boundaries only for RS422 packets.
+                        if source_type == "ob":
+                            continue
                         ax_swir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
                         ax_swir.text(
                             packet_rx_ts,
@@ -1439,7 +1870,11 @@ def _draw_all_axes(
                 plotted_mwir += 1
             if plotted_mwir > 0:
                 if sci_axis_mode == "time":
-                    for _start, _end, packet_num, packet_rx_ts, _packet_mode in packet_boundaries:
+                    for boundary in packet_boundaries:
+                        _start, _end, packet_num, packet_rx_ts, _packet_mode = boundary[:5]
+                        source_type = boundary[5] if len(boundary) > 5 else "rs422"
+                        if source_type == "ob":
+                            continue
                         ax_mwir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
                         ax_mwir.text(
                             packet_rx_ts,
@@ -1471,6 +1906,8 @@ def _draw_all_axes(
     # Custom parameter subplots (same figure)
     for field_name, ax_custom in custom_axes:
         ts_vals = custom_series.get(field_name)
+        source_name, parameter_name = _split_custom_field_key(field_name)
+        display_name = _custom_field_label(field_name)
         ax_custom.cla()
         if not ts_vals:
             ax_custom.text(
@@ -1483,13 +1920,15 @@ def _draw_all_axes(
                 fontsize=9,
                 color="gray",
             )
-            ax_custom.set_title(f"HK Parameter: {field_name}")
+            ax_custom.set_title(
+                display_name if source_name == "REPLAY" else f"{source_name} Parameter: {parameter_name}"
+            )
             ax_custom.grid(True, alpha=0.3)
             continue
 
         ts, vals = ts_vals
         style = "o-"
-        title = f"HK Parameter: {field_name}"
+        title = f"{source_name} Parameter: {parameter_name}"
         ylabel = "Value"
         if field_name == "__REPLAY_STATE__":
             style = ".-"
@@ -1499,7 +1938,7 @@ def _draw_all_axes(
             style = ".-"
             title = "Replay: Motor MOVING / HOMING_COMPLETE"
             ylabel = "Flag"
-        ax_custom.plot(ts, vals, style, markersize=2, linewidth=0.8, label=field_name)
+        ax_custom.plot(ts, vals, style, markersize=2, linewidth=0.8, label=display_name)
         ax_custom.set_title(title)
         ax_custom.set_ylabel(ylabel)
         ax_custom.grid(True, alpha=0.3)
@@ -1540,11 +1979,22 @@ def _draw_all_axes(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Combined HK/SCI plot with selectable multi-RS422 and PSU")
-    parser.add_argument("--rs422-log", type=Path, nargs="+", default=[LOG_PATH])
-    parser.add_argument("--psu-log", type=Path, default=None)
+    parser = argparse.ArgumentParser(description="Combined HK/SCI/PSU plot for RS422 and native OB logs")
+    parser.add_argument("--rs422-log", type=Path, nargs="+", default=None)
+    parser.add_argument(
+        "--ob-log",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="Native OB log file(s) or session folder(s); matching *_HK.LOG, *_SCI.LOG and *_PSU.log are auto-discovered",
+    )
+    parser.add_argument("--psu-log", type=Path, default=None, help="Optional PSU override; otherwise native OB PSU logs are auto-loaded")
     parser.add_argument("--rs422-offset-hours", type=float, default=RS422_TIME_OFFSET_HOURS)
     args = parser.parse_args()
+    if args.rs422_log is None and not args.ob_log:
+        args.rs422_log = [LOG_PATH]
+    elif args.rs422_log is None:
+        args.rs422_log = []
 
     rs422_offset = timedelta(hours=args.rs422_offset_hours)
 
@@ -1556,11 +2006,12 @@ def main():
             return f"Combined Analysis — {names[0]}"
         return f"Combined Analysis — {names[0]} + {len(names) - 1} more"
 
-    def _analyze(log_paths, psu_log):
+    def _analyze(log_paths, psu_log, ob_inputs=None):
         valid_logs = []
         all_hk = []
         all_acq = []
         all_sci = []
+        auto_psu_logs = []
 
         for lp in log_paths:
             if not lp.exists():
@@ -1576,9 +2027,31 @@ def main():
             all_acq.extend(acq)
             all_sci.extend(sci)
 
-        if not all_hk:
-            print("Error: no HK packets found across selected RS422 logs")
-            return None
+        ob_sets = discover_ob_log_sets(ob_inputs or [])
+        for ob_set in ob_sets:
+            print(f"Reading OB session: {ob_set['directory']} / {ob_set['prefix']}")
+            hk_path = ob_set.get("hk")
+            sci_path = ob_set.get("sci")
+            psu_path = ob_set.get("psu")
+            if isinstance(hk_path, Path):
+                valid_logs.append(hk_path)
+                hk = extract_ob_hk_packets(hk_path)
+                all_hk.extend(hk)
+                print(f"  OB HK: {len(hk)}")
+            else:
+                print("  OB HK: missing")
+            if isinstance(sci_path, Path):
+                valid_logs.append(sci_path)
+                sci = extract_ob_sci_packets(sci_path)
+                all_sci.extend(sci)
+                print(f"  OB SCI: {len(sci)}")
+            else:
+                print("  OB SCI: missing")
+            if isinstance(psu_path, Path):
+                auto_psu_logs.append(psu_path)
+                print(f"  OB PSU: {psu_path.name}")
+            else:
+                print("  OB PSU: missing")
 
         all_hk.sort(key=lambda hk: hk.TIME)
         all_acq.sort(key=lambda cfg: cfg["timestamp"])
@@ -1586,9 +2059,16 @@ def main():
 
         hk_timestamps, temp_data, volt_data = build_hk_arrays(all_hk)
         err_ts, err_data = build_error_byte_arrays(all_hk)
-        gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
-        error_events = detect_error_states(all_hk)
-        print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events)
+        if all_hk:
+            gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
+            error_events = detect_error_states(all_hk)
+            print_anomaly_summary(gaps, temp_jumps, volt_jumps, error_events)
+        else:
+            gaps = []
+            temp_jumps = {frac: {} for frac in _JUMP_FRACS}
+            volt_jumps = {frac: {} for frac in _JUMP_FRACS}
+            error_events = []
+            print("No HK packets found; HK panels will be empty.")
 
         print(f"set_acq_configs TCs (combined): {len(all_acq)}")
         print(f"Science packets (combined): {len(all_sci)}")
@@ -1619,36 +2099,61 @@ def main():
         )
 
         psu_data = None
+        psu_paths = []
         if psu_log is not None:
-            if psu_log.exists():
-                psu_data = build_psu_arrays(psu_log)
-                print(f"Loaded PSU samples from: {psu_log}")
+            psu_paths = [Path(psu_log)]
+        else:
+            psu_paths = list(dict.fromkeys(auto_psu_logs))
 
-                ch4_times = psu_data["CH4"]["times"]
-                ch4_curr = psu_data["CH4"]["i"]
-                finite_ch4 = [(t, i) for t, i in zip(ch4_times, ch4_curr) if np.isfinite(i)]
-                if finite_ch4:
-                    psu_start = finite_ch4[0][0]
-                    psu_end = finite_ch4[-1][0]
+        existing_psu_paths = []
+        for selected_psu in psu_paths:
+            if selected_psu.exists():
+                existing_psu_paths.append(selected_psu)
+                if selected_psu not in valid_logs:
+                    valid_logs.append(selected_psu)
+            else:
+                print(f"Warning: PSU log not found: {selected_psu}")
+
+        if existing_psu_paths:
+            psu_data = merge_psu_arrays(existing_psu_paths)
+            print("Loaded PSU samples from:")
+            for selected_psu in existing_psu_paths:
+                print(f"  - {selected_psu}")
+
+            ch4_times = psu_data["CH4"]["times"]
+            ch4_curr = psu_data["CH4"]["i"]
+            finite_ch4 = [(t, i) for t, i in zip(ch4_times, ch4_curr) if np.isfinite(i)]
+            if finite_ch4:
+                psu_start = finite_ch4[0][0]
+                psu_end = finite_ch4[-1][0]
+                if hk_timestamps:
                     hk_start = hk_timestamps[0]
                     hk_end = hk_timestamps[-1]
                     overlap_n = sum(1 for t, _i in finite_ch4 if hk_start <= t <= hk_end)
-                    print(
-                        f"PSU CH4 current samples: {len(finite_ch4)} "
-                        f"({psu_start.strftime('%H:%M:%S')} → {psu_end.strftime('%H:%M:%S')}), "
-                        f"overlap with HK range: {overlap_n}"
-                    )
+                    overlap_text = f", overlap with HK range: {overlap_n}"
                 else:
-                    print("PSU CH4 current samples: 0 finite values in selected PSU log")
+                    overlap_text = ""
+                print(
+                    f"PSU CH4 current samples: {len(finite_ch4)} "
+                    f"({psu_start.strftime('%H:%M:%S')} → {psu_end.strftime('%H:%M:%S')})"
+                    f"{overlap_text}"
+                )
             else:
-                print(f"Warning: PSU log not found: {psu_log}")
+                print("PSU CH4 current samples: 0 finite values in selected PSU log(s)")
+
+        if not all_hk and not all_sci and psu_data is None:
+            print("Error: no HK, SCI, or PSU data found in the selected logs")
+            return None
 
         hk_field_options = list_numeric_hk_fields(all_hk)
+        sci_field_options = list_numeric_sci_fields(all_sci)
 
         return {
             "valid_logs": valid_logs,
             "hk_packets": all_hk,
             "hk_field_options": hk_field_options,
+            "sci_packets": all_sci,
+            "sci_field_options": sci_field_options,
             "hk_timestamps": hk_timestamps,
             "temp_data": temp_data,
             "volt_data": volt_data,
@@ -1681,6 +2186,25 @@ def main():
                 title="Select one or more RS422 logs",
                 initialdir=start_dir,
                 filetypes=[("Log files", "*.log *.LOG *.txt"), ("All files", "*.*")],
+            )
+        finally:
+            root.destroy()
+        return [Path(p) for p in chosen] if chosen else None
+
+    def _pick_ob_files(current):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        start_dir = str(current[0].parent if current else LOG_PATH.parent)
+        try:
+            chosen = filedialog.askopenfilenames(
+                title="Select OB HK, SCI, or PSU log (siblings load automatically)",
+                initialdir=start_dir,
+                filetypes=[
+                    ("OB logs", "*_HK.LOG *_SCI.LOG *_PSU.log *_PSU.LOG"),
+                    ("Log files", "*.log *.LOG *.txt"),
+                    ("All files", "*.*"),
+                ],
             )
         finally:
             root.destroy()
@@ -1835,7 +2359,9 @@ def main():
             for field_name in custom_fields:
                 var = tk.BooleanVar(value=True)
                 custom_vars[field_name] = var
-                tk.Checkbutton(custom_group, text=field_name, variable=var).pack(anchor="w", padx=6, pady=1)
+                tk.Checkbutton(custom_group, text=_custom_field_label(field_name), variable=var).pack(
+                    anchor="w", padx=6, pady=1
+                )
 
         def _apply():
             new_vis = {k: bool(v.get()) for k, v in vars_map.items()}
@@ -1949,15 +2475,20 @@ def main():
             messagebox.showinfo("Add Parameter", "Load data first before adding a parameter plot.")
             return
 
-        hk_packets = last_result.get("hk_packets")
-        if not isinstance(hk_packets, list) or not hk_packets:
-            messagebox.showinfo("Add Parameter", "No HK packet data available for dynamic parameter plotting.")
+        hk_field_options = last_result.get("hk_field_options")
+        if not isinstance(hk_field_options, list):
+            hk_field_options = []
+        sci_field_options = last_result.get("sci_field_options")
+        if not isinstance(sci_field_options, list):
+            sci_field_options = []
+        if not hk_field_options and not sci_field_options:
+            messagebox.showinfo("Add Parameter", "No numeric HK or SCI parameters found in the current data.")
             return
 
-        field_options = last_result.get("hk_field_options")
-        if not isinstance(field_options, list) or not field_options:
-            messagebox.showinfo("Add Parameter", "No numeric HK parameters found in the current data.")
-            return
+        field_options = [
+            *[("HK", name) for name in hk_field_options],
+            *[("SCI", name) for name in sci_field_options],
+        ]
 
         root = getattr(tk, "_default_root", None)
         owns_root = False
@@ -1967,10 +2498,12 @@ def main():
             owns_root = True
 
         win = tk.Toplevel(root)
-        win.title("Add Parameter Plot")
-        win.geometry("420x520")
+        win.title("Add HK / SCI Parameter Plot")
+        win.geometry("470x560")
 
-        tk.Label(win, text="Select an HK parameter to plot in a new graph:").pack(anchor="w", padx=10, pady=(10, 4))
+        tk.Label(win, text="Select an HK or SCI parameter to plot in a new graph:").pack(
+            anchor="w", padx=10, pady=(10, 4)
+        )
 
         search_var = tk.StringVar()
         entry = tk.Entry(win, textvariable=search_var)
@@ -1984,13 +2517,19 @@ def main():
         listbox.pack(side="left", fill="both", expand=True)
         y_scroll.pack(side="right", fill="y")
 
+        visible_options = []
+
         def _refresh_list(*_args):
             q = search_var.get().strip().lower()
             listbox.delete(0, "end")
-            filtered = [name for name in field_options if q in name.lower()]
-            for name in filtered:
-                listbox.insert("end", name)
-            if filtered:
+            visible_options.clear()
+            for source, name in field_options:
+                label = f"{source}: {name}"
+                if q and q not in label.lower():
+                    continue
+                visible_options.append((source, name))
+                listbox.insert("end", label)
+            if visible_options:
                 listbox.selection_set(0)
 
         search_var.trace_add("write", _refresh_list)
@@ -2001,24 +2540,40 @@ def main():
             if not sel:
                 messagebox.showwarning("Add Parameter", "Select a parameter first.")
                 return
-            field_name = listbox.get(sel[0])
-            ts, vals = build_hk_field_series(hk_packets, field_name)
-            finite_mask = np.isfinite(np.array(vals, dtype=float))
-            if not np.any(finite_mask):
-                messagebox.showwarning("Add Parameter", f"Parameter {field_name} has no numeric samples.")
+            idx = int(sel[0])
+            if idx >= len(visible_options):
+                return
+            source, field_name = visible_options[idx]
+
+            if source == "HK":
+                packets = last_result.get("hk_packets")
+                ts, vals = build_hk_field_series(packets if isinstance(packets, list) else [], field_name)
+            else:
+                packets = last_result.get("sci_packets")
+                ts, vals = build_sci_field_series(
+                    packets if isinstance(packets, list) else [],
+                    field_name,
+                    last_result.get("sci_datetimes"),
+                )
+
+            if not vals or not np.any(np.isfinite(np.array(vals, dtype=float))):
+                messagebox.showwarning(
+                    "Add Parameter", f"{source} parameter {field_name} has no numeric samples."
+                )
                 return
 
+            field_key = _custom_field_key(source, field_name)
             custom_fields = state.get("custom_fields")
             if not isinstance(custom_fields, list):
                 custom_fields = []
                 state["custom_fields"] = custom_fields
-            if field_name not in custom_fields:
-                custom_fields.append(field_name)
+            if field_key not in custom_fields:
+                custom_fields.append(field_key)
 
             _sync_custom_axes()
-            last_result = state.get("last_result")
-            if isinstance(last_result, dict):
-                _apply_analysis(last_result)
+            active_result = state.get("last_result")
+            if isinstance(active_result, dict):
+                _apply_analysis(active_result)
             win.destroy()
 
         btn_row = tk.Frame(win)
@@ -2057,28 +2612,33 @@ def main():
         button.label.set_fontsize(9)
         return button
 
-    ax_btn_plots = fig.add_axes((0.11, 0.92, 0.09, 0.024))
+    button_x = [0.055, 0.152, 0.249, 0.346, 0.443, 0.540, 0.637, 0.734, 0.831]
+    button_w = 0.087
+    ax_btn_plots = fig.add_axes((button_x[0], 0.92, button_w, 0.024))
     btn_plots = _make_legend_button(ax_btn_plots, "Plots", face="#dfe7ff", hover="#bfd1ff")
-    ax_btn_params = fig.add_axes((0.21, 0.92, 0.09, 0.024))
+    ax_btn_params = fig.add_axes((button_x[1], 0.92, button_w, 0.024))
     btn_params = _make_legend_button(ax_btn_params, "Params", face="#dff7e6", hover="#b8ecc5")
-    ax_btn_replay = fig.add_axes((0.31, 0.92, 0.09, 0.024))
+    ax_btn_replay = fig.add_axes((button_x[2], 0.92, button_w, 0.024))
     btn_replay = _make_legend_button(ax_btn_replay, "Replay", face="#dfeeff", hover="#bddcff")
-    ax_btn_axis = fig.add_axes((0.41, 0.92, 0.09, 0.024))
+    ax_btn_axis = fig.add_axes((button_x[3], 0.92, button_w, 0.024))
     btn_axis = _make_legend_button(ax_btn_axis, "SCI: Auto", face="#dff7e6", hover="#b8ecc5")
-    ax_btn_errors = fig.add_axes((0.51, 0.92, 0.09, 0.024))
+    ax_btn_errors = fig.add_axes((button_x[4], 0.92, button_w, 0.024))
     btn_errors = _make_legend_button(ax_btn_errors, "Errors", face="#ffe6e6", hover="#ffc5c5")
-    ax_btn_rs422 = fig.add_axes((0.61, 0.92, 0.09, 0.024))
+    ax_btn_rs422 = fig.add_axes((button_x[5], 0.92, button_w, 0.024))
     btn_rs422 = _make_legend_button(ax_btn_rs422, "Open RS422", face="#e7e7e7", hover="#d0d0d0")
-    ax_btn_psu = fig.add_axes((0.71, 0.92, 0.09, 0.024))
+    ax_btn_ob = fig.add_axes((button_x[6], 0.92, button_w, 0.024))
+    btn_ob = _make_legend_button(ax_btn_ob, "Open OB", face="#e7e7e7", hover="#d0d0d0")
+    ax_btn_psu = fig.add_axes((button_x[7], 0.92, button_w, 0.024))
     btn_psu = _make_legend_button(ax_btn_psu, "Open PSU", face="#e7e7e7", hover="#d0d0d0")
-    ax_btn_reload = fig.add_axes((0.81, 0.92, 0.09, 0.024))
+    ax_btn_reload = fig.add_axes((button_x[8], 0.92, button_w, 0.024))
     btn_reload = _make_legend_button(ax_btn_reload, "\u27f3 Reload", face="#dfeafc", hover="#bad3ff")
 
     state: dict[str, object] = {
         "cid": None,
         "pick_cid": None,
         "click_handler": None,
-        "rs422_logs": list(args.rs422_log),
+        "rs422_logs": list(args.rs422_log or []),
+        "ob_logs": list(args.ob_log or []),
         "psu_log": args.psu_log,
         "error_events": [],
         "panel_visibility": {k: True for k in PANEL_ORDER},
@@ -2508,7 +3068,16 @@ def main():
                     if isinstance(replay_overlay, dict):
                         custom_series[field_name] = replay_overlay.get("moving_series")
                 else:
-                    custom_series[field_name] = build_hk_field_series(hk_packets, field_name)
+                    source_name, parameter_name = _split_custom_field_key(field_name)
+                    if source_name == "SCI":
+                        sci_packets = result.get("sci_packets")
+                        custom_series[field_name] = build_sci_field_series(
+                            sci_packets if isinstance(sci_packets, list) else [],
+                            parameter_name,
+                            result.get("sci_datetimes"),
+                        )
+                    else:
+                        custom_series[field_name] = build_hk_field_series(hk_packets, parameter_name)
 
         _draw_all_axes(
             ax_temp,
@@ -2631,14 +3200,18 @@ def main():
         print("\n--- Reload ---")
         logs = state.get("rs422_logs")
         if not isinstance(logs, list):
-            logs = [LOG_PATH]
+            logs = []
             state["rs422_logs"] = logs
+        ob_logs = state.get("ob_logs")
+        if not isinstance(ob_logs, list):
+            ob_logs = []
+            state["ob_logs"] = ob_logs
         psu_log = state.get("psu_log")
         if psu_log is not None and not isinstance(psu_log, Path):
             psu_log = None
             state["psu_log"] = None
 
-        result = _analyze(logs, psu_log)
+        result = _analyze(logs, psu_log, ob_logs)
         if result is None:
             return
         _apply_analysis(result)
@@ -2646,12 +3219,33 @@ def main():
     def _open_rs422(_event=None):
         logs = state.get("rs422_logs")
         if not isinstance(logs, list):
-            logs = [LOG_PATH]
+            logs = []
         chosen = _pick_rs422_files(logs)
         if not chosen:
             return
         state["rs422_logs"] = chosen
         print("Selected RS422 logs:")
+        for p in chosen:
+            print(f"  - {p}")
+        _reload()
+
+    def _open_ob(_event=None):
+        current = state.get("ob_logs")
+        if not isinstance(current, list):
+            current = []
+        chosen = _pick_ob_files(current)
+        if not chosen:
+            return
+        state["ob_logs"] = chosen
+        # Native OB selection should use its matching PSU log automatically;
+        # the user can still override it afterwards with Open PSU.
+        state["psu_log"] = None
+        # Do not keep the historical hard-coded RS422 default when the user
+        # explicitly switches to native OB logs.
+        rs_logs = state.get("rs422_logs")
+        if isinstance(rs_logs, list) and rs_logs == [LOG_PATH]:
+            state["rs422_logs"] = []
+        print("Selected OB log input(s); matching HK/SCI/PSU siblings will be auto-discovered:")
         for p in chosen:
             print(f"  - {p}")
         _reload()
@@ -2673,6 +3267,7 @@ def main():
     btn_axis.on_clicked(_toggle_sci_axis_mode)
     btn_errors.on_clicked(_show_errors_popup)
     btn_rs422.on_clicked(_open_rs422)
+    btn_ob.on_clicked(_open_ob)
     btn_psu.on_clicked(_open_psu)
     btn_reload.on_clicked(_reload)
 

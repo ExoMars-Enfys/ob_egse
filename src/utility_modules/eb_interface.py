@@ -455,6 +455,12 @@ def sync_egse_session_logs_with_retry(logger: Any, retries: int = 5, delay_s: fl
 
 
 # EGSE log management functions
+def reset_rs422_log_changed_state() -> None:
+    """Force the next RS422 poll to refresh the selected log."""
+    _rs422_log_state["path"] = None
+    _rs422_log_state["mtime"] = None
+
+
 def rs422_log_changed(log_path: Path | None) -> bool:
     """Return True if the RS422 log path or mtime changed since last check."""
     if log_path is None:
@@ -596,14 +602,15 @@ def select_rs422_log(logger) -> bool:
     root = None
     try:
         root = window.create_dialog_root()
-        rs422_log_path = filedialog.askopenfilename(
+        selected_path = filedialog.askopenfilename(
             title="Select RS422if log file",
             filetypes=[("RS422if log", "RS422if_*.log"), ("RS422if log", "RS422if_*.LOG"), ("Text files", "*.txt")],
             initialdir=egse_tools_path,
             parent=root,
         )
 
-        if rs422_log_path:
+        if selected_path:
+            rs422_log_path = selected_path
             logger.info(f"RS422if log set to: {rs422_log_path}")
             return True
     except Exception as e:

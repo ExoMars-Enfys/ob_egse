@@ -102,9 +102,9 @@ def test_perform_hk_check_detects_non_zero_error_and_fdir_fields() -> None:
     result = urc.perform_hk_check(hk=hk, hk_type="hk")
 
     assert result["passed"] is False
-    assert any("ERROR_FLAGS not 0" in detail for detail in result["details"])
-    assert any("FDIR_ALARM_FLAGS not 0" in detail for detail in result["details"])
-    assert any("FDIR_WARNING_FLAGS not 0" in detail for detail in result["details"])
+    assert any("ERROR_FLAGS mismatch. Got: 1, Expected: 0" in detail for detail in result["details"])
+    assert any("FDIR_ALARM_FLAGS mismatch. Got: 2, Expected: 0" in detail for detail in result["details"])
+    assert any("FDIR_WARNING_FLAGS mismatch. Got: 4, Expected: 0" in detail for detail in result["details"])
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +180,19 @@ def test_perform_hk_check_accepts_valid_hk() -> None:
     assert result == {"passed": True, "details": []}
 
 
+def test_perform_hk_check_failure_reports_actual_and_expected_range() -> None:
+    hk = _valid_hk()
+    hk.EB_MEAS_MAIN_12V = round(14.0 / 0.000400543)
+
+    result = urc.perform_hk_check(hk=hk, hk_type="hk")
+
+    assert result["passed"] is False
+    assert any(
+        "EB 12V out of range. Got:" in detail and "Expected: 11.00 to 13.00 V" in detail
+        for detail in result["details"]
+    )
+
+
 def test_perform_hk_check_reports_missing_required_field() -> None:
     hk = _valid_hk()
     del hk.EB_MEAS_MAIN_12V
@@ -197,7 +210,7 @@ def test_perform_hk_check_reports_none_value_without_conversion_error() -> None:
     result = urc.perform_hk_check(hk=hk, hk_type="hk")
 
     assert result["passed"] is False
-    assert "EB_MEAS_3V3 is None" in result["details"]
+    assert "EB_MEAS_3V3. Got: None, Expected: numeric HK value" in result["details"]
 
 
 def test_perform_post_check_reports_missing_post() -> None:
@@ -225,12 +238,59 @@ def test_perform_post_check_reports_each_failed_status_or_crc() -> None:
     result = urc.perform_hk_check(post=post, hk_type="post")
 
     assert result["passed"] is False
-    assert any("POST_WARNING_FLAGS: 1" in detail for detail in result["details"])
-    assert any("POST_ERROR_FLAGS: 2" in detail for detail in result["details"])
-    assert any("NUM_BAD_FLASH_BLOCKS: 3" in detail for detail in result["details"])
-    assert any("NUM_BAD_SRAM_BLOCKS: 4" in detail for detail in result["details"])
-    assert any("ASW_IMAGE_1_CRC: 0x0000" in detail for detail in result["details"])
-    assert any("MEASUREMENT_TABLE_CRC: 0x0000" in detail for detail in result["details"])
+    assert any("POST_WARNING_FLAGS mismatch. Got: 1, Expected: 0" in detail for detail in result["details"])
+    assert any("POST_ERROR_FLAGS mismatch. Got: 2, Expected: 0" in detail for detail in result["details"])
+    assert any("NUM_BAD_FLASH_BLOCKS mismatch. Got: 3, Expected: 0" in detail for detail in result["details"])
+    assert any("NUM_BAD_SRAM_BLOCKS mismatch. Got: 4, Expected: 0" in detail for detail in result["details"])
+    assert any("ASW_IMAGE_1_CRC mismatch. Got: 0x0000, Expected:" in detail for detail in result["details"])
+    assert any("MEASUREMENT_TABLE_CRC mismatch. Got: 0x0000, Expected:" in detail for detail in result["details"])
+
+
+def test_perform_post_failure_diagnostics_are_separate_from_errors() -> None:
+    post = _valid_post(MEASUREMENT_TABLE_CRC=0)
+
+    result = urc.perform_hk_check(post=post, hk_type="post")
+
+    assert result["passed"] is False
+    assert len(result["details"]) == 1
+    assert "MEASUREMENT_TABLE_CRC mismatch" in result["details"][0]
+    diagnostics = result.get("diagnostics", [])
+    assert any(
+        "TM_12V: Got:" in detail
+        and "Expected: 11.00 to 13.00 V" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
+    assert any(
+        "TM_NEG12V: Got:" in detail
+        and "Expected: -13.00 to -11.00 V" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
+    assert any(
+        "TM_5V: Got:" in detail
+        and "Expected: 4.50 to 5.50 V" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
+    assert any(
+        "TM_3V3: Got:" in detail
+        and "Expected: 3.00 to 3.45 V" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
+    assert any(
+        "EB_PROCESSOR_TEMP: Got:" in detail
+        and "Expected: -45.00 to 125.00 C" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
+    assert any(
+        "TEC_DETECTOR_TEMP: Got:" in detail
+        and "Expected: -45.00 to 35.00 C" in detail
+        and "[PASS]" in detail
+        for detail in diagnostics
+    )
 
 
 def test_perform_post_check_reports_conversion_error() -> None:

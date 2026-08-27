@@ -1,6 +1,8 @@
 import logging
 import math
 import threading
+import time
+from collections import deque
 
 # Added packages
 from datetime import datetime
@@ -26,21 +28,68 @@ _latest_psu = None
 _hk_lock = threading.Lock()
 _psu_lock = threading.Lock()
 _hk_event = threading.Event()  # set each time a new HK packet arrives
+_psu_event = threading.Event()  # set each time the PSU monitor publishes a sample
+_psu_history = deque(maxlen=50)
+_hk_sequence = 0
+_psu_sequence = 0
+_hk_published_monotonic = 0.0
+_psu_published_monotonic = 0.0
+
+# A bounded tail is enough for live/latest RS422 decoding and prevents selecting
+# a large historical/live log from repeatedly scanning the entire file.
+_LATEST_RS422_TAIL_BYTES = 4 * 1024 * 1024
 
 
-def wait_for_fresh_hk(timeout: float = 5.0):
-    """Block until a new HK packet arrives (or timeout). Returns the HK or None."""
-    _hk_event.clear()
-    arrived = _hk_event.wait(timeout=timeout)
-    if not arrived:
-        return None
-    return get_latest_hk()
+def get_hk_sequence() -> int:
+    with _hk_lock:
+        return int(_hk_sequence)
+
+
+def get_psu_sequence() -> int:
+    with _psu_lock:
+        return int(_psu_sequence)
+
+
+def get_latest_hk_age_s() -> float | None:
+    with _hk_lock:
+        if _latest_hk is None or _hk_published_monotonic <= 0:
+            return None
+        return max(0.0, time.monotonic() - _hk_published_monotonic)
+
+
+def get_latest_psu_age_s() -> float | None:
+    with _psu_lock:
+        if _latest_psu is None or _psu_published_monotonic <= 0:
+            return None
+        return max(0.0, time.monotonic() - _psu_published_monotonic)
+
+
+def wait_for_fresh_hk(timeout: float = 5.0, after_sequence: int | None = None):
+    """Wait for HK newer than *after_sequence* (or newer than this call).
+
+    Sequence tracking avoids the old Event.clear()/wait() race where a packet
+    arriving just before verification could be discarded as though it never
+    arrived.
+    """
+    baseline = get_hk_sequence() if after_sequence is None else int(after_sequence)
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        _hk_event.clear()
+        with _hk_lock:
+            if _hk_sequence > baseline:
+                return _latest_hk
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        _hk_event.wait(timeout=remaining)
 
 
 def set_latest_hk(hk):
-    global _latest_hk
+    global _latest_hk, _hk_sequence, _hk_published_monotonic
     with _hk_lock:
         _latest_hk = hk
+        _hk_sequence += 1
+        _hk_published_monotonic = time.monotonic()
     _hk_event.set()
 
 
@@ -50,24 +99,109 @@ def get_latest_hk():
 
 
 def set_latest_psu(psu):
-    global _latest_psu
+    """Publish the latest PSU sample without consuming the GUI plotting queue."""
+    global _latest_psu, _psu_sequence, _psu_published_monotonic
     with _psu_lock:
         _latest_psu = psu
+        _psu_sequence += 1
+        _psu_published_monotonic = time.monotonic()
+        if isinstance(psu, dict):
+            _psu_history.append(dict(psu))
+    _psu_event.set()
 
 
 def get_latest_psu():
     with _psu_lock:
-        return _latest_psu
+        return dict(_latest_psu) if isinstance(_latest_psu, dict) else _latest_psu
+
+
+def wait_for_fresh_psu(timeout: float = 2.0, after_sequence: int | None = None):
+    """Wait for a PSU sample newer than *after_sequence* without using the GUI queue."""
+    baseline = get_psu_sequence() if after_sequence is None else int(after_sequence)
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        _psu_event.clear()
+        with _psu_lock:
+            if _psu_sequence > baseline:
+                return dict(_latest_psu) if isinstance(_latest_psu, dict) else _latest_psu
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        _psu_event.wait(timeout=remaining)
+
+
+def get_smoothed_latest_psu(window_samples: int = 5):
+    """Return an MA-smoothed copy of the latest cached PSU telemetry.
+
+    Current fields are averaged across the newest cached samples while status,
+    voltage and timestamp fields come from the newest sample.
+    """
+    max_samples = max(1, int(window_samples))
+    with _psu_lock:
+        if not _psu_history:
+            return dict(_latest_psu) if isinstance(_latest_psu, dict) else _latest_psu
+        history = list(_psu_history)
+
+    latest = dict(history[-1])
+    # Never blend pre-transition OFF samples into an ON-state current check (or
+    # vice versa).  This was a source of false low-current failures immediately
+    # after a PSU output transition.
+    latest_status = latest.get("STATUS")
+    latest_ch4_status = latest.get("CH4_STATUS")
+    compatible = [
+        sample
+        for sample in history
+        if sample.get("STATUS") == latest_status
+        and (latest_ch4_status is None or sample.get("CH4_STATUS") == latest_ch4_status)
+    ]
+    samples = compatible[-max_samples:] if compatible else [latest]
+    current_keys = ("PSU_ROV_HTR_I", "PSU_EB_I", "CH1_I", "CH2_I", "CH3_I", "CH4_I")
+    for key in current_keys:
+        values = []
+        for sample in samples:
+            value = sample.get(key)
+            if value is None:
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if values:
+            latest[key] = sum(values) / len(values)
+    return latest
 
 
 info_log = logging.getLogger("info_log")
 
 
 # Packet Intake
+def _read_rs422_lines(file_path, latest_only: bool) -> list[str]:
+    """Read RS422 text, using only a bounded tail for latest-only polling."""
+    if not latest_only:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+            return [line.strip() for line in handle]
+
+    with open(file_path, "rb") as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        start = max(0, size - _LATEST_RS422_TAIL_BYTES)
+        handle.seek(start)
+        data = handle.read()
+
+    # If the tail starts in the middle of a line, discard that partial line so a
+    # truncated byte payload cannot be mistaken for a complete telemetry row.
+    if start > 0:
+        newline = data.find(b"\n")
+        if newline >= 0:
+            data = data[newline + 1 :]
+        else:
+            return []
+    return [line.strip() for line in data.decode("utf-8", errors="replace").splitlines()]
+
+
 def read_pkt(file_path, latest_only: bool = False):
     """Reads packet from EB RS422_if.log files."""
-    with open(file_path, "r", encoding="utf-8") as handle:
-        all_lines = [line.strip() for line in handle]
+    all_lines = _read_rs422_lines(file_path, latest_only=latest_only)
 
     # Find all telemetry data lines and their indices
     tm_indices = [i for (i, line) in enumerate(all_lines) if line.startswith("Telemetry Data:")]

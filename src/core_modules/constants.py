@@ -123,8 +123,8 @@ MODELS = list(config.MODEL_OPTIONS)
 # must NOT be added again from verify_heater_states — they are already baked in.
 # State2 = OB Heating
 # State3 = OB Heating + Powered On
-# State4 = OB Heating + Powered On + TEC at 1A
-# State7 = All Active (OB Heating + Powered On + TEC at 1A + Moving)
+# State4 = OB Heating + Powered On + TEC at 0.9A
+# State7 = All Active (OB Heating + Powered On + TEC at 0.9A + Moving)
 HEATER_INCLUSIVE_STATES: frozenset[str] = frozenset({"State2", "State3", "State4", "State7"})
 
 # Power consumption (mA) per state for each model
@@ -132,10 +132,10 @@ HEATER_INCLUSIVE_STATES: frozenset[str] = frozenset({"State2", "State3", "State4
 # State1 : Safe
 # State2 : OB Heating
 # State3 : OB Heating + Powered On
-# State4 : OB Heating + Powered On + TEC at 1A
-# State5 : Powered On + TEC at 1A
+# State4 : OB Heating + Powered On + TEC at 0.9A
+# State5 : Powered On + TEC at 0.9A
 # State6 : ACQ
-# State7 : All Active - OB Heating + Powered On + TEC at 1A + Moving
+# State7 : All Active - OB Heating + Powered On + TEC at 0.9A + Moving
 
 MODEL_CONSUMPTION = {
     "DEM": {
@@ -170,7 +170,7 @@ MODEL_CONSUMPTION = {
         "DetHTR": 19,
         "MechHTR": 38,
         "Moving": 50,
-        "TEC_0_9A": 150,
+        "TEC_0_9A": 130,
         "TEC35": 100,
         "TEC65": 140,
     },

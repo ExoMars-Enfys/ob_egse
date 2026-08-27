@@ -26,12 +26,18 @@ MODEL_BITMAPS = {
     "FS": "110",
     "CMOD EGSE": "111",
 }
-DEFAULT_COM_PORT = 6
+DEFAULT_COM_PORT = 12
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
-PSU_COM_PORT = 10
+PSU_COM_PORT = 13
 PSU_LOGGING_FREQ = 10  # in HZ
+
+# TEC current configuration used by FFT and power-state verification.
+# Change these values together when a different TEC clamp is required.
+TEC_CURRENT_SETPOINT_ADU = 3550  # Commanded SET_TEC_CURRENT value (0x0E66)
+TEC_EXPECTED_CURRENT_A = 0.90  # Expected measured EB_TEC_DRIVE_CURRENT, amps
+TEC_CURRENT_TOLERANCE_A = 0.05  # Allowed +/- current tolerance, amps
 
 # Scope Config (Tektronix MSO44B, direct-cabled LAN link — see tek_scope_api)
 SCOPE_VISA_RESOURCE = "TCPIP0::169.254.9.67::INSTR"

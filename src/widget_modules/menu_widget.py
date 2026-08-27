@@ -242,11 +242,7 @@ def create_menu(
                         ).classes("w-full whitespace-nowrap rounded-full")
                         ui.button(
                             "Log",
-                            on_click=lambda: (
-                                state.__setitem__(
-                                    "log_search", {"enabled": app.state.eb_interface.select_rs422_log(state["logger"])}
-                                ),
-                            ),
+                            on_click=lambda: _select_rs422_log_async(state),
                         ).classes("w-full whitespace-nowrap rounded-full")
                         ui.button(
                             "TXT Script",
@@ -692,23 +688,84 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
     threading.Thread(target=_runner, name=f"script-{key}", daemon=True).start()
 
 
-def _start_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
-    """Start EB EGSE tools and expose script controls only on successful startup."""
-    app.state.eb_interface.start_egse_tools(state["logger"])
-    started = bool(getattr(app.state.eb_interface, "egse_started", False))
-    state["egse_tools_started"] = started
-    state["log_search"]["enabled"] = started
-    if callable(sync_visibility_fn):
-        sync_visibility_fn(state.get("mode", "EB"))
+async def _select_rs422_log_async(state: dict[str, Any]) -> None:
+    """Select an RS422 log without blocking the NiceGUI event loop."""
+    if state.get("rs422_select_busy", False):
+        ui.notify("RS422 log selection is already open", type="warning")
+        return
+
+    state["rs422_select_busy"] = True
+    try:
+        selected = await run.io_bound(app.state.eb_interface.select_rs422_log, state["logger"])
+        if selected:
+            state.setdefault("log_search", {})["enabled"] = True
+            # Force one bounded refresh of the newly selected file.  Parsing itself
+            # remains in the I/O worker used by poll_tm.
+            try:
+                app.state.eb_interface.reset_rs422_log_changed_state()
+            except Exception:
+                pass
+            ui.notify("RS422 log selected", type="positive")
+    except Exception as exc:
+        state["logger"].error("Failed to select RS422 log: %s", exc)
+        ui.notify("Failed to select RS422 log", color="negative")
+    finally:
+        state["rs422_select_busy"] = False
 
 
-def _stop_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
-    """Stop EB EGSE tools and hide script controls."""
-    app.state.eb_interface.stop_egse_tools(state["logger"])
-    state["egse_tools_started"] = False
-    state["log_search"]["enabled"] = False
-    if callable(sync_visibility_fn):
-        sync_visibility_fn(state.get("mode", "EB"))
+async def _start_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
+    """Start EB EGSE tools without blocking or allowing overlapping launches."""
+    if state.get("egse_tools_busy", False):
+        ui.notify("EGSE tools are already starting/stopping", type="warning")
+        return
+    if bool(getattr(app.state.eb_interface, "egse_started", False)):
+        state["egse_tools_started"] = True
+        state.setdefault("log_search", {})["enabled"] = True
+        ui.notify("EB EGSE tools are already started", type="info")
+        return
+
+    state["egse_tools_busy"] = True
+    ui.notify("Starting EB EGSE tools...", type="info")
+    try:
+        # start_egse_tools ultimately launches Start_tools.bat and deliberately waits
+        # while the external tools initialise. Keep it off the NiceGUI event loop so
+        # PSU/TM timers continue to refresh.
+        await run.io_bound(app.state.eb_interface.start_egse_tools, state["logger"])
+
+        started = bool(getattr(app.state.eb_interface, "egse_started", False))
+        state["egse_tools_started"] = started
+        state.setdefault("log_search", {})["enabled"] = started
+        if callable(sync_visibility_fn):
+            sync_visibility_fn(state.get("mode", "EB"))
+
+        if started:
+            ui.notify("EB EGSE tools started", type="positive")
+        else:
+            ui.notify("Failed to start EB EGSE tools", color="negative")
+    finally:
+        state["egse_tools_busy"] = False
+
+
+async def _stop_egse_tools(state: dict[str, Any], sync_visibility_fn: Any) -> None:
+    """Stop EB EGSE tools without blocking or overlapping a start/stop action."""
+    if state.get("egse_tools_busy", False):
+        ui.notify("EGSE tools are already starting/stopping", type="warning")
+        return
+
+    state["egse_tools_busy"] = True
+    ui.notify("Stopping EB EGSE tools...", type="info")
+    try:
+        # stop_egse_tools also contains sleeps and file-system log synchronisation.
+        await run.io_bound(app.state.eb_interface.stop_egse_tools, state["logger"])
+
+        state["egse_tools_started"] = False
+        state.setdefault("log_search", {})["enabled"] = False
+        if callable(sync_visibility_fn):
+            sync_visibility_fn(state.get("mode", "EB"))
+
+        ui.notify("EB EGSE tools stopped", type="info")
+    finally:
+        state["egse_tools_busy"] = False
 
 
 def _pause_selected_script(state: dict[str, Any], script_key: str) -> None:
@@ -778,7 +835,7 @@ def _handle_script_hotkeys(state: dict[str, Any], script_key: str, event: Any) -
         _abort_selected_script(state, script_key)
 
 
-def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
+async def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
     from contextlib import nullcontext
 
@@ -786,7 +843,11 @@ def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
 
     # Only run EB-specific stop tools in EB mode
     if str(state.get("mode", "EB")).upper() == "EB":
-        _stop_egse_tools(state, sync_visibility_fn=None)
+        try:
+            await _stop_egse_tools(state, sync_visibility_fn=None)
+        except Exception as exc:
+            # Shutdown must continue even if the external EGSE tools fail to stop.
+            state["logger"].warning("Could not stop EB EGSE tools during shutdown: %s", exc)
 
     psu_port = state.get("psu_port")
     if psu_port is not None:
