@@ -152,19 +152,19 @@ MODEL_CONSUMPTION = {
         "DetHTR": 21,
         "MechHTR": 42,
         "Moving": 53,
-        "TEC_0_9A": 145,
+        "TEC_0_9A": 130,
         "TEC35": 100,
         "TEC65": 140,
     },
     "EM": {  # Consumption Dictionary for EMC
-        "State1": 90,
-        "State2": 170,
-        "State3": 190,
-        "State4": 340,
-        "State5": 277,
-        "State6": 200,
-        "State7": 394,
-        "Standby": 110,
+        "State1": 90,  # 90 - EMC | 84 - FFT
+        "State2": 170,  # 170 - EMC | 163 - FFT
+        "State3": 190,  # 190 - EMC | 180 - FFT
+        "State4": 340,  # 320 - EMC | 310 - FFT
+        "State5": 277,  # 255 - EMC | 230 - FFT
+        "State6": 200,  # pretty much same
+        "State7": 394,  # 370 - EMC | 360 - FFT
+        "Standby": 110,  # 110 - EMC | 103 - FFT
         "Mech": 4,
         "Det": 10,
         "DetHTR": 19,
@@ -172,17 +172,25 @@ MODEL_CONSUMPTION = {
         "Moving": 50,
         "TEC_0_9A": 130,
         "TEC35": 100,
-        "TEC65": 140,
+        "TEC65": 140,  #! need to probably check and update
     },
     "PFM": {
-        "State1": 90,
-        "State2": 110,
-        "State3": 130,
-        "State4": 150,
-        "State5": 170,
-        "State6": 190,
-        "State7": 210,
-        "Standby": 100,
+        "State1": 90,  # 90 - EMC | 84 - FFT
+        "State2": 170,  # 170 - EMC | 163 - FFT
+        "State3": 190,  # 190 - EMC | 180 - FFT
+        "State4": 340,  # 320 - EMC | 310 - FFT
+        "State5": 277,  # 255 - EMC | 230 - FFT
+        "State6": 200,  # pretty much same
+        "State7": 394,  # 370 - EMC | 360 - FFT
+        "Standby": 110,  # 110 - EMC | 103 - FFT
+        "Mech": 4,
+        "Det": 10,
+        "DetHTR": 19,
+        "MechHTR": 38,
+        "Moving": 50,
+        "TEC_0_9A": 130,
+        "TEC35": 100,
+        "TEC65": 140,  #! need to probably check and update
     },
     "FS": {
         "State1": 85,
