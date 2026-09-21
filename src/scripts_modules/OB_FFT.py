@@ -484,7 +484,7 @@ def fft_stage_1(
     )
 
     # Stage 1 science and operating-state checks.
-    _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 2048, 2048)
+    _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 0, 0)
     dark_science = _run_checked(
         "initial dark science measurement",
         request_science,
