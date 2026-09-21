@@ -48,6 +48,36 @@ def report_check(*args: Any, **kwargs: Any) -> None:
     _background_report_check(*args, **kwargs)
 
 
+def _run_checked(label: str, check: Any, *args: Any, **kwargs: Any) -> Any:
+    """Route direct check exceptions through the OB FFT operator decision."""
+    try:
+        return check(*args, **kwargs)
+    except ui_runtime_controller.ScriptAbortRequested:
+        raise
+    except Exception as exc:
+        if ui_runtime_controller.handle_script_check_failure(label, [str(exc)]):
+            return None
+        raise
+
+
+class _PromptingCommandChecks:
+    """Add the OB FFT Continue/Abort policy to CommandChecks operations."""
+
+    def __init__(self, checks: CommandChecks) -> None:
+        self._checks = checks
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self._checks, name)
+        if not callable(value):
+            return value
+
+        def checked(*args: Any, **kwargs: Any) -> Any:
+            label = str(kwargs.get("label") or (args[0] if args and isinstance(args[0], str) else name))
+            return _run_checked(label, value, *args, **kwargs)
+
+        return checked
+
+
 def _run_ob_transaction(worker: Any, port_lock: Any, command: Any, port: Any, *args: Any) -> Any:
     if worker is not None:
         return worker.call(command, *args, priority=1)
@@ -112,23 +142,32 @@ def fft_stage_1(
     ui_runtime_controller.abortible_sleep(2)
     switch_psu(psu_port, enabled=not nopsu, psu_lock=psu_lock)
     ui_runtime_controller.abortible_sleep(5)
-    checks = CommandChecks(
-        port,
-        sleep=ui_runtime_controller.abortible_sleep,
-        # Moving checks must sample immediately; stationary checks use the
-        # settled wrapper below before validating cached PSU telemetry.
-        current_reader=(lambda: _read_psu_channels(psu_port, psu_lock)) if psu_port is not None and not nopsu else None,
-        progress_factory=ui_runtime_controller.ProgressNotifier,
-        port_lock=port_lock,
-        transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+    checks = _PromptingCommandChecks(
+        CommandChecks(
+            port,
+            sleep=ui_runtime_controller.abortible_sleep,
+            # Moving checks must sample immediately; stationary checks use the
+            # settled wrapper below before validating cached PSU telemetry.
+            current_reader=(lambda: _read_psu_channels(psu_port, psu_lock))
+            if psu_port is not None and not nopsu
+            else None,
+            progress_factory=ui_runtime_controller.ProgressNotifier,
+            port_lock=port_lock,
+            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+        )
     )
     errors = []
     response = checks.hk("boot", check_model=True)
     measured = check_current_profile(read_psu_channels(psu_port, psu_lock), response, errors=errors)
+    report_check(
+        "State 1 initial power on, boards off",
+        errors,
+        measured,
+        notify_negative=ui_runtime_controller.notify_negative,
+        notify_positive=ui_runtime_controller.notify_positive,
+    )
     ui_runtime_controller.request_force_pause(
         "State 1 — initial power on, boards off",
-        errors=errors,
-        readings=measured,
     )
 
     # region Mechanism Heater
@@ -155,7 +194,9 @@ def fft_stage_1(
             "MOTOR_TRP": getattr(response, "MOTOR_TRP", None),
         }
         ui_runtime_controller.abortible_sleep_with_progress(30, "Manual mechanism heater thermal response wait")
-        response = request_hk(
+        response = _run_checked(
+            "manual mechanism heater thermal response",
+            request_hk,
             port,
             "manual mechanism heater thermal response",
             port_lock=port_lock,
@@ -204,7 +245,9 @@ def fft_stage_1(
         )
         initial_thermal_values = {"DETEC_TRP": getattr(response, "DETEC_TRP", None)}
         ui_runtime_controller.abortible_sleep_with_progress(30, "Manual detector heater thermal response wait")
-        response = request_hk(
+        response = _run_checked(
+            "manual detector heater thermal response",
+            request_hk,
             port,
             "manual detector heater thermal response",
             port_lock=port_lock,
@@ -300,7 +343,7 @@ def fft_stage_1(
     ui_runtime_controller.abortible_sleep(5)
     checks.home(calibration=True, outer=True, label="calibration to outer")
     ui_runtime_controller.abortible_sleep(5)
-    response = checks.move(negative=False, steps=480, label="negative 480-step move")
+    response = checks.move(negative=False, steps=480, label="positive 480-step move")
     errors = []
     readings = None if nopsu else read_psu_channels(psu_port, psu_lock)
     ui_runtime_controller.abortible_sleep(5)
@@ -313,13 +356,15 @@ def fft_stage_1(
     )
     _run_ob_transaction(worker, port_lock, repeat, port, tc.mtr_halt)
     ui_runtime_controller.abortible_sleep(2)
-    response = request_hk(
+    response = _run_checked(
+        "motor halt",
+        request_hk,
         port,
         "motor halt",
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
     )
-    check_motor_stopped(response, "motor halt")
+    _run_checked("motor halt", check_motor_stopped, response, "motor halt")
     ui_runtime_controller.abortible_sleep(2)
     errors = []
     check_mechanism_idle(response, errors)
@@ -367,7 +412,7 @@ def fft_stage_1(
         )
         checks.move(
             negative=False,
-            steps=1500,
+            steps=1510,
             label=f"motor current {motor_current} movement",
             active_state="Moving",
             expected_motor_params=expected_motor_params,
@@ -439,23 +484,35 @@ def fft_stage_1(
     )
 
     # Stage 1 science and operating-state checks.
-    _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 2048, 2048)
-    dark_science = request_science(
+    _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 0, 0)
+    dark_science = _run_checked(
+        "initial dark science measurement",
+        request_science,
         port,
         "initial dark science measurement",
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
     )
-    check_science(dark_science, label="initial dark science measurement")
+    _run_checked(
+        "initial dark science measurement",
+        lambda response: check_science(response, label="initial dark science measurement"),
+        dark_science,
+    )
     log_science_measurement(dark_science, "Initial dark science measurement; record this reading")
     _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 4095, 4095)
-    offset_science = request_science(
+    offset_science = _run_checked(
+        "science offset 4095 verification",
+        request_science,
         port,
         "science offset 4095 verification",
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
     )
-    check_science(offset_science, label="science offset 4095 verification")
+    _run_checked(
+        "science offset 4095 verification",
+        lambda response: check_science(response, label="science offset 4095 verification"),
+        offset_science,
+    )
     errors = []
     check_science_offsets(offset_science, 4095, 4095, errors)
     for field in ("SWIR_HIGH", "SWIR_MED", "SWIR_LOW", "MWIR_HIGH", "MWIR_MED", "MWIR_LOW"):
@@ -566,13 +623,17 @@ def fft_stage_2(
     ui_runtime_controller.abortible_sleep(2)
     switch_psu(psu_port, enabled=not nopsu, psu_lock=psu_lock)
     ui_runtime_controller.abortible_sleep(5)
-    checks = CommandChecks(
-        port,
-        sleep=ui_runtime_controller.abortible_sleep,
-        current_reader=(lambda: _read_psu_channels(psu_port, psu_lock)) if psu_port is not None and not nopsu else None,
-        progress_factory=ui_runtime_controller.ProgressNotifier,
-        port_lock=port_lock,
-        transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+    checks = _PromptingCommandChecks(
+        CommandChecks(
+            port,
+            sleep=ui_runtime_controller.abortible_sleep,
+            current_reader=(lambda: _read_psu_channels(psu_port, psu_lock))
+            if psu_port is not None and not nopsu
+            else None,
+            progress_factory=ui_runtime_controller.ProgressNotifier,
+            port_lock=port_lock,
+            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+        )
     )
 
     response = checks.hk("boot", check_model=True)

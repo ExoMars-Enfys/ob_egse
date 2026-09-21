@@ -2,12 +2,32 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
+
 from core_modules import config
 from utility_modules import eb_interface, ebtcs
 from utility_modules import eb_packet_utility as ebpu
 from widget_modules import ui_runtime_controller
 
 info_log = logging.getLogger("info_log")
+
+
+def _prompt_check_failure(label: str, message: str) -> None:
+    """Ask whether INST FFT execution should continue after a failed check."""
+    if ui_runtime_controller.handle_script_check_failure(label, [message]):
+        return
+    raise AssertionError(message)
+
+
+def _run_check(label: str, check: Any, *args: Any, **kwargs: Any) -> Any:
+    """Route check exceptions through the INST FFT Continue/Abort prompt."""
+    try:
+        return check(*args, **kwargs)
+    except ui_runtime_controller.ScriptAbortRequested:
+        raise
+    except Exception as exc:
+        _prompt_check_failure(label, str(exc))
+        return None
 
 
 def _get_tec_current_config() -> tuple[int, float, float]:
@@ -57,9 +77,10 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     if verification:
-        msg, passed = ui_runtime_controller.verify_safe_ret()
+        result = _run_check("SAFE RET", ui_runtime_controller.verify_safe_ret)
+        msg, passed = result if result is not None else ("SAFE RET check was skipped", True)
         if not passed:
-            raise AssertionError(f"SAFE RET verification failed:\n{msg}")
+            _prompt_check_failure("SAFE RET", f"SAFE RET verification failed:\n{msg}")
 
     time.sleep(2)
     ui_runtime_controller.request_force_pause("Pause for POST packet checks")
@@ -74,12 +95,15 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.set_hk_rate(interface, 0, 1)
     time.sleep(2)
     if verification:
-        msg, passed = ui_runtime_controller.verify_standby_ret(
+        result = _run_check(
+            "STANDBY RET",
+            ui_runtime_controller.verify_standby_ret,
             after_hk_sequence=standby_hk_sequence,
             after_psu_sequence=standby_psu_sequence,
         )
+        msg, passed = result if result is not None else ("STANDBY RET check was skipped", True)
         if not passed:
-            raise AssertionError(f"STANDBY RET verification failed:\n{msg}")
+            _prompt_check_failure("STANDBY RET", f"STANDBY RET verification failed:\n{msg}")
         else:
             info_log.info("STANDBY RET verification passed:\n%s", msg)
 
@@ -111,7 +135,7 @@ def run_fft(verification: bool = True) -> None:
                 + "\n".join(numbered)
             )
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("Heater config: mech ON, det OFF", msg)
         else:
             msg = f"Heater config: Mech ON, Det OFF — PSU_EB_I: {ch4_current_ma:.2f} mA"
             info_log.info(msg)
@@ -144,7 +168,7 @@ def run_fft(verification: bool = True) -> None:
                 + "\n".join(numbered)
             )
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("Heater config: mech OFF, det ON", msg)
         else:
             msg = f"Heater config: Mech OFF, Det ON — PSU_EB_I: {ch4_current_ma:.2f} mA"
             info_log.info(msg)
@@ -155,9 +179,10 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        msg, passed = ui_runtime_controller.verify_power_state("State2")
+        result = _run_check("State2", ui_runtime_controller.verify_power_state, "State2")
+        msg, passed = result if result is not None else ("State2 check was skipped", True)
         if not passed:
-            raise AssertionError(msg)
+            _prompt_check_failure("State2", msg)
 
     # ?Set Heater Configs to flight
     ebtcs.en_mech_heater(interface, 0x0)
@@ -189,7 +214,7 @@ def run_fft(verification: bool = True) -> None:
                 numbered
             )
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("Flight HTR config", msg)
         else:
             msg = (
                 f"Flight HTR config OK — PSU_EB_I: {ch4_current_ma:.2f} mA, "
@@ -205,7 +230,7 @@ def run_fft(verification: bool = True) -> None:
     # ebtcs.generic_tc(interface,0x0, 0x2, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
 
     ebtcs.ob_homing(interface, 0x01)
-    ui_runtime_controller.perform_homing_check_sync()
+    _run_check("Initial homing", ui_runtime_controller.perform_homing_check_sync)
 
     # ?Turn on TEC - State 2 + Mech Board ON + TEC clamped at configured current
     ebtcs.set_tec_current(interface, 0x00, tec_setpoint_adu)
@@ -246,7 +271,7 @@ def run_fft(verification: bool = True) -> None:
             numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
             msg = f"TEC ramp-up verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("TEC ramp-up", msg)
         else:
             tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
             msg = f"TEC clamp OK — TEC: {tec_current:.3f} A (target {tec_expected_current_a:.2f} +/- {tec_current_tolerance_a:.2f} A, command {tec_setpoint_adu} ADU), PSU_EB_I: {ch4_current_ma:.2f} mA"
@@ -291,7 +316,7 @@ def run_fft(verification: bool = True) -> None:
                 numbered
             )
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("TEC ramp-down", msg)
         else:
             tec_current = getattr(latest_hk, "EB_TEC_DRIVE_CURRENT", 0) * 0.0000162
             msg = f"TEC off OK — TEC: {tec_current:.4f} A, PSU_EB_I: {ch4_current_ma:.2f} mA"
@@ -311,7 +336,7 @@ def run_fft(verification: bool = True) -> None:
         if errors:
             msg = "\n".join(errors)
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("TEC setpoint -35C", msg)
 
     # ?State 6 SCI ACQ
     ebtcs.set_acq_configs(
@@ -321,7 +346,7 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.acquisition(interface, 0x0)
     time.sleep(1)
     if verification:
-        ui_runtime_controller.perform_acq_check_sync()
+        _run_check("State 6 acquisition", ui_runtime_controller.perform_acq_check_sync)
 
     # ?State3 - OB Heating + Powered On
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -337,18 +362,20 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        msg, passed = ui_runtime_controller.verify_power_state("State3")
+        result = _run_check("State3", ui_runtime_controller.verify_power_state, "State3")
+        msg, passed = result if result is not None else ("State3 check was skipped", True)
         if not passed:
-            raise AssertionError(msg)
+            _prompt_check_failure("State3", msg)
 
     # ? State4 - OB Heating + Powered On + TEC clamped at configured current
     ebtcs.set_tec_current(interface, 0x00, tec_setpoint_adu)
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        msg, passed = ui_runtime_controller.verify_power_state("State4")
+        result = _run_check("State4", ui_runtime_controller.verify_power_state, "State4")
+        msg, passed = result if result is not None else ("State4 check was skipped", True)
         if not passed:
-            raise AssertionError(msg)
+            _prompt_check_failure("State4", msg)
 
     # ?State 7 - All Active (OB Heating + Powered On + TEC clamped at configured current + Moving)
     ebtcs.set_motor_configs(interface, 0, 0x40, 0x00, 0x08, 0x00, 0x00, 0x3C, 0x00, 0x0000, 0x00)
@@ -358,11 +385,12 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        msg, passed = ui_runtime_controller.verify_power_state("State7")
+        result = _run_check("State7", ui_runtime_controller.verify_power_state, "State7")
+        msg, passed = result if result is not None else ("State7 check was skipped", True)
         if not passed:
-            raise AssertionError(msg)
+            _prompt_check_failure("State7", msg)
 
-    ui_runtime_controller.perform_homing_check_sync()
+    _run_check("State 7 homing", ui_runtime_controller.perform_homing_check_sync)
     ui_runtime_controller.request_force_pause("Click to continue once ready.")
 
     time.sleep(3.5)
@@ -376,9 +404,10 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        msg, passed = ui_runtime_controller.verify_power_state("State5")
+        result = _run_check("State5", ui_runtime_controller.verify_power_state, "State5")
+        msg, passed = result if result is not None else ("State5 check was skipped", True)
         if not passed:
-            raise AssertionError(msg)
+            _prompt_check_failure("State5", msg)
 
     ebtcs.set_tec_current(interface, 0x00, 0x000)
 
@@ -394,7 +423,7 @@ def run_fft(verification: bool = True) -> None:
         if errors:
             msg = "\n".join(errors)
             ui_runtime_controller.notify_negative(msg)
-            raise AssertionError(msg)
+            _prompt_check_failure("TEC setpoint -35C", msg)
 
     # ?State 6 SCI ACQ with heaters ON
     ebtcs.en_mech_heater(interface, 0x0)
@@ -410,7 +439,13 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        ui_runtime_controller.perform_acq_check_sync(acq_mode=2, acq_duration_s=0x0078, acq_sample_time_ms=0x0064)
+        _run_check(
+            "State 6 acquisition with heaters",
+            ui_runtime_controller.perform_acq_check_sync,
+            acq_mode=2,
+            acq_duration_s=0x0078,
+            acq_sample_time_ms=0x0064,
+        )
 
     ui_runtime_controller.request_force_pause(
         "Remove Baffle Hat and continue with acquisition. Click to continue once ready."
@@ -432,10 +467,10 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.hk_request(interface, 0)
     time.sleep(3.5)
     if verification:
-        ui_runtime_controller.perform_acq_check_sync()
+        _run_check("State 6 acquisition without heaters", ui_runtime_controller.perform_acq_check_sync)
 
     ebtcs.ob_homing(interface, 0x02)
-    ui_runtime_controller.perform_homing_check_sync()
+    _run_check("Final homing", ui_runtime_controller.perform_homing_check_sync)
     ui_runtime_controller.request_force_pause("Click to continue once ready.")
 
     ebtcs.generic_tc(interface, 0x1, 0x0A, 0x01, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
