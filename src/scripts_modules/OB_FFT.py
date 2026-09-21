@@ -300,7 +300,7 @@ def fft_stage_1(
     ui_runtime_controller.abortible_sleep(5)
     checks.home(calibration=True, outer=True, label="calibration to outer")
     ui_runtime_controller.abortible_sleep(5)
-    response = checks.move(negative=False, steps=480, label="negative 480-step move")
+    response = checks.move(negative=False, steps=480, label="positive 480-step move")
     errors = []
     readings = None if nopsu else read_psu_channels(psu_port, psu_lock)
     ui_runtime_controller.abortible_sleep(5)
