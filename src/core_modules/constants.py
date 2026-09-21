@@ -157,32 +157,32 @@ MODEL_CONSUMPTION = {
         "TEC65": 140,
     },
     "EM": {  # Consumption Dictionary for EMC
-        "State1": 90,  # 90 - EMC | 84 - FFT
-        "State2": 170,  # 170 - EMC | 163 - FFT
-        "State3": 190,  # 190 - EMC | 180 - FFT
-        "State4": 340,  # 320 - EMC | 310 - FFT
-        "State5": 277,  # 255 - EMC | 230 - FFT
-        "State6": 200,  # pretty much same
-        "State7": 394,  # 370 - EMC | 360 - FFT
-        "Standby": 110,  # 110 - EMC | 103 - FFT
+        "State1": 84,  # 90 - EMC | 84 - FFT |
+        "State2": 163,  # 170 - EMC | 163 - FFT |
+        "State3": 180,  # 190 - EMC | 180 - FFT |
+        "State4": 310,  # 320 - EMC | 310 - FFT |
+        "State5": 240,  # 255 - EMC | 240 - FFT |
+        "State6": 200,  # pretty much same (200)
+        "State7": 360,  # 370 - EMC | 360 - FFT |
+        "Standby": 103,  # 110 - EMC | 103 - FFT |
         "Mech": 4,
         "Det": 10,
         "DetHTR": 19,
         "MechHTR": 38,
         "Moving": 50,
-        "TEC_0_9A": 130,
+        "TEC_0_9A": 130,  # changed to 120 for max, changed to 140 for min
         "TEC35": 100,
         "TEC65": 140,  #! need to probably check and update
     },
     "PFM": {
-        "State1": 90,  # 90 - EMC | 84 - FFT
-        "State2": 170,  # 170 - EMC | 163 - FFT
-        "State3": 190,  # 190 - EMC | 180 - FFT
-        "State4": 340,  # 320 - EMC | 310 - FFT
-        "State5": 277,  # 255 - EMC | 230 - FFT
+        "State1": 84,  # 90 - EMC | 84 - FFT
+        "State2": 163,  # 170 - EMC | 163 - FFT
+        "State3": 180,  # 190 - EMC | 180 - FFT
+        "State4": 310,  # 320 - EMC | 310 - FFT
+        "State5": 230,  # 255 - EMC | 230 - FFT
         "State6": 200,  # pretty much same
-        "State7": 394,  # 370 - EMC | 360 - FFT
-        "Standby": 110,  # 110 - EMC | 103 - FFT
+        "State7": 360,  # 370 - EMC | 360 - FFT
+        "Standby": 103,  # 110 - EMC | 103 - FFT
         "Mech": 4,
         "Det": 10,
         "DetHTR": 19,
