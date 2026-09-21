@@ -412,7 +412,7 @@ def fft_stage_1(
         )
         checks.move(
             negative=False,
-            steps=1500,
+            steps=1510,
             label=f"motor current {motor_current} movement",
             active_state="Moving",
             expected_motor_params=expected_motor_params,
