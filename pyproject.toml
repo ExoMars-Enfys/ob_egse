@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 dependencies = [
     "bitstruct>=8.19.0",
     "crc8>=0.2.1",
+    "kaleido>=1.4.0",
     "nicegui",
     "plotly>=6.5.0",
     "pyserial>=3.5",

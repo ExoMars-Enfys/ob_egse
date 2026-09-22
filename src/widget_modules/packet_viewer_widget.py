@@ -53,8 +53,8 @@ def _sanitize_filename(name: str) -> str:
     return cleaned or "sci_plot"
 
 
-def _write_plot_html_files(figures: list[Any], filename: str) -> list[Path]:
-    """Write the SWIR/MWIR figures stacked into a single interactive HTML file."""
+def _build_combined_plot_figure(figures: list[Any]) -> Any:
+    """Stack the SWIR/MWIR figures into a single combined figure."""
     from plotly.subplots import make_subplots
 
     channel_labels = ["SWIR", "MWIR"]
@@ -74,11 +74,24 @@ def _write_plot_html_files(figures: list[Any], filename: str) -> list[Path]:
         showlegend=True,
         hovermode="x unified",
     )
+    return combined
+
+
+def _write_plot_files(figures: list[Any], filename: str, formats: list[str]) -> list[Path]:
+    """Write the SWIR/MWIR figures, stacked into one combined plot, in the given formats."""
+    combined = _build_combined_plot_figure(figures)
 
     const.LOG_PATH.mkdir(parents=True, exist_ok=True)
-    path = const.LOG_PATH / f"{filename}.html"
-    combined.write_html(path, include_plotlyjs="cdn")
-    return [path]
+    saved_paths: list[Path] = []
+    if "html" in formats:
+        path = const.LOG_PATH / f"{filename}.html"
+        combined.write_html(path, include_plotlyjs="cdn")
+        saved_paths.append(path)
+    if "png" in formats:
+        path = const.LOG_PATH / f"{filename}.png"
+        combined.write_image(path, width=1400, height=combined.layout.height, scale=2)
+        saved_paths.append(path)
+    return saved_paths
 
 
 def _plotly_figure_with_modebar(fig: Any, *, filename: str) -> dict[str, Any]:
@@ -327,7 +340,7 @@ class PacketViewerController:
                             filename = _sanitize_filename(filename_input.value or "")
                             save_dialog.close()
                             try:
-                                saved_paths = await run.io_bound(_write_plot_html_files, figures, filename)
+                                saved_paths = await run.io_bound(_write_plot_files, figures, filename, ["html", "png"])
                             except Exception as exc:
                                 ui.notify(f"Failed to save plots: {exc}", color="negative")
                                 return
