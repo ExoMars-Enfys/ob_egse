@@ -51,6 +51,7 @@ def _run_with_port_lock(port_lock: Any, func, *args, **kwargs):
 
 
 def _run_transaction(worker: Any, port_lock: Any, func, *args, **kwargs):
+    bg.gate_script_control()
     if worker is not None:
         return worker.call(func, *args[1:], **kwargs)
     return _run_with_port_lock(port_lock, func, *args, **kwargs)

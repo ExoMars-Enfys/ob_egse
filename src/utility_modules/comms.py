@@ -9,6 +9,7 @@ from core_modules import config as config
 
 info_log = logging.getLogger("info_log")
 
+
 def initialise_comms(com_port: str) -> serial.rs485.RS485:
     """Initialise an unopened RS485 port with project communication settings."""
     port = serial.rs485.RS485(
@@ -18,6 +19,9 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
         parity=serial.PARITY_ODD,
         stopbits=serial.STOPBITS_ONE,
         timeout=1.0,
+        # Without this, a stalled write (unresponsive OB) blocks forever, holding
+        # port_lock indefinitely and freezing HK polling, metrics, and PSU commands.
+        write_timeout=2.0,
     )
 
     port.rs485_mode = serial.rs485.RS485Settings(
@@ -31,6 +35,7 @@ def initialise_comms(com_port: str) -> serial.rs485.RS485:
     port.port = com_port  # Assign com_port afterwards to prevent opening immediately
     return port
 
+
 def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
     """Open an initialised RS485 port and clear stale input/output buffers."""
     try:
@@ -43,6 +48,7 @@ def open_comms(port: serial.rs485.RS485) -> serial.rs485.RS485:
     port.reset_input_buffer()
 
     return port
+
 
 def close_comms(port: serial.rs485.RS485) -> None:
     """Clear buffers and close an open RS485 port."""

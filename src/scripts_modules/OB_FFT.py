@@ -48,7 +48,7 @@ def report_check(*args: Any, **kwargs: Any) -> None:
     _background_report_check(*args, **kwargs)
 
 
-def _run_checked(label: str, check: Any, *args: Any, **kwargs: Any) -> Any:
+def _run_checked(label: str, check: Any, /, *args: Any, **kwargs: Any) -> Any:
     """Route direct check exceptions through the OB FFT operator decision."""
     try:
         return check(*args, **kwargs)
@@ -79,6 +79,9 @@ class _PromptingCommandChecks:
 
 
 def _run_ob_transaction(worker: Any, port_lock: Any, command: Any, port: Any, *args: Any) -> Any:
+    if ui_runtime_controller.is_aborted():
+        raise ui_runtime_controller.ScriptAbortRequested
+    ui_runtime_controller.wait_while_paused()
     if worker is not None:
         return worker.call(command, *args, priority=1)
     if port_lock is not None:
@@ -121,7 +124,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):

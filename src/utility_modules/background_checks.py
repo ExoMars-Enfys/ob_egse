@@ -110,6 +110,17 @@ def calculate_ob_current_profile(state: Any, motor_current: int | None = None) -
     return expected
 
 
+def gate_script_control() -> None:
+    """Honor Pause/Stop before a script action that runs outside CommandChecks."""
+    try:
+        from widget_modules import ui_runtime_controller
+    except Exception:
+        return
+    if ui_runtime_controller.is_aborted():
+        raise ui_runtime_controller.ScriptAbortRequested
+    ui_runtime_controller.wait_while_paused()
+
+
 def switch_psu(psu_port: Any, *, enabled: bool, psu_lock: Any = None) -> None:
     """Switch all PSU outputs for an OB qualification stage.
 
@@ -117,6 +128,7 @@ def switch_psu(psu_port: Any, *, enabled: bool, psu_lock: Any = None) -> None:
     the lock rather than silently skipping the switch, since a dropped switch
     would leave the PSU in the wrong state.
     """
+    gate_script_control()
     if psu_port is None:
         info_log.info("PSU unavailable; skipping PSU channel switch.")
         return
@@ -138,6 +150,7 @@ def switch_psu(psu_port: Any, *, enabled: bool, psu_lock: Any = None) -> None:
 
 def request_hk(port: Any, checkpoint: str, *, port_lock: Any = None, transaction_runner: Any = None) -> Any:
     """Request and validate that a housekeeping response was received."""
+    gate_script_control()
     if transaction_runner is not None:
         response = transaction_runner(repeat, tc.hk_request)
     else:
@@ -151,6 +164,7 @@ def request_hk(port: Any, checkpoint: str, *, port_lock: Any = None, transaction
 
 def request_science(port: Any, checkpoint: str, *, port_lock: Any = None, transaction_runner: Any = None) -> Any:
     """Request and validate that a science response was received."""
+    gate_script_control()
     if transaction_runner is not None:
         response = transaction_runner(repeat, tc.sci_request, 4, 20)
     else:
@@ -720,6 +734,8 @@ class CommandChecks:
 
     def _repeat(self, cmd_func: Callable[..., Any], *args: Any) -> Any:
         """Issue a command through cmd_repeat, serialized against self.port_lock."""
+        self._raise_if_aborted()
+        self._wait_if_paused()
         if self.transaction_runner is not None:
             return self.transaction_runner(repeat, cmd_func, *args)
         lock_ctx = self.port_lock if self.port_lock is not None else nullcontext()
@@ -736,6 +752,8 @@ class CommandChecks:
         log_result: bool = True,
         check_power_state: bool = True,
     ) -> Any:
+        self._raise_if_aborted()
+        self._wait_if_paused()
         if self.transaction_runner is not None:
             hk_response = self.transaction_runner(repeat, self.hk_request)
         else:
@@ -1084,6 +1102,15 @@ class CommandChecks:
             return
         if ui_runtime_controller.is_aborted():
             raise ui_runtime_controller.ScriptAbortRequested
+
+    @staticmethod
+    def _wait_if_paused() -> None:
+        """Block before issuing the next OB command while the UI pause is active."""
+        try:
+            from widget_modules import ui_runtime_controller
+        except Exception:
+            return
+        ui_runtime_controller.wait_while_paused()
 
     def _wait_for_stop(
         self,

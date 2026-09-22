@@ -343,8 +343,9 @@ def run_fft(verification: bool = True) -> None:
         interface, 0x00, 0x00, 0x0000, 0x0000, 0x0000, 0x0001, 0x00B9, 0x00, 0x1, 0x1, 0x1, 0x1, 0x01, 0x0C
     )  #! This is a baseline ACQ that ABU verified with table 12 - This can be changed if needed later on
     ebtcs.set_hk_rate(interface, 0, 2)
+    time.sleep(3)
     ebtcs.acquisition(interface, 0x0)
-    time.sleep(1)
+    time.sleep(3)
     if verification:
         _run_check("State 6 acquisition", ui_runtime_controller.perform_acq_check_sync)
 

@@ -1936,12 +1936,18 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
             eb_tec_i = eb_tec_i_raw * 0.0000162
             checks = [
                 (11.0 <= eb_12v <= 13.0, f"EB 12V out of range. Got: {eb_12v:.2f} V, Expected: 11.00 to 13.00 V"),
-                (-13.0 <= eb_neg12v <= -11.0, f"EB -12V out of range. Got: {eb_neg12v:.2f} V, Expected: -13.00 to -11.00 V"),
+                (
+                    -13.0 <= eb_neg12v <= -11.0,
+                    f"EB -12V out of range. Got: {eb_neg12v:.2f} V, Expected: -13.00 to -11.00 V",
+                ),
                 (4.5 <= eb_5v <= 5.5, f"EB 5V out of range. Got: {eb_5v:.2f} V, Expected: 4.50 to 5.50 V"),
                 (2.8 <= eb_3v3 <= 3.8, f"EB 3V3 out of range. Got: {eb_3v3:.2f} V, Expected: 2.80 to 3.80 V"),
                 (-0.5 <= eb_tec_v <= 0.5, f"EB TEC V out of range. Got: {eb_tec_v:.2f} V, Expected: -0.50 to 0.50 V"),
                 (-0.5 <= eb_0v <= 0.5, f"EB 0V out of range. Got: {eb_0v:.2f} V, Expected: -0.50 to 0.50 V"),
-                (-0.1 <= eb_tec_i <= 0.1, f"EB TEC I out of range. Got: {eb_tec_i:.4f} A, Expected: -0.1000 to 0.1000 A"),
+                (
+                    -0.1 <= eb_tec_i <= 0.1,
+                    f"EB TEC I out of range. Got: {eb_tec_i:.4f} A, Expected: -0.1000 to 0.1000 A",
+                ),
             ]
             for ok, msg in checks:
                 if not ok:
@@ -2011,9 +2017,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 if actual != expected:
                     actual_text = f"0x{actual:04X}" if isinstance(actual, int) else str(actual)
                     expected_text = f"0x{expected:04X}" if isinstance(expected, int) else str(expected)
-                    result["details"].append(
-                        f"{field} mismatch. Got: {actual_text}, Expected: {expected_text}"
-                    )
+                    result["details"].append(f"{field} mismatch. Got: {actual_text}, Expected: {expected_text}")
             # Keep converted engineering values separate from actual POST failures.
             # They are diagnostic context only and must not inflate the error count.
             post_engineering_values = (
@@ -2031,8 +2035,7 @@ def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> d
                 low, high = expected_range
                 status = "PASS" if low <= actual <= high else "OUT OF RANGE"
                 diagnostics.append(
-                    f"{field}: Got: {actual:.2f} {unit}, "
-                    f"Expected: {low:.2f} to {high:.2f} {unit} [{status}]"
+                    f"{field}: Got: {actual:.2f} {unit}, Expected: {low:.2f} to {high:.2f} {unit} [{status}]"
                 )
             if diagnostics:
                 result["diagnostics"] = diagnostics
@@ -2391,7 +2394,10 @@ def verify_power_state(state: str) -> tuple[str, bool]:
                 # TEC may still be ramping — poll for up to 30 s before failing.
                 info_log.debug(
                     "%s TEC current %.3f A outside %.2f +/- %.2f A; waiting up to 30 s...",
-                    state, tec_current, tec_target_a, tec_tolerance_a
+                    state,
+                    tec_current,
+                    tec_target_a,
+                    tec_tolerance_a,
                 )
                 _tec_ramped = False
                 for _ in range(30):
@@ -2471,9 +2477,7 @@ def verify_safe_ret():
         msg = f"SAFE RET verification failed: {count} error{'s' if count != 1 else ''}:\n" + "\n".join(numbered)
         diagnostics = result.get("diagnostics", []) if isinstance(result, dict) else []
         if diagnostics:
-            msg += "\n\nPOST diagnostics (informational):\n" + "\n".join(
-                f"- {line}" for line in diagnostics
-            )
+            msg += "\n\nPOST diagnostics (informational):\n" + "\n".join(f"- {line}" for line in diagnostics)
         notify_negative(msg)
         return msg, False
     else:
@@ -2551,16 +2555,34 @@ class ScriptAbortRequested(Exception):
     """Raised when a script wait is interrupted by the Stop control."""
 
 
+def wait_while_paused(poll_s: float = 0.25) -> None:
+    """Block the calling (script) thread while Pause is active; still honors Stop.
+
+    This is the single shared gate scripts/checks should call before doing any
+    work (sending a command, sleeping, taking a reading) so Pause stops the whole
+    script rather than only the OB command path.
+    """
+    while is_paused() or is_force_paused():
+        if is_aborted():
+            raise ScriptAbortRequested
+        time.sleep(max(float(poll_s), 0.01))
+
+
 def abortible_sleep(seconds: float, poll_s: float = 0.1) -> None:
-    """Sleep while allowing the Stop control to interrupt the script promptly."""
+    """Sleep while allowing Stop to interrupt and Pause to hold the countdown."""
     deadline = time.monotonic() + max(float(seconds), 0.0)
     interval = max(float(poll_s), 0.01)
     while True:
+        if is_aborted():
+            raise ScriptAbortRequested
+        if is_paused() or is_force_paused():
+            pause_started = time.monotonic()
+            wait_while_paused(interval)
+            deadline += time.monotonic() - pause_started
+            continue
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
-        if is_aborted():
-            raise ScriptAbortRequested
         time.sleep(min(interval, remaining))
 
 
@@ -2639,11 +2661,18 @@ def abortible_sleep_with_progress(seconds: float, label: str, update_interval: f
     interval = max(float(update_interval), 0.1)
     try:
         while True:
+            if is_aborted():
+                raise ScriptAbortRequested
+            if is_paused() or is_force_paused():
+                pause_started = time.monotonic()
+                wait_while_paused(interval)
+                paused_for = time.monotonic() - pause_started
+                deadline += paused_for
+                start += paused_for
+                continue
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
-            if is_aborted():
-                raise ScriptAbortRequested
             elapsed = time.monotonic() - start
             percent = min(100, int(elapsed / total * 100))
             progress.update(f"{label}: {elapsed:.0f}s / {total:.0f}s ({percent}%)")

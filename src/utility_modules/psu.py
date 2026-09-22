@@ -69,7 +69,9 @@ def _queue_shutdown_snapshot(active_ebmode: bool) -> None:
 def init_psu_comms(psu_com: str) -> serial.Serial:
     """Initialise an unopened PSU serial port handle."""
     # Keep read timeout short so monitor polling cannot block command writes for long.
-    psuport = serial.Serial(port=None, timeout=0.15)
+    # write_timeout guards against a stalled write blocking forever, which would hold
+    # psu_lock/_psu_command_in_flight indefinitely and freeze PSU metrics and controls.
+    psuport = serial.Serial(port=None, timeout=0.15, write_timeout=2.0)
     psuport.port = psu_com  # Assign com_port afterwards to prevent opening immediately
     print(f"Initialized PSU COM port: {psu_com}")
     return psuport
