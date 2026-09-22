@@ -2,8 +2,10 @@ from __future__ import annotations
 
 # Std library
 import asyncio
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 # Added packages
@@ -11,6 +13,7 @@ from nicegui import app, run, ui
 
 # Local modules
 # core
+from core_modules import constants as const
 from core_modules import tmstruct
 
 # utilities
@@ -42,6 +45,56 @@ SCI_HEADER_FIELDS: list[str] = [
 ] + ["SCI_POINT_COUNT"]
 
 SCI_POINT_FIELDS: list[str] = [name for name, _ in tmstruct.sci_data if not name.startswith("RESERVED")]
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip characters that are unsafe for a filename, keeping it non-empty."""
+    cleaned = re.sub(r"[^\w\-. ]+", "_", name).strip().strip(".")
+    return cleaned or "sci_plot"
+
+
+def _write_plot_html_files(figures: list[Any], filename: str) -> list[Path]:
+    """Write the SWIR/MWIR figures stacked into a single interactive HTML file."""
+    from plotly.subplots import make_subplots
+
+    channel_labels = ["SWIR", "MWIR"]
+    titles = [
+        getattr(fig.layout.title, "text", None) or (channel_labels[i] if i < len(channel_labels) else f"Plot {i}")
+        for i, fig in enumerate(figures)
+    ]
+    combined = make_subplots(rows=len(figures), cols=1, subplot_titles=titles, vertical_spacing=0.18)
+    for row, fig in enumerate(figures, start=1):
+        for trace in fig.data:
+            combined.add_trace(trace, row=row, col=1)
+        combined.update_xaxes(title_text=fig.layout.xaxis.title.text, row=row, col=1)
+        combined.update_yaxes(title_text=fig.layout.yaxis.title.text, row=row, col=1)
+    combined.update_layout(
+        template="plotly_white",
+        height=480 * len(figures),
+        showlegend=True,
+        hovermode="x unified",
+    )
+
+    const.LOG_PATH.mkdir(parents=True, exist_ok=True)
+    path = const.LOG_PATH / f"{filename}.html"
+    combined.write_html(path, include_plotlyjs="cdn")
+    return [path]
+
+
+def _plotly_figure_with_modebar(fig: Any, *, filename: str) -> dict[str, Any]:
+    """Force Plotly's modebar (with its built-in download/save button) always visible.
+
+    ``ui.plotly`` only forwards a ``config`` when the figure is passed as a plain
+    dict, and Plotly.js otherwise defaults to showing the modebar on hover only.
+    """
+    figure_json = fig.to_plotly_json()
+    figure_json["config"] = {
+        "displayModeBar": True,
+        "displaylogo": False,
+        "scrollZoom": True,
+        "toImageButtonOptions": {"format": "png", "filename": filename},
+    }
+    return figure_json
 
 
 @dataclass
@@ -177,7 +230,9 @@ class PacketViewerController:
                 with ui.row(align_items="center").classes("w-full justify-between gap-2"):
                     plot_title = "OB Science Plot" if is_ob_science else "Interactive Science Plot"
                     ui.label(f"{plot_title} (ABS steps vs intensity)").classes("text-lg font-bold")
-                    ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
+                    with ui.row(align_items="center").classes("gap-1"):
+                        ui.button("Save", icon="save", on_click=lambda: _save_current_plots()).props("dense flat")
+                        ui.button(icon="close", on_click=plot_dialog.close).props("flat dense round")
                 ui.separator()
 
                 initial_index = len(packets) - 1 if ob_stitched_mode else int(self.sci_state.get("packet_index", 0))
@@ -244,10 +299,44 @@ class PacketViewerController:
                             ui.label("Selected packet has no science data points to plot").classes("text-warning")
                         return
 
+                    dialog_state["figures"] = figures
+                    dialog_state["default_filename"] = _sanitize_filename(title_prefix)
+
                     plot_body.clear()
                     with plot_body:
-                        for fig in figures:
-                            ui.plotly(fig).classes("w-full")
+                        for channel_index, fig in enumerate(figures):
+                            channel_name = ["SWIR", "MWIR"][channel_index] if channel_index < 2 else str(channel_index)
+                            figure_json = _plotly_figure_with_modebar(
+                                fig, filename=f"{dialog_state['default_filename']}_{channel_name}"
+                            )
+                            ui.plotly(figure_json).classes("w-full")
+
+                async def _save_current_plots() -> None:
+                    figures = dialog_state.get("figures") or []
+                    if not figures:
+                        ui.notify("No plot to save yet", color="warning")
+                        return
+
+                    with ui.dialog() as save_dialog, ui.card():
+                        ui.label("Save plots to log folder").classes("font-bold")
+                        filename_input = ui.input(
+                            "Filename (no extension)", value=dialog_state.get("default_filename", "sci_plot")
+                        ).classes("w-80")
+
+                        async def _confirm_save() -> None:
+                            filename = _sanitize_filename(filename_input.value or "")
+                            save_dialog.close()
+                            try:
+                                saved_paths = await run.io_bound(_write_plot_html_files, figures, filename)
+                            except Exception as exc:
+                                ui.notify(f"Failed to save plots: {exc}", color="negative")
+                                return
+                            ui.notify(f"Saved {len(saved_paths)} plot(s) to {const.LOG_PATH}", color="positive")
+
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Cancel", on_click=save_dialog.close).props("outline")
+                            ui.button("Save", on_click=lambda: _confirm_save()).classes("primary-text")
+                    save_dialog.open()
 
                 def _shift_packet(dialog_delta: int) -> None:
                     dialog_state["index"] = (dialog_state["index"] + dialog_delta) % len(packets)
