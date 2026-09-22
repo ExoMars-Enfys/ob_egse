@@ -889,7 +889,9 @@ def replay_ob_sci_log(
         capture_id = begin_ob_sci_capture(scan_label)
         try:
             for parsed in window_points:
-                abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high = parsed
+                abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, swir_offset, mwir_offset = (
+                    parsed
+                )
                 point = SimpleNamespace(
                     CMD_CNT=total_points,
                     ABS_STEPS=abs_steps,
@@ -899,6 +901,8 @@ def replay_ob_sci_log(
                     MWIR_LOW=mwir_low,
                     MWIR_MED=mwir_med,
                     MWIR_HIGH=mwir_high,
+                    SWIR_OFFSET=swir_offset,
+                    MWIR_OFFSET=mwir_offset,
                     TIME=datetime.now(),
                 )
                 const.sci_queue.put(point)

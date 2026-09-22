@@ -5,7 +5,7 @@ import io
 from pathlib import Path
 import re
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +29,7 @@ _MANUALLY_OFFSET = {
 }
 
 
-def _parse_sci_log_line(line: str) -> tuple[int, int, int, int, int, int, int] | None:
+def _parse_sci_log_line(line: str) -> tuple[int, int, int, int, int, int, int, int, int] | None:
     if len(line) < 86:
         return None
 
@@ -41,10 +41,13 @@ def _parse_sci_log_line(line: str) -> tuple[int, int, int, int, int, int, int] |
         mwir_med = int(re.sub(" ", "", line[76:81]), 16)
         mwir_low = int(re.sub(" ", "", line[81:86]), 16)
         abs_steps = int(line[33:38], 16)
+        # SWIR_OFFSET/MWIR_OFFSET sit between MTR_ABS_STEPS and SCI_ADC_SAMPLES/SKIP.
+        swir_offset = int(re.sub(" ", "", line[41:46]), 16)
+        mwir_offset = int(re.sub(" ", "", line[46:51]), 16)
     except ValueError:
         return None
 
-    return abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high
+    return abs_steps, swir_low, swir_med, swir_high, mwir_low, mwir_med, mwir_high, swir_offset, mwir_offset
 
 
 def _remove_offset_calibration(abs_steps: np.ndarray, *series: list[int]) -> tuple[np.ndarray, list[np.ndarray]]:
@@ -272,7 +275,7 @@ def plot_sci_log_file(
             parsed = _parse_sci_log_line(line)
             if parsed is None:
                 continue
-            abs_step, s_low, s_med, s_high, m_low, m_med, m_high = parsed
+            abs_step, s_low, s_med, s_high, m_low, m_med, m_high, _s_offset, _m_offset = parsed
             abs_steps.append(abs_step)
             swir_low.append(s_low)
             swir_med.append(s_med)
@@ -730,6 +733,25 @@ def render_sci_packets_interactive_html(
     return [swir_html, mwir_html]
 
 
+def _collect_sci_offsets(source: Any, swir_offsets: set[int], mwir_offsets: set[int]) -> None:
+    """Record the SWIR/MWIR DAC offset a SCI point/packet was captured with."""
+    swir_offset = getattr(source, "SWIR_OFFSET", None)
+    if swir_offset is not None:
+        swir_offsets.add(int(swir_offset))
+    mwir_offset = getattr(source, "MWIR_OFFSET", None)
+    if mwir_offset is not None:
+        mwir_offsets.add(int(mwir_offset))
+
+
+def _offset_title_suffix(offsets: set[int]) -> str:
+    """Format the DAC offset(s) a measurement was taken with, for a plot title."""
+    if not offsets:
+        return ""
+    if len(offsets) == 1:
+        return f" (offset {next(iter(offsets))})"
+    return f" (offsets {', '.join(str(value) for value in sorted(offsets))})"
+
+
 def render_sci_packets_plotly_figures(
     sci_packets: list[SimpleNamespace],
     title_prefix: str = "SCI Buffer",
@@ -742,6 +764,8 @@ def render_sci_packets_plotly_figures(
     mwir_low: list[int] = []
     mwir_med: list[int] = []
     mwir_high: list[int] = []
+    swir_offsets: set[int] = set()
+    mwir_offsets: set[int] = set()
 
     for packet in sci_packets:
         sci_points = getattr(packet, "SCI_POINTS", None)
@@ -754,6 +778,7 @@ def render_sci_packets_plotly_figures(
                 mwir_high.append(int(point.MWIR_HIGH))
                 mwir_med.append(int(point.MWIR_MED))
                 mwir_low.append(int(point.MWIR_LOW))
+                _collect_sci_offsets(point, swir_offsets, mwir_offsets)
             continue
 
         if not hasattr(packet, "ABS_STEPS"):
@@ -766,6 +791,7 @@ def render_sci_packets_plotly_figures(
         mwir_high.append(int(packet.MWIR_HIGH))
         mwir_med.append(int(packet.MWIR_MED))
         mwir_low.append(int(packet.MWIR_LOW))
+        _collect_sci_offsets(packet, swir_offsets, mwir_offsets)
 
     if not abs_steps:
         return []
@@ -781,7 +807,9 @@ def render_sci_packets_plotly_figures(
     mwir_med_array = np.asarray(mwir_med)[sort_idx]
     mwir_high_array = np.asarray(mwir_high)[sort_idx]
 
-    def _build_fig(channel_prefix: str, low: np.ndarray, med: np.ndarray, high: np.ndarray) -> go.Figure:
+    def _build_fig(
+        channel_prefix: str, low: np.ndarray, med: np.ndarray, high: np.ndarray, offsets: set[int]
+    ) -> go.Figure:
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
@@ -814,7 +842,7 @@ def render_sci_packets_plotly_figures(
             )
         )
         fig.update_layout(
-            title=f"{title_prefix} - {channel_prefix}",
+            title=f"{title_prefix} - {channel_prefix}{_offset_title_suffix(offsets)}",
             xaxis_title="Absolute Motor Steps",
             yaxis_title="Intensity",
             template="plotly_white",
@@ -826,8 +854,8 @@ def render_sci_packets_plotly_figures(
         return fig
 
     return [
-        _build_fig("SWIR", swir_low_array, swir_med_array, swir_high_array),
-        _build_fig("MWIR", mwir_low_array, mwir_med_array, mwir_high_array),
+        _build_fig("SWIR", swir_low_array, swir_med_array, swir_high_array, swir_offsets),
+        _build_fig("MWIR", mwir_low_array, mwir_med_array, mwir_high_array, mwir_offsets),
     ]
 
 
