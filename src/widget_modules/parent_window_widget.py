@@ -338,7 +338,7 @@ def build_ui(
                     state["plot_refreshers"].append(lambda mode: state["alarm_lights"]["eb"].set_visible(mode == "EB"))
                     state["eb_metrics_card"] = metrics_card_widget.create_default_eb_metrics_card()
                     state["plot_refreshers"].append(lambda mode: state["eb_metrics_card"].set_visible(mode == "EB"))
-                    state["ob_metrics_card"] = metrics_card_widget.create_default_ob_metrics_card()
+                    state["ob_metrics_card"] = metrics_card_widget.create_default_ob_metrics_card(state)
                     state["mode_change_resetters"].append(state["packet_metrics_card"].set_no_data)
                     state["mode_change_resetters"].append(state["eb_metrics_card"].set_no_data)
                     state["mode_change_resetters"].append(state["ob_metrics_card"].set_no_data)

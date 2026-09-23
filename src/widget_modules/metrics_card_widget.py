@@ -494,9 +494,9 @@ def _tec_drive_current(packet: Any) -> float | None:
     return float(raw) * 0.0000162
 
 
-def _ob_thermal_setpoint(packet: Any, field_name: str) -> float | None:
-    raw = getattr(packet, field_name, None)
-    if raw is None:
+def _ob_thermal_setpoint(packet: Any, field_names: str | tuple[str, ...]) -> float | None:
+    raw, resolved_name = _first_available_value(packet, field_names)
+    if raw is None or resolved_name is None:
         return None
     display_mode = str(getattr(app.state, "hk_display_mode", "REAL")).upper()
     if display_mode == "ADU":
@@ -505,7 +505,7 @@ def _ob_thermal_setpoint(packet: Any, field_name: str) -> float | None:
         except (TypeError, ValueError):
             return None
     try:
-        return float(adu_to_temp(int(raw)))
+        return float(adu_to_temp(int(raw) >> 4 if not resolved_name.startswith("OB_") else int(raw)))
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
@@ -695,8 +695,30 @@ def _eb_hk_specs() -> list[MetricSpec]:
     ]
 
 
-def _ob_hk_specs() -> list[MetricSpec]:
+def _ob_hk_specs(state: dict[str, Any] | None = None) -> list[MetricSpec]:
     """Metrics sourced directly from the standalone OB ``tmstruct.hk`` packet."""
+
+    def _ob_sci_value(packet: Any, field_name: str) -> Any:
+        value, _ = _first_available_value(packet, _ob_field_aliases(field_name))
+        if value is not None:
+            return value
+        if not isinstance(state, dict):
+            return None
+
+        candidates = [state.get("latest_ob_sci")]
+        recent_packets = state.get("ob_sci_packets")
+        if isinstance(recent_packets, list) and recent_packets:
+            candidates.append(recent_packets[-1])
+
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                value = candidate.get(field_name)
+            else:
+                value = getattr(candidate, field_name, None) if candidate is not None else None
+            if value is not None:
+                return value
+        return None
+
     return [
         # OB analogue housekeeping
         MetricSpec(
@@ -790,12 +812,12 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="swir_offset",
             label="SWIR OFFSET",
-            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("SWIR_OFFSET"))[0],
+            getter=lambda hk: _ob_sci_value(hk, "SWIR_OFFSET"),
         ),
         MetricSpec(
             key="mwir_offset",
             label="MWIR OFFSET",
-            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("MWIR_OFFSET"))[0],
+            getter=lambda hk: _ob_sci_value(hk, "MWIR_OFFSET"),
         ),
         # Motor status and configuration
         MetricSpec(
@@ -911,25 +933,25 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="mech_htr_min_sp",
             label="ON SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_MECH_ON_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_ON_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="mech_htr_max_sp",
             label="OFF SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_MECH_OFF_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_OFF_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="det_htr_min_sp",
             label="ON SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_DET_ON_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_ON_SP")),
             unit="°C",
         ),
         MetricSpec(
             key="det_htr_max_sp",
             label="OFF SP",
-            getter=lambda hk: _ob_thermal_setpoint(hk, "THRM_DET_OFF_SP"),
+            getter=lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_OFF_SP")),
             unit="°C",
         ),
         # OB error bitfields
@@ -963,11 +985,6 @@ def _render_metric_grid(
         "eb_has_warnings",
         "eb_fdir_alarm",
         "eb_fdir_warning",
-        "setpoint",
-        "drive_i",
-        "temp",
-        "dac",
-        "eb_tec_at_setpoint",
         "ob_enabled",
         "ob_home",
         "ob_parked",
@@ -1097,8 +1114,8 @@ def create_default_eb_metrics_card() -> MetricsCardController:
     return controller
 
 
-def create_default_ob_metrics_card() -> MetricsCardController:
-    specs = _ob_hk_specs()
+def create_default_ob_metrics_card(state: dict[str, Any] | None = None) -> MetricsCardController:
+    specs = _ob_hk_specs(state)
     spec_map = {spec.key: spec for spec in specs}
     pills: list[MetricPill] = []
 

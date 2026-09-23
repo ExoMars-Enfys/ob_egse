@@ -3536,6 +3536,13 @@ def create_poll_tm(
                                 ob_recent_identity_set.discard(expired)
 
                     latest_ob_sci = latest_sci
+                    state["latest_ob_sci"] = latest_sci
+                    state_ob_metrics_card = state.get("ob_metrics_card")
+                    if (
+                        state_ob_metrics_card is not None
+                        and getattr(state_ob_metrics_card, "last_packet", None) is not None
+                    ):
+                        state_ob_metrics_card.update_from_packet(state_ob_metrics_card.last_packet)
                     if capture is not None:
                         capture_id, capture_label = capture
                         if state.get("ob_sci_capture_id") != capture_id:
@@ -3672,6 +3679,13 @@ def create_poll_tm(
                     if "EB_SCI" in packet_viewer_controllers and sci_packets:
                         try:
                             latest_sci = sci_packets[-1]
+                            state["latest_ob_sci"] = latest_sci
+                            state_ob_metrics_card = state.get("ob_metrics_card")
+                            if (
+                                state_ob_metrics_card is not None
+                                and getattr(state_ob_metrics_card, "last_packet", None) is not None
+                            ):
+                                state_ob_metrics_card.update_from_packet(state_ob_metrics_card.last_packet)
                             packet_viewer_controllers["EB_SCI"].update_from_packet(latest_sci)
 
                             # Add to packet list if available
