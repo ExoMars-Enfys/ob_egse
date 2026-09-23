@@ -247,6 +247,7 @@ def read_pkt(file_path, latest_only: bool = False):
             if latest_only and hk_found:
                 continue
             hk = parse_eb_hk(byte_array)
+            hk.TM_TYPE_ID = tm_type_id
             hk.TIME = datetime.now()
             const.hk_queue.put(hk)
             # if hasattr(const, "hk_explorer_queue"):

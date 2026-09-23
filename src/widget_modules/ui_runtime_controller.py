@@ -3384,8 +3384,10 @@ def create_poll_tm(
             state["latest_hk_time"] = now
             last_hk_time = now
 
-            # Legacy behaviour: increment HK counter for each HK packet popped from the queue
-            counts["hk"] = int(counts.get("hk", 0)) + 1
+            # Only regular HK packets (TM_TYPE_ID=0x1) advance the HK counter;
+            # response HK packets (0x2) still update the UI but aren't counted.
+            if getattr(hk, "TM_TYPE_ID", 0x1) == 0x1:
+                counts["hk"] = int(counts.get("hk", 0)) + 1
 
             if not hasattr(hk, "TIME"):
                 hk.TIME = now
@@ -3909,7 +3911,10 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
         state["mode"] = mode
         app.state.egse_mode = mode
         for refresh in state["plot_refreshers"]:
-            refresh(mode)
+            try:
+                refresh(mode)
+            except Exception:
+                info_log.exception("plot_refresher failed during mode switch to %s", mode)
         if previous_mode != mode:
             # Update PSU channels based on the new mode
             psu_port = state.get("psu_port")
@@ -3949,10 +3954,16 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
                 threading.Thread(target=_apply_psu_channels, name="ob-eb-mode-psu-apply", daemon=True).start()
             # Run mode change resetters
             for reset in state.get("mode_change_resetters", []):
-                reset()
+                try:
+                    reset()
+                except Exception:
+                    info_log.exception("mode_change_resetter failed during mode switch to %s", mode)
         sync_packet_tabs = state.get("sync_packet_tabs")
         if callable(sync_packet_tabs):
-            sync_packet_tabs(mode)
+            try:
+                sync_packet_tabs(mode)
+            except Exception:
+                info_log.exception("sync_packet_tabs failed during mode switch to %s", mode)
 
     return set_mode
 
