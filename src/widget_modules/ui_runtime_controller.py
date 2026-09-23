@@ -806,7 +806,7 @@ def replay_ob_sci_log(
         return datetime.strptime(f"{match.group(1)}.{fraction}", "%Y-%m-%d %H:%M:%S.%f")
 
     science_points: list[tuple[datetime, tuple[int, int, int, int, int, int, int]]] = []
-    with Path(log_path).open("r", encoding="utf-8") as handle:
+    with Path(log_path).open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line_time = _line_time(line)
             parsed = sci_plot._parse_sci_log_line(line)
@@ -841,7 +841,7 @@ def replay_ob_sci_log(
         explicit_open: tuple[datetime, str] | None = None
         legacy_open: tuple[datetime, str] | None = None
         started_capture_pattern = re.compile(r"started ob sci capture\s+\d+\s*:\s*(.+)", re.IGNORECASE)
-        with Path(info_log_path).open("r", encoding="utf-8") as handle:
+        with Path(info_log_path).open("r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 line_time = _line_time(line)
                 if line_time is None:

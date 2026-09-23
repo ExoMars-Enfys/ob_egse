@@ -13,7 +13,8 @@ from widget_modules import ui_runtime_controller
 
 
 def run_OB_sci_replay(
-    log_path: str | Path = r"C:\Users\Enfy_EGSE\Downloads\20260826T132729\20260826T132729\20260826T132729_SCI.LOG",
+    log_path: str
+    | Path = r"C:\Users\GK\OneDrive - University College London\General - Enfys - Shared\Test\EM\260922 - OB FFT Checks with TEC PID settings\20260922T143610_SCI.LOG",
     *,
     info_log_path: str | Path | None = None,
     point_delay_s: float = 0.02,
