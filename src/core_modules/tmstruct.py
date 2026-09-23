@@ -217,7 +217,7 @@ eb_hk = [
     ("SPARES_BLOCK_4", "u32"),
     ("OB_MOTOR_ERROR", "u8"),
     ("OB_MOTOR_ABS_STEPS", "u16"),
-    ("OB_MOTOR_REL_STEPS", "u16"),
+    ("OB_MOTOR_REL_STEPS", ">s16"),
     ("OB_MOTOR_STATUS_FLAGS", "u8"),
     ("OB_MOTOR_GUARD_TIME", "u16"),
     ("OB_MOTOR_PWM_DUTY", "u8"),
