@@ -26,11 +26,11 @@ MODEL_BITMAPS = {
     "FS": "110",
     "CMOD EGSE": "111",
 }
-DEFAULT_COM_PORT = 12
+DEFAULT_COM_PORT = 4
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 
 # PSU Config
-PSU_COM_PORT = 13
+PSU_COM_PORT = 6
 PSU_LOGGING_FREQ = 10  # in HZ
 
 # TEC current configuration used by FFT and power-state verification.
@@ -74,14 +74,14 @@ MEASUREMENT_TABLES = [
 
 # Expected firmware/table CRCs reported in the EB POST packet. Keep in one
 # place so image/table updates only require a change here.
-POST_EXPECTED_CRC = {
+POST_EXPECTED_CRC = {  # CRCs for combined patch v3.2.8 and v3.6.2
     "ASW_IMAGE_1_CRC": 0xBAF7,
-    "ASW_IMAGE_2_CRC": 0xA0BB,
-    "ASW_IMAGE_3_CRC": 0xBD18,
-    "ASW_IMAGE_4_CRC": 0xC0F5,
-    "ASW_IMAGE_5_CRC": 0xF0D2,
+    "ASW_IMAGE_2_CRC": 0xBC91,
+    "ASW_IMAGE_3_CRC": 0x4FD5,
+    "ASW_IMAGE_4_CRC": 0xE39A,
+    "ASW_IMAGE_5_CRC": 0x440F,
     "BSW_IMAGE_CRC": 0xD2D7,
-    "MEASUREMENT_TABLE_CRC": 0x4174,
+    "MEASUREMENT_TABLE_CRC": 0x371B,
 }
 
 EXP_MODEL_ID = 0x02
