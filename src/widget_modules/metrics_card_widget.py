@@ -783,7 +783,9 @@ def _ob_hk_specs() -> list[MetricSpec]:
         MetricSpec(
             key="hk_mech_cur",
             label="MECH CUR",
-            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_MECH_CUR"))[0],
+            getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_MECH_CUR")),
+            unit="mA",
+            decimals=2,
         ),
         MetricSpec(
             key="swir_offset",
