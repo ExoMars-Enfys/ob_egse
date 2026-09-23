@@ -278,10 +278,13 @@ def create_console_input_widget(
         command_input.value = ""
 
     with ui.row().classes("w-full items-end"):
+        default_command = state.get("cmd")
+        if default_command not in command_list:
+            default_command = command_list[0] if command_list else None
         command_selector = (
             ui.select(
                 options=command_list,
-                value=state.get("cmd", command_list[0] if command_list else None),
+                value=default_command,
                 label="Select command",
                 on_change=_add_command_id,
             )

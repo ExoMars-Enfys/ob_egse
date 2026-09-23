@@ -521,6 +521,35 @@ body {
   scrollbar-gutter: auto !important;
 }
 
+/* Quasar's base .q-tab-panels (.egse-left-packet-panels) clips with
+ * overflow:hidden and a flex-computed height that only fits the visible
+ * viewport, hiding it from the child .q-panel down. keep-alive means only
+ * the active panel is ever in the DOM, so it's safe to let this wrapper grow
+ * to its content height and let the drawer's own scrollbar reach it. */
+.q-drawer__content.egse-left-drawer .egse-left-packet-panels {
+  overflow: visible !important;
+  height: auto !important;
+}
+
+/* Quasar's animated QTabPanels gives the active .q-panel position:absolute +
+ * height:100%, which clips content taller than the drawer's current
+ * viewport instead of letting the drawer scroll to it. Only the panel
+ * itself needs to take its natural (full-content) height; leave the
+ * .q-tab-panels wrapper's positioning alone so the slide transition still
+ * has a positioned ancestor to animate against. */
+.q-drawer__content.egse-left-drawer .egse-left-packet-panels > .q-panel {
+  position: static !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* Packet viewer cards hold far more rows than fit on screen (e.g. EB HK);
+ * let their content overflow so the drawer's own scrollbar can reach it
+ * instead of the generic .q-card overflow:hidden clipping rows. */
+.q-drawer__content.egse-left-drawer .egse-packet-viewer-card {
+  overflow: visible !important;
+}
+
 /* ==========================================================================
    12. CENTRE CONSOLE LAYOUT
    ========================================================================== */
