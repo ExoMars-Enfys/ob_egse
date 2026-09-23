@@ -48,6 +48,27 @@ def test_disabling_cancels_a_queued_request():
         controller.close()
 
 
+def test_cyclic_hk_waits_until_ready():
+    submitted = []
+    ready = False
+
+    def submit():
+        future = Future()
+        submitted.append(future)
+        return future
+
+    controller = CyclicHKController(submit, interval_s=0.1, is_ready=lambda: ready)
+    try:
+        controller.set_enabled(True)
+        time.sleep(0.15)
+        assert submitted == []
+
+        ready = True
+        assert _wait_until(lambda: len(submitted) == 1)
+    finally:
+        controller.close()
+
+
 def test_interval_validation():
     try:
         CyclicHKController(lambda: Future(), interval_s=0.01)
@@ -55,4 +76,3 @@ def test_interval_validation():
         pass
     else:
         raise AssertionError("Expected an interval validation error")
-

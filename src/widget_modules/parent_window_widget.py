@@ -141,9 +141,16 @@ def build_ui(
     if ob_worker is not None:
         # Cyclic traffic shares the single-owner transaction queue.  Priority
         # 10 keeps user/script transactions (priority 1) responsive.
+        def ob_psu_is_ready() -> bool:
+            channels = state.get("channels", {})
+            return state.get("mode") == "OB" and all(
+                bool(channels.get(key, {}).get("enabled", False)) for key in ("psu_ch1", "psu_ch2", "psu_ch3")
+            )
+
         cyclic_hk = CyclicHKController(
             lambda: ob_worker.submit(tc.hk_request, priority=10),
             interval_s=1.0,
+            is_ready=ob_psu_is_ready,
             logger=logger,
         )
     state["cyclic_hk"] = cyclic_hk
