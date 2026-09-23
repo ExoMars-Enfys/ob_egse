@@ -85,7 +85,7 @@ def open_psu_comms(port: serial.Serial, psu_not_required):
         if psu_not_required:
             return
         else:
-            info_log.error("No device found on COM Port {port.port}, try another")
+            info_log.error(f"No device found on COM Port {port.port}, try another")
             raise SystemExit
 
     port.reset_output_buffer()  # Clear stale bytes before first transactions
