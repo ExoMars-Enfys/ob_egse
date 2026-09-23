@@ -358,8 +358,7 @@ class EGSEInterface:
 egse_started = False
 egse_script_path = None
 egse_log_file = None
-egse_tools_path = r"C:\wdir\EB\EB_EGSE"
-egse_interface = None
+egse_interface = EGSEInterface()
 rs422_log_path: str | None = None
 _egse_session_started_at: float | None = None
 _session_existing_root_logs: set[str] = set()
@@ -406,7 +405,7 @@ def sync_egse_session_logs(logger: Any) -> None:
     session_dir = Path(const.LOG_PATH)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    base_dir = Path(egse_tools_path)
+    base_dir = get_egse_interface().egse_path
     rs422_dir = base_dir / "RS422if_log"
 
     copied_cmdtool = _copy_session_logs_from_dir(
@@ -436,7 +435,7 @@ def sync_egse_session_logs_with_retry(logger: Any, retries: int = 5, delay_s: fl
     for attempt in range(max(retries, 1)):
         sync_egse_session_logs(logger)
 
-        base_dir = Path(egse_tools_path)
+        base_dir = get_egse_interface().egse_path
         rs422_dir = base_dir / "RS422if_log"
         new_root = any(
             p.is_file() and p.name not in _session_existing_root_logs
@@ -524,12 +523,12 @@ def get_egse_interface() -> EGSEInterface:
     """Get the EGSE interface instance, initializing it if it doesn't exist."""
     global egse_interface
     if egse_interface is None:
-        egse_interface = EGSEInterface(egse_tools_path)
+        egse_interface = EGSEInterface()
     return egse_interface
 
 
 def update_egse_interface_path(new_path: str | Path) -> None:
-    """Update the EGSE interface path and reinitialize the interface if it already exists."""
+    """Update the single EGSE interface path used by all EGSE operations."""
     global egse_interface
     if egse_interface is None:
         egse_interface = EGSEInterface(new_path)
@@ -554,7 +553,7 @@ def select_cmd_script(logger) -> None:
         egse_script_path = filedialog.askopenfilename(
             title="Select EGSE script file",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            initialdir=egse_tools_path,
+            initialdir=get_egse_interface().egse_path,
             parent=root,
         )
 
@@ -574,20 +573,18 @@ def select_cmd_script(logger) -> None:
 
 def select_egse_folder(logger) -> None:
     """Open folder picker to set the EGSE tools directory."""
-    global egse_tools_path
-
     root = None
     try:
         root = window.create_dialog_root()
-        egse_tools_path = filedialog.askdirectory(
+        selected_path = filedialog.askdirectory(
             title="Select EGSE tools folder",
-            initialdir=egse_tools_path,
+            initialdir=get_egse_interface().egse_path,
             parent=root,
         )
 
-        if egse_tools_path:
-            update_egse_interface_path(egse_tools_path)
-            logger.info(f"EGSE tools folder set to: {egse_tools_path}")
+        if selected_path:
+            update_egse_interface_path(selected_path)
+            logger.info("EGSE tools folder set to: %s", get_egse_interface().egse_path)
     except Exception as e:
         logger.error(f"[ERROR] Error selecting EGSE tools folder: {e}")
     finally:
@@ -605,7 +602,7 @@ def select_rs422_log(logger) -> bool:
         selected_path = filedialog.askopenfilename(
             title="Select RS422if log file",
             filetypes=[("RS422if log", "RS422if_*.log"), ("RS422if log", "RS422if_*.LOG"), ("Text files", "*.txt")],
-            initialdir=egse_tools_path,
+            initialdir=get_egse_interface().egse_path,
             parent=root,
         )
 
@@ -624,7 +621,7 @@ def select_rs422_log(logger) -> bool:
 # Button callbacks for EGSE tools management (start/stop)
 def locate_latest_egse_log() -> Path | None:
     """Locate the newest EB EGSE log file."""
-    base = Path(egse_tools_path)
+    base = get_egse_interface().egse_path
     if not base.exists():
         return None
 
@@ -637,7 +634,7 @@ def start_egse_tools(logger) -> None:
     global egse_started, egse_log_file, _egse_session_started_at
     global _session_existing_root_logs, _session_existing_rs422_logs
     session_start_marker = time.time()
-    base_dir = Path(egse_tools_path)
+    base_dir = get_egse_interface().egse_path
     rs422_dir = base_dir / "RS422if_log"
     _session_existing_root_logs = {
         p.name for pattern in ("*.log", "*.LOG") for p in base_dir.glob(pattern) if p.is_file()
