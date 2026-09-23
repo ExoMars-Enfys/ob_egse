@@ -192,7 +192,9 @@ def _hk_tec_at_setpoint(hk: Any) -> bool:
     return _hk_flag(hk, "INSTR_STATUS_FLAGS", "TEC_AT_SETPOINT")
 
 
-def _tec_at_setpoint_row(hk_packets: list[Packet], rows: list[dict[str, float | None]]) -> dict[str, float | None] | None:
+def _tec_at_setpoint_row(
+    hk_packets: list[Packet], rows: list[dict[str, float | None]]
+) -> dict[str, float | None] | None:
     for packet, row in zip(hk_packets, rows):
         if _hk_operating_state(packet.hk) == 0x08 and _hk_tec_at_setpoint(packet.hk):
             return row
@@ -574,6 +576,17 @@ def convert_hk(hk: Any, decoder: Any) -> dict[str, float | None]:
         except Exception:
             return None
 
+    def converted_ob_trp(name: str) -> float | None:
+        raw = getattr(hk, name, None)
+        if raw is None or not callable(ob_thermistor):
+            return None
+        try:
+            # EB-relayed OB TRPs pack the 12-bit ADC value into the upper bits
+            # of the 16-bit field, same as the native standalone OB HK log.
+            return finite(ob_thermistor(raw >> 4))
+        except Exception:
+            return None
+
     mcu = attr("EB_MCU_INTERNAL_TEMP")
     peltier = attr("EB_PELTIER_TEMP")
     result = {
@@ -587,10 +600,10 @@ def convert_hk(hk: Any, decoder: Any) -> dict[str, float | None]:
         " EB+3V3 (V)": None,
         "TEC Rail(V)": None,
         "TEC Current (A)": _hk_tec_current_a(hk),
-        "DIG Temp (°C)": converted(ob_thermistor, "OB_DIGITAL_TRP"),
-        "DETEC Temp (°C)": converted(ob_thermistor, "OB_DETECTOR_TRP"),
-        "MECH Temp (°C)": converted(ob_thermistor, "OB_MECHANISM_TRP"),
-        "MTR Temp (°C)": converted(ob_thermistor, "OB_MOTOR_TRP"),
+        "DIG Temp (°C)": converted_ob_trp("OB_DIGITAL_TRP"),
+        "DETEC Temp (°C)": converted_ob_trp("OB_DETECTOR_TRP"),
+        "MECH Temp (°C)": converted_ob_trp("OB_MECHANISM_TRP"),
+        "MTR Temp (°C)": converted_ob_trp("OB_MOTOR_TRP"),
         "OB +3V3 (V)": None,
         "OB +1V5 (V)": None,
     }
@@ -600,12 +613,20 @@ def convert_hk(hk: Any, decoder: Any) -> dict[str, float | None]:
         "EB 5V": ("EB_MEAS_5V", 0.000152829),
         " EB+3V3 (V)": ("EB_MEAS_3V3", 0.0000763),
         "TEC Rail(V)": ("EB_MEAS_TEC_RAIL", 0.0000763),
-        "OB +3V3 (V)": ("OB_3V3_VOLTAGE", 0.002),
-        "OB +1V5 (V)": ("OB_1V5_VOLTAGE", 0.001),
     }
     for label, (name, scale) in scales.items():
         raw = attr(name)
         result[label] = None if raw is None else raw * scale
+
+    # EB-relayed OB rail voltages pack the 12-bit ADU into the upper bits of
+    # the 16-bit field, same as the native standalone OB HK log.
+    ob_voltage_scales = {
+        "OB +3V3 (V)": ("OB_3V3_VOLTAGE", 0.002),
+        "OB +1V5 (V)": ("OB_1V5_VOLTAGE", 0.001),
+    }
+    for label, (name, scale) in ob_voltage_scales.items():
+        raw = getattr(hk, name, None)
+        result[label] = None if raw is None else (int(raw) >> 4) * scale
     return result
 
 
@@ -1532,11 +1553,7 @@ def group_rows_by_test_matrix(
         "Matrix EB Setpoint (°C)",
         "Matrix OB Setpoint (°C)",
     }
-    preferred_sfts = {
-        sft
-        for _, _, preferences in TEST_MATRIX_GROUPS
-        for sft in preferences
-    }
+    preferred_sfts = {sft for _, _, preferences in TEST_MATRIX_GROUPS for sft in preferences}
 
     for eb_setpoint, ob_setpoint, preferences in TEST_MATRIX_GROUPS:
         available = [(sft, rows_by_sft[sft][0]) for sft in preferences if rows_by_sft.get(sft)]

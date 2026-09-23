@@ -3930,9 +3930,7 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
                         if psu_lock is not None:
                             acquired = psu_lock.acquire(timeout=5.0)
                             if not acquired:
-                                info_log.error(
-                                    "PSU mode switch to %s failed: PSU lock was busy for 5s.", mode
-                                )
+                                info_log.error("PSU mode switch to %s failed: PSU lock was busy for 5s.", mode)
                                 return
                             try:
                                 psu.setChannels(psu_port, ebmode, voltage_mode)

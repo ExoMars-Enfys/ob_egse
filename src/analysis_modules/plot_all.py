@@ -57,7 +57,6 @@ def _parse_rs422_timestamp(line, offset):
         return None
 
 
-
 _NATIVE_LOG_SUFFIX_RE = re.compile(r"^(?P<prefix>.+)_(?P<kind>HK|SCI|PSU)\.(?:log|txt)$", re.IGNORECASE)
 _NATIVE_TIMESTAMP_FORMATS = (
     "%Y-%m-%d %H:%M:%S.%f",
@@ -226,7 +225,9 @@ def discover_ob_log_sets(inputs):
         if required_prefix is not None and prefix.lower() != required_prefix.lower():
             return
         key = (candidate.parent.resolve(), prefix.lower())
-        group = groups.setdefault(key, {"prefix": prefix, "directory": candidate.parent, "hk": None, "sci": None, "psu": None})
+        group = groups.setdefault(
+            key, {"prefix": prefix, "directory": candidate.parent, "hk": None, "sci": None, "psu": None}
+        )
         group[match.group("kind").lower()] = candidate
 
     for selected in inputs or []:
@@ -309,6 +310,7 @@ def merge_psu_arrays(psu_log_paths):
             merged[channel]["v"] = list(volts)
             merged[channel]["i"] = list(currents)
     return merged
+
 
 def build_psu_arrays(psu_log_path):
     """Load PSU CH3/CH4 voltage and current samples for plotting."""
@@ -399,16 +401,15 @@ def _extract_temperatures(hk):
     }
     for output_name, (eb_field, native_field) in ob_fields.items():
         raw = getattr(hk, eb_field, None)
-        native = False
         if raw is None:
             raw = getattr(hk, native_field, None)
-            native = raw is not None
         if raw is None:
             continue
-        if native:
-            raw = _native_ob_adc12(raw)
-            if raw is None:
-                continue
+        # Both the EB-relayed and native OB TRP fields pack the 12-bit ADC
+        # value into the upper bits of a 16-bit field.
+        raw = _native_ob_adc12(raw)
+        if raw is None:
+            continue
         try:
             temps[output_name] = adu_to_temp(int(raw))
         except Exception:
@@ -439,8 +440,10 @@ def _extract_voltages(hk):
         ("EB_5V", "EB_MEAS_5V", lambda raw: raw * 0.000152829),
         ("EB_3V3", "EB_MEAS_3V3", lambda raw: raw * 0.0000763),
         ("EB_TEC_RAIL", "EB_MEAS_TEC_RAIL", lambda raw: raw * 0.0000763),
-        ("OB_3V3", "OB_3V3_VOLTAGE", lambda raw: (raw * 2) / 1000.0),
-        ("OB_1V5", "OB_1V5_VOLTAGE", lambda raw: raw / 1000.0),
+        # EB-relayed OB rail voltages pack the 12-bit ADU into the upper bits
+        # of the 16-bit field, same as the native standalone OB HK log.
+        ("OB_3V3", "OB_3V3_VOLTAGE", lambda raw: ((raw >> 4) * 2) / 1000.0),
+        ("OB_1V5", "OB_1V5_VOLTAGE", lambda raw: (raw >> 4) / 1000.0),
     )
     for output_name, field_name, convert in eb_conversions:
         raw = getattr(hk, field_name, None)
@@ -459,6 +462,7 @@ def _extract_voltages(hk):
     if native_1v5 is not None:
         volts["OB_1V5"] = native_1v5 * 4.05 / 4095.0
     return volts
+
 
 def build_hk_arrays(hk_packets):
     temp_keys = [
@@ -1988,7 +1992,9 @@ def main():
         default=None,
         help="Native OB log file(s) or session folder(s); matching *_HK.LOG, *_SCI.LOG and *_PSU.log are auto-discovered",
     )
-    parser.add_argument("--psu-log", type=Path, default=None, help="Optional PSU override; otherwise native OB PSU logs are auto-loaded")
+    parser.add_argument(
+        "--psu-log", type=Path, default=None, help="Optional PSU override; otherwise native OB PSU logs are auto-loaded"
+    )
     parser.add_argument("--rs422-offset-hours", type=float, default=RS422_TIME_OFFSET_HOURS)
     args = parser.parse_args()
     if args.rs422_log is None and not args.ob_log:
@@ -2557,9 +2563,7 @@ def main():
                 )
 
             if not vals or not np.any(np.isfinite(np.array(vals, dtype=float))):
-                messagebox.showwarning(
-                    "Add Parameter", f"{source} parameter {field_name} has no numeric samples."
-                )
+                messagebox.showwarning("Add Parameter", f"{source} parameter {field_name} has no numeric samples.")
                 return
 
             field_key = _custom_field_key(source, field_name)
