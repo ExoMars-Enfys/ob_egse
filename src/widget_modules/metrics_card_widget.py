@@ -1228,7 +1228,7 @@ def create_packet_metrics_card(state: dict[str, Any]) -> PacketMetricsCardContro
         with ui.row().classes("w-full gap-2"):
             fields = [
                 ("tc_rejected", "TCs RJCTD"),
-                ("hk_time", "HKTime"),
+                ("hk_time", "Time Since Last HK"),
                 ("hk_packets", "HK"),
                 ("post_packets", "POST"),
                 ("sci_packets", "SCI"),
