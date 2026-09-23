@@ -32,7 +32,7 @@ info_log = logging.getLogger("info_log")
 
 
 class EGSEInterface:
-    def __init__(self, egse_path: str | Path = r"C:\wdir\EB\EB_EGSE"):
+    def __init__(self, egse_path: str | Path = const.DEFAULT_EB_PATH):
         """Interface class to manage interactions with the EB EGSE tools, including starting/stopping the tools and sending commands via typecasting."""
         self.egse_path = Path(egse_path)
         self.process_handle = None
