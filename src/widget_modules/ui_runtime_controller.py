@@ -2199,7 +2199,10 @@ def verify_heater_states(
             if not act:
                 errors.append(f"{label} heater in Manual mode but HMS/HDS={act} (expected 1)")
         elif mode_auto:
-            trp = getattr(latest_hk, trp_attr, None)
+            # TRP packs the 12-bit ADC value into the upper bits of the 16-bit
+            # field; the ON/OFF setpoints are already plain 12-bit values.
+            raw_trp = getattr(latest_hk, trp_attr, None)
+            trp = raw_trp >> 4 if raw_trp is not None else None
             on_sp = getattr(latest_hk, on_sp_attr, None)
             off_sp = getattr(latest_hk, off_sp_attr, None)
             # Detect disabled→auto transition (firmware PREV_STATUS initialises to OFF)
@@ -3919,9 +3922,28 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
                 voltage_mode = state.get("voltage_mode", "NOM")
 
                 def _apply_psu_channels() -> None:
-                    lock_ctx = psu_lock if psu_lock is not None else nullcontext()
-                    with lock_ctx:
-                        psu.setChannels(psu_port, ebmode, voltage_mode)
+                    # Mark the command in-flight so the monitor thread backs off, and
+                    # bound the lock wait so a stuck lock can't freeze PSU telemetry
+                    # forever (see psu.init_psu_comms for the failure mode).
+                    psu.set_psu_command_in_flight(psu_mode_state, True)
+                    try:
+                        if psu_lock is not None:
+                            acquired = psu_lock.acquire(timeout=5.0)
+                            if not acquired:
+                                info_log.error(
+                                    "PSU mode switch to %s failed: PSU lock was busy for 5s.", mode
+                                )
+                                return
+                            try:
+                                psu.setChannels(psu_port, ebmode, voltage_mode)
+                            finally:
+                                psu_lock.release()
+                        else:
+                            psu.setChannels(psu_port, ebmode, voltage_mode)
+                    except Exception:
+                        info_log.exception("PSU mode switch to %s failed", mode)
+                    finally:
+                        psu.set_psu_command_in_flight(psu_mode_state, False)
 
                 # Run off the event loop: psu_lock can be briefly held by the PSU
                 # monitor thread or another script action, and this callback often

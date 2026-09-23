@@ -643,23 +643,23 @@ def _build_timeseries(packets: list) -> dict:
         ts_data["eb_psu_board_temp"].append(sanitize_temp(eb_psu_board_temp))
 
         # OB Voltages
-        ob_3v3 = (pkt.OB_3V3_VOLTAGE * 2) / 1000
+        ob_3v3 = ((pkt.OB_3V3_VOLTAGE >> 4) * 2) / 1000
         ts_data["ob_3v3"].append(ob_3v3)
 
-        ob_1v5 = pkt.OB_1V5_VOLTAGE / 1000
+        ob_1v5 = (pkt.OB_1V5_VOLTAGE >> 4) / 1000
         ts_data["ob_1v5"].append(ob_1v5)
 
         # OB Temperatures
-        ob_dig_trp = eb_sniffer.decode_ob_trps(pkt.OB_DIGITAL_TRP)
+        ob_dig_trp = eb_sniffer.decode_ob_trps(pkt.OB_DIGITAL_TRP >> 4)
         ts_data["ob_dig_trp"].append(sanitize_temp(ob_dig_trp))
 
-        ob_det_trp = eb_sniffer.decode_ob_trps(pkt.OB_DETECTOR_TRP)
+        ob_det_trp = eb_sniffer.decode_ob_trps(pkt.OB_DETECTOR_TRP >> 4)
         ts_data["ob_det_trp"].append(sanitize_temp(ob_det_trp))
 
-        ob_mech_trp = eb_sniffer.decode_ob_trps(pkt.OB_MECHANISM_TRP)
+        ob_mech_trp = eb_sniffer.decode_ob_trps(pkt.OB_MECHANISM_TRP >> 4)
         ts_data["ob_mech_trp"].append(sanitize_temp(ob_mech_trp))
 
-        ob_mot_trp = eb_sniffer.decode_ob_trps(pkt.OB_MOTOR_TRP)
+        ob_mot_trp = eb_sniffer.decode_ob_trps(pkt.OB_MOTOR_TRP >> 4)
         ts_data["ob_mot_trp"].append(sanitize_temp(ob_mot_trp))
         ts_data["ob_motor_abs_steps"].append(float(getattr(pkt, "OB_MOTOR_ABS_STEPS", np.nan)))
 
@@ -816,25 +816,25 @@ def _format_hk_data(hk) -> str:
 
     # OB Voltages
     info += "OB VOLTAGES:\n"
-    ob_3v3 = (hk.OB_3V3_VOLTAGE * 2) / 1000
-    info += f"  3.3V:  {ob_3v3:.3f} V (ADU: {hk.OB_3V3_VOLTAGE})\n"
+    ob_3v3 = ((hk.OB_3V3_VOLTAGE >> 4) * 2) / 1000
+    info += f"  3.3V:  {ob_3v3:.3f} V (ADU: {hk.OB_3V3_VOLTAGE >> 4})\n"
 
-    ob_1v5 = hk.OB_1V5_VOLTAGE / 1000
-    info += f"  1.5V:  {ob_1v5:.3f} V (ADU: {hk.OB_1V5_VOLTAGE})\n\n"
+    ob_1v5 = (hk.OB_1V5_VOLTAGE >> 4) / 1000
+    info += f"  1.5V:  {ob_1v5:.3f} V (ADU: {hk.OB_1V5_VOLTAGE >> 4})\n\n"
 
     # OB Temperatures
     info += "OB TEMPERATURES:\n"
-    ob_dig = eb_sniffer.decode_ob_trps(hk.OB_DIGITAL_TRP)
-    info += f"  Digital TRP:    {ob_dig:.2f}°C (ADU: {hk.OB_DIGITAL_TRP})\n"
+    ob_dig = eb_sniffer.decode_ob_trps(hk.OB_DIGITAL_TRP >> 4)
+    info += f"  Digital TRP:    {ob_dig:.2f}°C (ADU: {hk.OB_DIGITAL_TRP >> 4})\n"
 
-    ob_det = eb_sniffer.decode_ob_trps(hk.OB_DETECTOR_TRP)
-    info += f"  Detector TRP:   {ob_det:.2f}°C (ADU: {hk.OB_DETECTOR_TRP})\n"
+    ob_det = eb_sniffer.decode_ob_trps(hk.OB_DETECTOR_TRP >> 4)
+    info += f"  Detector TRP:   {ob_det:.2f}°C (ADU: {hk.OB_DETECTOR_TRP >> 4})\n"
 
-    ob_mech = eb_sniffer.decode_ob_trps(hk.OB_MECHANISM_TRP)
-    info += f"  Mechanism TRP:  {ob_mech:.2f}°C (ADU: {hk.OB_MECHANISM_TRP})\n"
+    ob_mech = eb_sniffer.decode_ob_trps(hk.OB_MECHANISM_TRP >> 4)
+    info += f"  Mechanism TRP:  {ob_mech:.2f}°C (ADU: {hk.OB_MECHANISM_TRP >> 4})\n"
 
-    ob_mot = eb_sniffer.decode_ob_trps(hk.OB_MOTOR_TRP)
-    info += f"  Motor TRP:      {ob_mot:.2f}°C (ADU: {hk.OB_MOTOR_TRP})\n\n"
+    ob_mot = eb_sniffer.decode_ob_trps(hk.OB_MOTOR_TRP >> 4)
+    info += f"  Motor TRP:      {ob_mot:.2f}°C (ADU: {hk.OB_MOTOR_TRP >> 4})\n\n"
 
     # State and Flags
     info += "SYSTEM STATE:\n"

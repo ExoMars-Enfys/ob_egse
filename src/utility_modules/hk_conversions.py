@@ -44,13 +44,17 @@ CONVERSIONS: dict[str, FieldConversion] = {
     "EB_PSU_BOARD_TEMP": FieldConversion("°C", decode_eb_trps),
     "EB_INTERNAL_TRP_TEMP": FieldConversion("°C", decode_eb_trps),
     # ── OB Voltages ──────────────────────────────────────────────────────────
-    "OB_3V3_VOLTAGE": FieldConversion("V", lambda adu: (adu * 2) / 1000.0),
-    "OB_1V5_VOLTAGE": FieldConversion("V", lambda adu: adu / 1000.0),
+    # EB-relayed OB rail voltages pack the 12-bit ADU into the upper bits of
+    # the 16-bit field, same as the native standalone OB HK log.
+    "OB_3V3_VOLTAGE": FieldConversion("V", lambda raw: ((raw >> 4) * 2) / 1000.0),
+    "OB_1V5_VOLTAGE": FieldConversion("V", lambda raw: (raw >> 4) / 1000.0),
     # ── OB Thermistors ───────────────────────────────────────────────────────
-    "OB_DIGITAL_TRP": FieldConversion("°C", decode_ob_trps),
-    "OB_DETECTOR_TRP": FieldConversion("°C", decode_ob_trps),
-    "OB_MECHANISM_TRP": FieldConversion("°C", decode_ob_trps),
-    "OB_MOTOR_TRP": FieldConversion("°C", decode_ob_trps),
+    # EB-relayed OB TRPs pack the 12-bit ADC value into the upper bits of the
+    # 16-bit field, same as the native standalone OB HK log.
+    "OB_DIGITAL_TRP": FieldConversion("°C", lambda raw: decode_ob_trps(raw >> 4)),
+    "OB_DETECTOR_TRP": FieldConversion("°C", lambda raw: decode_ob_trps(raw >> 4)),
+    "OB_MECHANISM_TRP": FieldConversion("°C", lambda raw: decode_ob_trps(raw >> 4)),
+    "OB_MOTOR_TRP": FieldConversion("°C", lambda raw: decode_ob_trps(raw >> 4)),
     # ── OB ADC ───────────────────────────────────────────────────────
     "HK_MECH_CUR": FieldConversion("mA", lambda raw: (raw >> 4) * (0.12 / (0.2 * 10))),
     "OB_MECH_CURRENT": FieldConversion("mA", lambda raw: (raw >> 4) * (0.12 / (0.2 * 10))),

@@ -22,7 +22,9 @@ def test_decode_field_uses_registered_conversion(field_name: str) -> None:
 
 
 def test_decode_field_accepts_numeric_strings() -> None:
-    packet = SimpleNamespace(OB_1V5_VOLTAGE="1500")
+    # OB_1V5_VOLTAGE packs the 12-bit ADU into the upper bits of the 16-bit
+    # field, so 1500 << 4 decodes back to 1.5V.
+    packet = SimpleNamespace(OB_1V5_VOLTAGE=str(1500 << 4))
 
     assert hk_conversions.decode_field(packet, "OB_1V5_VOLTAGE") == pytest.approx(1.5)
 
