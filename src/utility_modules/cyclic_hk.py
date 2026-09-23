@@ -22,11 +22,13 @@ class CyclicHKController:
         submit_hk: Callable[[], Future],
         *,
         interval_s: float = 1.0,
+        is_ready: Callable[[], bool] | None = None,
         logger: logging.Logger | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._submit_hk = submit_hk
         self._interval_s = self._validate_interval(interval_s)
+        self._is_ready = is_ready or (lambda: True)
         self._logger = logger or logging.getLogger("info_log")
         self._clock = clock
         self._condition = threading.Condition()
@@ -110,6 +112,14 @@ class CyclicHKController:
                 # normal execution overhead never accumulates cadence drift.
                 missed = int(max(0.0, now - due) // self._interval_s)
                 self._next_due = due + (missed + 1) * self._interval_s
+
+                try:
+                    ready = self._is_ready()
+                except BaseException as exc:
+                    self._logger.error("Unable to determine whether cyclic HK is ready: %s", exc)
+                    ready = False
+                if not ready:
+                    continue
 
                 if self._pending is not None and not self._pending.done():
                     continue

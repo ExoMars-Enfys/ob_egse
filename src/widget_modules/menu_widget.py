@@ -829,9 +829,9 @@ def _abort_selected_script(state: dict[str, Any], script_key: str) -> None:
 
 async def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
     """Stops any running processes and shuts down the application."""
-    from contextlib import nullcontext
-
     from utility_modules import psu
+
+    shutdown_errors: list[str] = []
 
     # Only run EB-specific stop tools in EB mode
     if str(state.get("mode", "EB")).upper() == "EB":
@@ -840,13 +840,31 @@ async def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
         except Exception as exc:
             # Shutdown must continue even if the external EGSE tools fail to stop.
             state["logger"].warning("Could not stop EB EGSE tools during shutdown: %s", exc)
+            shutdown_errors.append(f"EB EGSE tools: {exc}")
 
     psu_port = state.get("psu_port")
-    if psu_port is not None:
+    if psu_port is None:
+        shutdown_errors.append("PSU port is unavailable")
+    elif not bool(getattr(psu_port, "is_open", False)):
+        shutdown_errors.append("PSU port is already closed")
+    else:
         lock = state.get("psu_lock")
-        lock_ctx = lock if lock is not None else nullcontext()
-        with lock_ctx:
-            psu.emergencyShutDown(psu_port)
+        lock_acquired = False
+        try:
+            if lock is not None:
+                lock_acquired = bool(lock.acquire(timeout=5.0))
+                if not lock_acquired:
+                    raise TimeoutError("PSU lock was busy for 5 seconds")
+
+            psu.emergencyShutDown(psu_port, stop_event=stop_event, psu_thread=state.get("psu_thread"))
+            if bool(getattr(psu_port, "is_open", False)):
+                raise RuntimeError("PSU emergency shutdown returned but the serial port is still open")
+        except Exception as exc:
+            shutdown_errors.append(f"PSU shutdown: {exc}")
+            state["logger"].exception("PSU shutdown failed: %s", exc)
+        finally:
+            if lock is not None and lock_acquired:
+                lock.release()
 
     if stop_event is not None:
         stop_event.set()
@@ -867,8 +885,14 @@ async def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:
         shutdown_timer.daemon = True
         shutdown_timer.start()
 
-    with ui.dialog() as shutdown_dialog, ui.card().classes("w-96"):
-        ui.label("EGSE tools shut down.").classes("text-base")
+    with ui.dialog() as shutdown_dialog, ui.card().classes("w-[34rem] max-w-full"):
+        if shutdown_errors:
+            ui.label("Shutdown completed with warnings.").classes("text-base text-negative")
+            ui.label("The following operations did not complete:").classes("text-sm")
+            ui.label("\n".join(f"• {error}" for error in shutdown_errors)).classes("whitespace-pre-wrap text-negative")
+            state["logger"].error("Shutdown completed with warnings: %s", "; ".join(shutdown_errors))
+        else:
+            ui.label("EGSE tools shut down.").classes("text-base")
         ui.label("Close the window to open the session log folder.").classes("text-sm")
         with ui.row().classes("justify-end w-full"):
             ui.button("Close the window", color="negative", on_click=_close_and_open_logs)

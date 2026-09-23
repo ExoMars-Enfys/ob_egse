@@ -160,9 +160,18 @@ def test_metrics_specs_are_wired_to_reference_limit_constants() -> None:
         assert ob_specs[key].alarm_bounds_adu == const.ALIM_TPR_ADU
 
 
+def test_mechanism_current_metric_decodes_packed_raw_value() -> None:
+    spec = {item.key: item for item in mcw._ob_hk_specs()}["hk_mech_cur"]
+    packet = type("Packet", (), {"HK_MECH_CUR": 160})()
+
+    assert spec.unit == "mA"
+    assert spec.getter(packet) == pytest.approx(0.6)
+
+
 # ---------------------------------------------------------------------------
 # Constants-backed monitoring registry validation
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     ("raw", "expected"),

@@ -141,9 +141,16 @@ def build_ui(
     if ob_worker is not None:
         # Cyclic traffic shares the single-owner transaction queue.  Priority
         # 10 keeps user/script transactions (priority 1) responsive.
+        def ob_psu_is_ready() -> bool:
+            channels = state.get("channels", {})
+            return state.get("mode") == "OB" and all(
+                bool(channels.get(key, {}).get("enabled", False)) for key in ("psu_ch1", "psu_ch2", "psu_ch3")
+            )
+
         cyclic_hk = CyclicHKController(
             lambda: ob_worker.submit(tc.hk_request, priority=10),
             interval_s=1.0,
+            is_ready=ob_psu_is_ready,
             logger=logger,
         )
     state["cyclic_hk"] = cyclic_hk
@@ -434,7 +441,7 @@ def build_ui(
                         key="psu_ch1",
                         title="CH1",
                         color=plot_colors[7],
-                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        mode_limits=None,
                         live_voltage_key="CH1_V",
                         live_current_key="CH1_I",
                         enabled_switch="enabled",
@@ -445,7 +452,7 @@ def build_ui(
                         key="psu_ch2",
                         title="CH2",
                         color=plot_colors[1],
-                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        mode_limits=None,
                         live_voltage_key="CH2_V",
                         live_current_key="CH2_I",
                         enabled_switch="enabled",
@@ -456,7 +463,7 @@ def build_ui(
                         key="psu_ch3",
                         title="CH3",
                         color=plot_colors[7],
-                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        mode_limits=None,
                         live_voltage_key="CH3_V",
                         live_current_key="CH3_I",
                         enabled_switch="enabled",
@@ -467,7 +474,7 @@ def build_ui(
                         key="psu_ch4",
                         title="CH4",
                         color=plot_colors[1],
-                        mode_limits={"OB": (0.0, 500.0), "EB": (0.0, 1000.0)},
+                        mode_limits=None,
                         live_voltage_key="CH4_V",
                         live_current_key="CH4_I",
                         enabled_switch="enabled",

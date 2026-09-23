@@ -20,6 +20,7 @@ from scripts_modules import sequences
 from utility_modules import comms as comms
 from utility_modules import egse_logger as egse_logger
 from utility_modules.ob_serial_worker import OBSerialWorker
+from utility_modules.port_selection import com_port_name, validate_com_port_selection
 from utility_modules import psu as psu
 from utility_modules import tc as tc
 from utility_modules import tm as tm
@@ -122,6 +123,9 @@ def main() -> None:
     startup_mode = const.DEFAULT_STARTUP_MODE
     startup_eb_mode = startup_mode == "EB"
     psu_mode_state = {"ebmode": startup_eb_mode, "voltage_mode": "NOM"}
+    psu_com = com_port_name(args.psuport)
+    rs485_com = com_port_name(args.com)
+    validate_com_port_selection(rs485_com, psu_com, nopsu=args.nopsu)
 
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
@@ -131,7 +135,6 @@ def main() -> None:
     psu_lock = threading.Lock()
     psu_port = None
     if not args.nopsu:
-        psu_com = "COM" + str(args.psuport)
         info_log.info("Initialising PSU Comms on Port " + psu_com)
         try:
             psu_port = psu.init_psu_comms(psu_com)
@@ -160,7 +163,6 @@ def main() -> None:
     hk_thread = None
 
     # 3. Configure your RS-485 serial communication links
-    rs485_com = "COM" + str(args.com)
     ob_port = None
     info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
     try:
