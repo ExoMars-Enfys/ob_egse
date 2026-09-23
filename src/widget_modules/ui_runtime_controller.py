@@ -2519,6 +2519,34 @@ def verify_safe_ret():
         return msg, True
 
 
+def _wait_for_settled_hk(after_hk_sequence: int | None, timeout: float = 5.0):
+    """Poll HK packets newer than *after_hk_sequence* until the flag check passes.
+
+    A HK packet that arrives right after STANDBY can still reflect a
+    transitional state (e.g. INSTRUMENT_STATUS_FLAGS briefly reading 1028
+    instead of the settled 25604) before a later packet catches up. Keep
+    accepting newer packets within the timeout budget instead of failing on
+    whichever one happens to arrive first.
+    """
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    seq = after_hk_sequence
+    latest_hk = None
+    result = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        candidate = wait_for_fresh_hk(timeout=remaining, after_sequence=seq)
+        if candidate is None:
+            break
+        latest_hk = candidate
+        seq = eb_packet_utility.get_hk_sequence()
+        result = perform_hk_check(hk=candidate, post=None, hk_type="hk")
+        if result.get("passed", False):
+            break
+    return latest_hk, result
+
+
 def verify_standby_ret(
     after_hk_sequence: int | None = None,
     after_psu_sequence: int | None = None,
@@ -2526,8 +2554,9 @@ def verify_standby_ret(
     errors = []
     # Wait for telemetry newer than the markers captured before STANDBY. This
     # accepts data that arrived during the normal settling delay instead of
-    # accidentally demanding another packet after verification starts.
-    latest_hk = wait_for_fresh_hk(timeout=5.0, after_sequence=after_hk_sequence)
+    # accidentally demanding another packet after verification starts, and
+    # retries across packets so a transient mismatch doesn't fail the check.
+    latest_hk, hk_result = _wait_for_settled_hk(after_hk_sequence, timeout=5.0)
     if latest_hk is None:
         hk_age = eb_packet_utility.get_latest_hk_age_s()
         age_text = "no HK cached" if hk_age is None else f"latest HK is {hk_age:.2f} s old"
@@ -2550,10 +2579,8 @@ def verify_standby_ret(
         consumption_check("Standby", latest_psu, errors)
         ch4_current_ma = float(latest_psu.get("PSU_EB_I") or 0.0) * 1000.0
 
-    result = None
+    result = hk_result
     if latest_hk is not None:
-        result = perform_hk_check(hk=latest_hk, post=None, hk_type="hk")
-
         # Check the HK packet for all required fields and limits
         if not (result and result.get("passed", False)):
             if result and "details" in result and result["details"]:
