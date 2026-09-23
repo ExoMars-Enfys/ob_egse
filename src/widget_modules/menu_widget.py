@@ -331,8 +331,6 @@ def create_menu(
                         "rounded-full w-16 h-12"
                     ).tooltip("Refresh EB scripts")
 
-                ui.keyboard(on_key=lambda e: _handle_script_hotkeys(state, get_selected_key(), e))
-
                 # (Removed duplicate Run Text Script button)
 
                 ui.button("Log Snapshot", on_click=lambda: _log_snapshot(state)).classes(
@@ -365,9 +363,11 @@ def _call_set_mode(set_mode_fn: Any | None, mode: str) -> None:
         handler(mode)
 
 
-def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
-    """Handle voltage mode change and apply to PSU."""
+async def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
+    """Handle voltage mode change and apply to PSU without blocking the UI event loop."""
     from contextlib import nullcontext
+
+    from nicegui import run
 
     from utility_modules import psu
 
@@ -382,9 +382,14 @@ def _on_voltage_mode_change(e: Any, state: dict[str, Any]) -> None:
     if not port:
         return
 
-    lock_ctx = psu_lock if psu_lock is not None else nullcontext()
-    with lock_ctx:
-        psu.apply_voltage_mode(port, new_mode, state.get("mode", "OB"))
+    def _apply() -> None:
+        lock_ctx = psu_lock if psu_lock is not None else nullcontext()
+        with lock_ctx:
+            psu.apply_voltage_mode(port, new_mode, state.get("mode", "OB"))
+
+    # psu_lock can be briefly held by the PSU monitor thread or a running script;
+    # acquiring it directly here would freeze the whole UI event loop until free.
+    await run.io_bound(_apply)
 
 
 def _set_hk_display_mode(state: dict[str, Any], mode: str) -> None:
@@ -820,19 +825,6 @@ def _abort_selected_script(state: dict[str, Any], script_key: str) -> None:
     ui_runtime_controller.request_abort()
     ui_runtime_controller.clear_pause()
     ui.notify("Stop requested; wait for the script to finish before starting another", color="warning")
-
-
-def _handle_script_hotkeys(state: dict[str, Any], script_key: str, event: Any) -> None:
-    """Map keyboard shortcuts to existing script pause/abort actions."""
-    action = str(getattr(event, "action", "") or "").lower()
-    if action and action != "keydown":
-        return
-
-    key = str(getattr(event, "key", "") or "").lower()
-    if key in {" ", "space", "spacebar"}:
-        _pause_selected_script(state, script_key)
-    elif key in {"escape", "esc"}:
-        _abort_selected_script(state, script_key)
 
 
 async def stop_and_shutdown(state: dict[str, Any], stop_event: Any) -> None:

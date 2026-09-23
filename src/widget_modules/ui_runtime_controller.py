@@ -42,6 +42,7 @@ info_log = logging.getLogger("info_log")
 
 _FORCE_PAUSE_EVENT = threading.Event()
 _FORCE_PAUSE_DIALOGS: dict[str, Any] = {}
+_PAUSE_BANNER_DIALOGS: dict[str, Any] = {}
 _OB_SCI_CAPTURE_LOCK = threading.RLock()
 _OB_SCI_CAPTURE_ID = 0
 _OB_SCI_CAPTURE_ACTIVE = False
@@ -805,8 +806,8 @@ def replay_ob_sci_log(
         fraction = match.group(2).ljust(6, "0")[:6]
         return datetime.strptime(f"{match.group(1)}.{fraction}", "%Y-%m-%d %H:%M:%S.%f")
 
-    science_points: list[tuple[datetime, tuple[int, int, int, int, int, int, int]]] = []
-    with Path(log_path).open("r", encoding="utf-8") as handle:
+    science_points: list[tuple[datetime, tuple[int, int, int, int, int, int, int, int, int]]] = []
+    with Path(log_path).open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line_time = _line_time(line)
             parsed = sci_plot._parse_sci_log_line(line)
@@ -841,7 +842,7 @@ def replay_ob_sci_log(
         explicit_open: tuple[datetime, str] | None = None
         legacy_open: tuple[datetime, str] | None = None
         started_capture_pattern = re.compile(r"started ob sci capture\s+\d+\s*:\s*(.+)", re.IGNORECASE)
-        with Path(info_log_path).open("r", encoding="utf-8") as handle:
+        with Path(info_log_path).open("r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 line_time = _line_time(line)
                 if line_time is None:
@@ -995,6 +996,7 @@ def _open_force_pause_dialogs(message: str, passed: bool | None = None) -> None:
                         ui.separator()
                         ui.label("Press Resume in Script Controls to continue.").classes("egse-text")
                     _FORCE_PAUSE_DIALOGS[client.id] = popup
+                    ui.run_javascript(_FLASH_ATTENTION_JS)
             except Exception as exc:
                 info_log.debug("force pause dialog: failed for client %s: %s", client.id, exc)
 
@@ -1012,6 +1014,10 @@ def _close_force_pause_dialogs() -> None:
         for client_id, dialog in list(_FORCE_PAUSE_DIALOGS.items()):
             try:
                 _remove_force_pause_popup(dialog)
+                client = _NiceGuiClient.instances.get(client_id)
+                if client is not None:
+                    with client:
+                        ui.run_javascript(_RESTORE_TITLE_JS)
             except Exception:
                 pass
             finally:
@@ -1022,6 +1028,25 @@ def _close_force_pause_dialogs() -> None:
 
 _CONFIRM_EVENT = threading.Event()
 _CONFIRM_RESULT: bool = False
+
+_FLASH_ATTENTION_JS = """
+if (!window.__egseOriginalTitle) { window.__egseOriginalTitle = document.title; }
+document.title = '\u26a0 ACTION NEEDED \u2014 ' + window.__egseOriginalTitle;
+try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+} catch (e) {}
+"""
+
+_RESTORE_TITLE_JS = """
+if (window.__egseOriginalTitle) { document.title = window.__egseOriginalTitle; }
+"""
 
 
 def request_confirmation(
@@ -1059,16 +1084,19 @@ def request_confirmation(
                                 d.close()
                                 _CONFIRM_RESULT = False
                                 _CONFIRM_EVENT.set()
+                                ui.run_javascript(_RESTORE_TITLE_JS)
 
                             def _confirm(d: Any = dialog) -> None:
                                 global _CONFIRM_RESULT
                                 d.close()
                                 _CONFIRM_RESULT = True
                                 _CONFIRM_EVENT.set()
+                                ui.run_javascript(_RESTORE_TITLE_JS)
 
                             ui.button(cancel_label, on_click=_cancel).props("outline")
                             ui.button(confirm_label, on_click=_confirm).classes("primary-text")
                     dialog.open()
+                    ui.run_javascript(_FLASH_ATTENTION_JS)
             except Exception as exc:
                 info_log.debug("request_confirmation: failed for client %s: %s", client.id, exc)
 
@@ -2691,6 +2719,7 @@ def clear_abort() -> None:
 
 def clear_pause() -> None:
     _SCRIPT_CONTROL["pause_event"].clear()
+    _hide_pause_banner()
 
 
 def finish_script() -> None:
@@ -2699,6 +2728,7 @@ def finish_script() -> None:
     _SCRIPT_CONTROL["pause_event"].clear()
     _SCRIPT_CONTROL["abort_event"].clear()
     _SCRIPT_CONTROL["current_script"] = None
+    _hide_pause_banner()
 
 
 def get_script_control() -> dict:
@@ -2728,6 +2758,60 @@ def request_abort() -> None:
 
 def request_pause() -> None:
     _SCRIPT_CONTROL["pause_event"].set()
+    _show_pause_banner()
+
+
+def _show_pause_banner() -> None:
+    """Show a persistent, unmissable 'Script Paused' banner (unlike a transient notify)."""
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        return
+
+    def _open() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    if client.id in _PAUSE_BANNER_DIALOGS:
+                        continue
+                    popup_card = (
+                        ui.card()
+                        .classes("fixed top-4 right-4 z-[9999] w-[24rem] max-w-[calc(100vw-2rem)] shadow-2xl border-2")
+                        .style("border-color: var(--q-warning)")
+                    )
+                    with popup_card:
+                        ui.label("Script Paused").classes("font-bold egse-title warning-text")
+                        ui.label("The running script will not send any more commands until resumed.").classes(
+                            "egse-text"
+                        )
+                    _PAUSE_BANNER_DIALOGS[client.id] = popup_card
+                    ui.run_javascript(_FLASH_ATTENTION_JS)
+            except Exception as exc:
+                info_log.debug("pause banner: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_open)
+
+
+def _hide_pause_banner() -> None:
+    """Dismiss the persistent 'Script Paused' banner for all clients."""
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running():
+        _PAUSE_BANNER_DIALOGS.clear()
+        return
+
+    def _close() -> None:
+        for client_id, popup in list(_PAUSE_BANNER_DIALOGS.items()):
+            try:
+                _remove_force_pause_popup(popup)
+                client = _NiceGuiClient.instances.get(client_id)
+                if client is not None:
+                    with client:
+                        ui.run_javascript(_RESTORE_TITLE_JS)
+            except Exception:
+                pass
+            finally:
+                _PAUSE_BANNER_DIALOGS.pop(client_id, None)
+
+    loop.call_soon_threadsafe(_close)
 
 
 def start_script(script_name: str | None = None) -> None:
@@ -3791,9 +3875,17 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
                 psu_mode_state["ebmode"] = mode == "EB"
             if psu_port:
                 ebmode = mode == "EB"
-                lock_ctx = psu_lock if psu_lock is not None else nullcontext()
-                with lock_ctx:
-                    psu.setChannels(psu_port, ebmode, state.get("voltage_mode", "NOM"))
+                voltage_mode = state.get("voltage_mode", "NOM")
+
+                def _apply_psu_channels() -> None:
+                    lock_ctx = psu_lock if psu_lock is not None else nullcontext()
+                    with lock_ctx:
+                        psu.setChannels(psu_port, ebmode, voltage_mode)
+
+                # Run off the event loop: psu_lock can be briefly held by the PSU
+                # monitor thread or another script action, and this callback often
+                # runs directly on the UI event loop (not via run.io_bound).
+                threading.Thread(target=_apply_psu_channels, name="ob-eb-mode-psu-apply", daemon=True).start()
             # Run mode change resetters
             for reset in state.get("mode_change_resetters", []):
                 reset()

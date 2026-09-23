@@ -233,8 +233,10 @@ class PsuChannelController:
             return
         self.channel["_suppress_toggle_events"] = int(self.channel.get("_suppress_toggle_events", 0) or 0) + 1
         self.channel["_syncing_from_psu"] = True
-        self.enabled_switch.value = bool(enabled)
-        self.channel["_syncing_from_psu"] = False
+        try:
+            self.enabled_switch.value = bool(enabled)
+        finally:
+            self.channel["_syncing_from_psu"] = False
 
 
 def create_psu_channel_card(

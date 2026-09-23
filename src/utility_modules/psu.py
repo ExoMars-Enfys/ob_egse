@@ -241,6 +241,9 @@ def psu_monitor_thread(port, ebmode, stop_event, freq, hk_pause_event=None, mode
                 acquired_port_lock = port_lock.acquire(blocking=False)
                 if not acquired_port_lock:
                     # Prioritize user command paths over monitor polling to keep toggles responsive.
+                    # A short backoff avoids a CPU-spinning busy-wait (and the resulting GIL
+                    # starvation of every other thread) while the lock is held elsewhere.
+                    stop_event.wait(0.05)
                     continue
                 lock_ctx = nullcontext()
             try:
