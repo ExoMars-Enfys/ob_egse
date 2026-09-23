@@ -77,9 +77,7 @@ def _resolve_eb_tc_func(attr_name: str) -> Callable[..., Any] | None:
     return func if callable(func) else None
 
 
-COMMAND_TO_EB_TC_FUNC = {
-    tc_name: _resolve_eb_tc_func(attr_name) for tc_name, attr_name in _EB_TC_ATTR_BY_NAME.items()
-}
+COMMAND_TO_EB_TC_FUNC = {tc_name: _resolve_eb_tc_func(attr_name) for tc_name, attr_name in _EB_TC_ATTR_BY_NAME.items()}
 
 
 @dataclass
