@@ -28,6 +28,7 @@ MODEL_BITMAPS = {
 }
 DEFAULT_COM_PORT = 4
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
+EXP_MODEL_ID = 7
 
 # PSU Config
 PSU_COM_PORT = 6
@@ -84,8 +85,6 @@ POST_EXPECTED_CRC = {  # CRCs for combined patch v3.2.8 and v3.6.2
     "MEASUREMENT_TABLE_CRC": 0x371B,
 }
 
-EXP_MODEL_ID = 0x02
-
 
 def _model_bitmap_value(model: str) -> int:
     value = MODEL_BITMAPS.get(model, model)
@@ -102,10 +101,7 @@ def _model_bitmap_value(model: str) -> int:
 def set_expected_model_id(model: str | None) -> int:
     global EXP_MODEL_ID
     if not model:
-        EXP_MODEL_ID = _model_bitmap_value("DEM")
+        EXP_MODEL_ID = _model_bitmap_value("CMOD EGSE")
         return EXP_MODEL_ID
     EXP_MODEL_ID = _model_bitmap_value(model)
     return EXP_MODEL_ID
-
-
-set_expected_model_id("DEM")

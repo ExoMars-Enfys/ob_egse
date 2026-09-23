@@ -212,7 +212,7 @@ def main() -> None:
         # ------------------------------------------------------------------------------------------
         # User add commands or sequences from here:
         # ------------------------------------------------------------------------------------------
-        # sequences.parse_hk(ob_port)
+        sequences.parse_hk(ob_port)
         # tc.power_control(ob_port, 1)
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
@@ -225,6 +225,7 @@ def main() -> None:
 
     else:
         info_log.info("Running GUI")
+        config.set_expected_model_id(None)
         if args.reload:
             info_log.warning(
                 "Hot reload is enabled; browser reconnects may trigger normal client disconnects. Disable --reload for stable operation."
