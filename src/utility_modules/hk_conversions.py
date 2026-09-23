@@ -51,6 +51,8 @@ CONVERSIONS: dict[str, FieldConversion] = {
     "OB_DETECTOR_TRP": FieldConversion("°C", decode_ob_trps),
     "OB_MECHANISM_TRP": FieldConversion("°C", decode_ob_trps),
     "OB_MOTOR_TRP": FieldConversion("°C", decode_ob_trps),
+    # ── OB ADC ───────────────────────────────────────────────────────
+    "HK_MECH_CUR": FieldConversion("mA", lambda raw: (raw >> 4) * (0.12 / (0.2 * 10))),
 }
 
 
