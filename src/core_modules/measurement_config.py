@@ -95,7 +95,7 @@ OB_CURRENT_COMPONENTS_MA = {
     "DetectorBoard": {"CH1": 14.4, "CH2": 5.7},
     "MechanismHeater": {"CH2": 83.0},
     "DetectorHeater": {"CH2": 41.0},
-    "PoweredHeatedBoards": {"CH3": 10.0},
+    "PoweredHeatedBoards": {"CH3": 8.0},
     "Moving": {"CH1": 85.0, "CH3": 7.0},
 }
 # Motor contribution to the mechanism PSU current for each qualification
