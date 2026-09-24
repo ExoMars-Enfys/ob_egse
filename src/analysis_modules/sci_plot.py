@@ -770,6 +770,9 @@ def render_sci_packets_plotly_figures(
     for packet in sci_packets:
         sci_points = getattr(packet, "SCI_POINTS", None)
         if sci_points:
+            # EB SCI packets carry SWIR_OFFSET/MWIR_OFFSET on the packet header,
+            # not on each point, so collect from the packet itself as well.
+            _collect_sci_offsets(packet, swir_offsets, mwir_offsets)
             for point in sci_points:
                 abs_steps.append(int(point.ABS_STEPS))
                 swir_high.append(int(point.SWIR_HIGH))
