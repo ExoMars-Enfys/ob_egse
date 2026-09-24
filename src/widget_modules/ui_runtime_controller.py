@@ -1890,12 +1890,9 @@ def perform_acq_check_sync(
                 getattr(latest_hk, "TIME", None),
             )
             notify_positive(acq_complete_msg)
-            # Drain one SCI packet from the queue for logging if available
-            try:
-                sci_packet = const.sci_queue.get(timeout=2.0)
-                info_log.info("SCI packet received: %s", sci_packet)
-            except Exception:
-                pass
+            # Do not consume from const.sci_queue here: the telemetry poll loop
+            # owns draining it into the packet viewer/state, and stealing a
+            # packet for logging would make it disappear from the GUI.
             progress.finish()
             return
 
