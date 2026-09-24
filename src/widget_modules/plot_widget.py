@@ -9,6 +9,13 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import matplotlib
+
+# Force the non-interactive Agg backend before pyplot is imported: NiceGUI
+# renders figures off the main thread, and any interactive backend (Tk/Qt)
+# triggers "Starting a Matplotlib GUI outside of the main thread" warnings.
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 from matplotlib import dates as mdates
 from matplotlib import ticker

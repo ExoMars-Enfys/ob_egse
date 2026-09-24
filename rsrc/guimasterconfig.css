@@ -171,6 +171,16 @@ body.theme-light {
    05. BASE SURFACES
    ========================================================================== */
 
+html {
+  /*
+   * Scale rem-based sizing (fonts, padding, card spacing) down to 75%.
+   * Unlike `zoom`, this keeps vw/vh-based layout columns (packet viewer,
+   * console, drawers) filling 100% of the window instead of leaving a
+   * blank strip when the whole page is shrunk.
+   */
+  font-size: 65%;
+}
+
 body,
 .nicegui-content,
 .q-page,
