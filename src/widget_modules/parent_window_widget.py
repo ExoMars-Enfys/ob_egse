@@ -384,8 +384,6 @@ def build_ui(
                     state["plot_refreshers"].append(trp_card.set_mode)
                     trp_card.set_mode(state["mode"])
                     trp_card.set_display_mode(state.get("hk_display_mode", "REAL"))
-
-                with ui.row().classes("w-full gap-4 items-stretch min-w-0"):
                     voltage_card = plot_widget.create_plot_card(
                         "Voltages",
                         series=[
