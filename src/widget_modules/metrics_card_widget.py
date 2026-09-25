@@ -76,6 +76,7 @@ class MetricSpec:
     popup_attr: str | None = None
     popup_title: str | None = None
     popup_names: list[str] | None = None
+    popup_fields: tuple[tuple[str, ValueGetter], ...] | None = None
 
 
 @dataclass
@@ -143,6 +144,11 @@ class MetricsCardController:
                     pill.chip.set_background_color("grey")
                 else:
                     pill.chip.set_background_color("green" if active else "red")
+                continue
+
+            if pill.spec.render == "static_chip":
+                pill.chip.set_text(pill.spec.chip_text or pill.spec.label)
+                pill.chip.set_background_color("grey")
                 continue
 
             if value is None:
@@ -798,26 +804,11 @@ def _ob_hk_specs(state: dict[str, Any] | None = None) -> list[MetricSpec]:
             false_color="grey",
         ),
         MetricSpec(
-            key="hk_samples",
-            label="HK SAMPLES",
-            getter=lambda hk: _first_available_value(hk, _ob_field_aliases("HK_SAMPLES"))[0],
-        ),
-        MetricSpec(
             key="hk_mech_cur",
             label="MECH CUR",
             getter=lambda hk: _decoded_ob_value(hk, _ob_field_aliases("HK_MECH_CUR")),
             unit="mA",
             decimals=2,
-        ),
-        MetricSpec(
-            key="swir_offset",
-            label="SWIR OFFSET",
-            getter=lambda hk: _ob_sci_value(hk, "SWIR_OFFSET"),
-        ),
-        MetricSpec(
-            key="mwir_offset",
-            label="MWIR OFFSET",
-            getter=lambda hk: _ob_sci_value(hk, "MWIR_OFFSET"),
         ),
         # Motor status and configuration
         MetricSpec(
@@ -859,28 +850,36 @@ def _ob_hk_specs(state: dict[str, Any] | None = None) -> list[MetricSpec]:
             render="state_chip",
             chip_text="CAL",
         ),
-        MetricSpec(key="mtr_current", label="CUR", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CURRENT"))),
         MetricSpec(
-            key="guard_select",
-            label="GUARD",
-            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_GUARD_SELECT")),
-        ),
-        MetricSpec(key="mtr_chop", label="CHOP", getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CHOP"))),
-        MetricSpec(
-            key="mtr_speed",
-            label="SPEED",
-            getter=lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_SPEED")),
+            key="mtr_params",
+            label="MTR PARAMS",
+            getter=lambda hk: True,
+            render="static_chip",
+            popup_title="Motor Parameters",
+            popup_fields=(
+                ("Current", lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CURRENT"))),
+                ("Guard", lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_GUARD_SELECT"))),
+                ("Chop", lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_CHOP"))),
+                ("Speed", lambda hk: _hex_attr(hk, _ob_field_aliases("MTR_SPEED"))),
+            ),
         ),
         # Heater state bitfield
         MetricSpec(
             key="mech_htr_status",
-            label="MECH",
+            label="MECH HTR",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HMS"),
             render="bool_status",
-            true_text="MECH",
-            false_text="MECH",
+            true_text="ON",
+            false_text="OFF",
             true_color="green",
             false_color="grey",
+            popup_title="Mechanism Heater Status",
+            popup_fields=(
+                ("Manual", lambda hk: _ns_bool(hk, "THRM_STATUS", "MM")),
+                ("Automatic", lambda hk: _ns_bool(hk, "THRM_STATUS", "MA")),
+                ("ON setpoint", lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_ON_SP"))),
+                ("OFF setpoint", lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_MECH_OFF_SP"))),
+            ),
         ),
         MetricSpec(
             key="mech_manual",
@@ -898,13 +897,21 @@ def _ob_hk_specs(state: dict[str, Any] | None = None) -> list[MetricSpec]:
         ),
         MetricSpec(
             key="det_htr_status",
-            label="DET",
+            label="DET HTR",
             getter=lambda hk: _ns_bool(hk, "THRM_STATUS", "HDS"),
             render="bool_status",
-            true_text="DET",
-            false_text="DET",
+            true_text="ON",
+            false_text="OFF",
             true_color="green",
             false_color="grey",
+            popup_title="Detector Heater Status",
+            popup_fields=(
+                ("Manual", lambda hk: _ns_bool(hk, "THRM_STATUS", "DM")),
+                ("Automatic", lambda hk: _ns_bool(hk, "THRM_STATUS", "DA")),
+                ("Science", lambda hk: _ns_bool(hk, "THRM_STATUS", "S")),
+                ("ON setpoint", lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_ON_SP"))),
+                ("OFF setpoint", lambda hk: _ob_thermal_setpoint(hk, _ob_field_aliases("THRM_DET_OFF_SP"))),
+            ),
         ),
         MetricSpec(
             key="det_manual",
@@ -955,19 +962,28 @@ def _ob_hk_specs(state: dict[str, Any] | None = None) -> list[MetricSpec]:
             unit="°C",
         ),
         # OB error bitfields
-        MetricSpec(key="err_ipi", label="IPI", getter=lambda hk: _ns_bool(hk, "ERRORS", "IPI"), render="error_chip"),
-        MetricSpec(key="err_ios", label="IOS", getter=lambda hk: _ns_bool(hk, "ERRORS", "IOS"), render="error_chip"),
-        MetricSpec(key="err_icr", label="ICR", getter=lambda hk: _ns_bool(hk, "ERRORS", "ICR"), render="error_chip"),
-        MetricSpec(key="err_mor", label="MOR", getter=lambda hk: _ns_bool(hk, "ERRORS", "MOR"), render="error_chip"),
-        MetricSpec(key="err_tmo", label="TMO", getter=lambda hk: _ns_bool(hk, "ERRORS", "TMO"), render="error_chip"),
-        MetricSpec(key="err_ipa", label="IPA", getter=lambda hk: _ns_bool(hk, "ERRORS", "IPA"), render="error_chip"),
-        MetricSpec(key="mtr_cd", label="CD", getter=lambda hk: _ns_bool(hk, "MTR_ERRORS", "CD"), render="error_chip"),
-        MetricSpec(key="mtr_ab", label="AB", getter=lambda hk: _ns_bool(hk, "MTR_ERRORS", "AB"), render="error_chip"),
         MetricSpec(
-            key="mtr_abs", label="ABS", getter=lambda hk: _ns_bool(hk, "MTR_ERRORS", "ABS"), render="error_chip"
+            key="ob_errors",
+            label="OB ERRORS",
+            chip_text="ERR",
+            getter=lambda hk: any(_ns_bool(hk, "ERRORS", name) for name in ("IPI", "IOS", "ICR", "MOR", "TMO", "IPA")),
+            render="error_chip",
+            popup_title="OB Errors",
+            popup_fields=tuple(
+                (name, lambda hk, name=name: _ns_bool(hk, "ERRORS", name))
+                for name in ("IPI", "IOS", "ICR", "MOR", "TMO", "IPA")
+            ),
         ),
         MetricSpec(
-            key="mtr_dse", label="DSE", getter=lambda hk: _ns_bool(hk, "MTR_ERRORS", "DSE"), render="error_chip"
+            key="mtr_errors",
+            label="MTR ERRORS",
+            chip_text="MTR ERR",
+            getter=lambda hk: any(_ns_bool(hk, "MTR_ERRORS", name) for name in ("CD", "AB", "ABS", "DSE")),
+            render="error_chip",
+            popup_title="Motor Errors",
+            popup_fields=tuple(
+                (name, lambda hk, name=name: _ns_bool(hk, "MTR_ERRORS", name)) for name in ("CD", "AB", "ABS", "DSE")
+            ),
         ),
     ]
 
@@ -994,10 +1010,11 @@ def _render_metric_grid(
         "ob_acq_cfg_set",
         "ob_motor_moving",
         "ob_mech_cal",
-        "mech_htr_status",
+        "mech_pwr",
+        "det_pwr",
+        "mtr_params",
         "mech_manual",
         "mech_auto",
-        "det_htr_status",
         "det_manual",
         "det_auto",
         "det_sci",
@@ -1005,17 +1022,21 @@ def _render_metric_grid(
         "detector_power_on",
     }
 
-    with ui.grid(columns=columns).classes("w-full gap-1"):
+    metric_grid = ui.grid(columns=columns).classes("w-full gap-1")
+    if columns == 2:
+        metric_grid.style("grid-template-columns: repeat(2, max-content); justify-content: start;")
+
+    with metric_grid:
         for spec in specs:
             if spec.render == "error_chip":
-                chip = (
-                    ui.chip(
-                        spec.chip_text or spec.label,
-                        color="grey",
-                    )
-                    .props("dense")
-                    .classes("w-fit egse-metric-value")
-                )
+                with (
+                    ui.row()
+                    .classes("w-full items-center justify-center gap-1")
+                    .style("flex-wrap: nowrap; white-space: nowrap;")
+                ):
+                    if spec.key not in label_hidden_pills:
+                        ui.label(spec.label).classes("egse-metric-label whitespace-nowrap")
+                    chip = ui.chip("---", color="grey").props("dense").classes("w-fit egse-metric-value")
 
                 pills.append(
                     MetricPill(
@@ -1026,7 +1047,11 @@ def _render_metric_grid(
                 continue
 
             # Label and value chip are now in the same horizontal row.
-            with ui.row().classes("w-full items-center justify-center gap-1 flex-nowrap"):
+            with (
+                ui.row()
+                .classes("w-full items-center justify-center gap-1")
+                .style("flex-wrap: nowrap; white-space: nowrap;")
+            ):
                 if spec.key not in label_hidden_pills:
                     ui.label(spec.label).classes("egse-metric-label whitespace-nowrap")
 
@@ -1043,12 +1068,20 @@ def _render_metric_grid(
 def _bind_metric_popups(controller: MetricsCardController) -> None:
     for pill in controller.pills:
         spec = pill.spec
-        if not spec.popup_attr:
+        if not spec.popup_attr and not spec.popup_fields:
             continue
         pill.chip.props("clickable")
         pill.chip.classes(add="cursor-pointer")
 
         def _show_popup(_: Any = None, pill_spec: MetricSpec = spec) -> None:
+            if pill_spec.popup_fields:
+                packet = controller.last_packet
+                details = [(name, _safe_get_value(getter, packet)) for name, getter in pill_spec.popup_fields]
+                popup_widget.show_details_popup(
+                    title=pill_spec.popup_title or pill_spec.label,
+                    details=details,
+                )
+                return
             popup_widget.show_flag_popup(
                 title=pill_spec.popup_title or pill_spec.label,
                 packet=controller.last_packet,
@@ -1120,121 +1153,65 @@ def create_default_ob_metrics_card(state: dict[str, Any] | None = None) -> Metri
     pills: list[MetricPill] = []
 
     with ui.card().classes("w-full min-w-0").style("padding: 0.5rem;") as card:
-        ob_lbl = ui.label("OB STATUS")
-        ob_lbl.classes("font-bold mb-2 egse-medium-text")
-        _render_metric_grid(
-            specs=[
-                spec_map[k] for k in ("cmd_cnt", "pwr_stat", "hk_samples", "3v3", "1v5", "dig", "det", "mech", "mtr")
-            ],
-            columns=9,
-            pills=pills,
-        )
-
-        ui.space()
-        motor_lbl = ui.label("MECH STATUS")
-        motor_lbl.classes("font-bold mb-2 egse-medium-text")
-        _render_metric_grid(
-            specs=[
-                spec_map[k]
-                for k in (
-                    "ob_motor_moving",
-                    "ob_direction",
-                    "ob_stop",
-                    "ob_steps",
-                    "mtr_rel_steps",
-                    "mtr_current",
-                    "guard_select",
-                    "mtr_chop",
-                    "mtr_speed",
-                )
-            ],
-            columns=9,
-            pills=pills,
-        )
-        _render_metric_grid(
-            specs=[
-                spec_map[k]
-                for k in (
-                    "mech_pwr",
-                    "hk_mech_cur",
-                    "mech_htr_status",
-                    "mech_manual",
-                    "mech_auto",
-                    "mech_htr_min_sp",
-                    "mech_htr_max_sp",
-                )
-            ],
-            columns=7,
-            pills=pills,
-        )
-
-        ui.space()
-        motor_lbl = ui.label("DET STATUS")
-        motor_lbl.classes("font-bold mb-2 egse-medium-text")
-
-        _render_metric_grid(
-            specs=[
-                spec_map[k]
-                for k in (
-                    "det_pwr",
-                    "det_htr_status",
-                    "det_manual",
-                    "det_auto",
-                    "det_sci",
-                    "swir_offset",
-                    "mwir_offset",
-                    "det_htr_min_sp",
-                    "det_htr_max_sp",
-                )
-            ],
-            columns=9,
-            pills=pills,
-        )
-
-        ui.space()
-        with ui.row().classes("w-full items-start gap-6 flex-nowrap"):
-            # Left: OB errors
-            with ui.column().classes("gap-1 min-w-0").style("flex: 3 1 0;"):
-                err_lbl = ui.label("OB ERRORS")
-                err_lbl.classes("font-bold mb-2 egse-medium-text")
-
+        with ui.row().classes("w-full gap-4 items-start min-w-0 flex-nowrap"):
+            with ui.column().classes("flex-1 min-w-0 gap-1"):
+                ob_lbl = ui.label("OB STATUS")
+                ob_lbl.classes("font-bold mb-2 egse-medium-text")
                 _render_metric_grid(
                     specs=[
                         spec_map[k]
                         for k in (
-                            "err_ipi",
-                            "err_ios",
-                            "err_icr",
-                            "err_mor",
-                            "err_tmo",
-                            "err_ipa",
+                            "cmd_cnt",
+                            "pwr_stat",
+                            "3v3",
+                            "1v5",
+                            "dig",
+                            "det",
+                            "mech",
+                            "mtr",
+                            "ob_errors",
+                            "mtr_errors",
                         )
                     ],
-                    columns=6,
+                    columns=10,
                     pills=pills,
                 )
 
-            # Right: motor errors
-            with ui.column().classes("gap-1 min-w-0").style("flex: 2 1 0;"):
-                mtr_err_lbl = ui.label("MTR ERRORS")
-                mtr_err_lbl.classes("font-bold mb-2 egse-medium-text")
-
+        with ui.row().classes("w-full items-start gap-4").style("flex-wrap: nowrap;"):
+            with ui.column().classes("min-w-0 gap-1").style("flex: 1 1 0%;"):
+                motor_lbl = ui.label("MECH STATUS")
+                motor_lbl.classes("font-bold mb-2 egse-medium-text")
                 _render_metric_grid(
                     specs=[
                         spec_map[k]
                         for k in (
-                            "mtr_cd",
-                            "mtr_ab",
-                            "mtr_abs",
-                            "mtr_dse",
+                            "ob_motor_moving",
+                            "ob_direction",
+                            "ob_stop",
+                            "ob_steps",
+                            "mtr_rel_steps",
+                            "mtr_params",
+                            "mech_pwr",
+                            "hk_mech_cur",
+                            "mech_htr_status",
                         )
                     ],
-                    columns=4,
+                    columns=9,
+                    pills=pills,
+                )
+
+            with ui.column().classes("gap-1").style("flex: 0 0 18rem;"):
+                det_lbl = ui.label("DET STATUS")
+                det_lbl.classes("font-bold mb-2 egse-medium-text")
+                _render_metric_grid(
+                    specs=[spec_map[k] for k in ("det_pwr", "det_htr_status")],
+                    columns=2,
                     pills=pills,
                 )
 
     controller = MetricsCardController(title="OB STATUS", pills=pills, card=card)
     controller.set_no_data()
+    _bind_metric_popups(controller)
     return controller
 
 

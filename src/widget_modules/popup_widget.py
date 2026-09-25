@@ -42,10 +42,41 @@ def show_flag_popup(
     if packet is not None:
         body = _format_flag_snapshot(getattr(packet, attr_name, None), ordered_names)
 
-    with ui.dialog() as dialog:
-        with ui.card().classes("w-96"):
+    with ui.dialog().props("backdrop-filter=blur(3px)") as dialog:
+        with (
+            ui.card()
+            .classes("w-96")
+            .style("background: rgba(20, 28, 38, 0.82); border: 1px solid rgba(255, 255, 255, 0.16);")
+        ):
             ui.label(title).classes("font-bold egse-title")
             ui.separator()
-            ui.label(body).style("white-space: pre-wrap; font-family: monospace")
+            with ui.column().classes("w-full gap-1"):
+                for line in body.splitlines() or ["No flags"]:
+                    _, _, flag_value = line.partition(": ")
+                    ui.chip(line, color="green" if flag_value == "1" else "grey").props("dense").classes(
+                        "w-fit egse-metric-value"
+                    )
+            ui.button("Close", on_click=dialog.close)
+    dialog.open()
+
+
+def show_details_popup(*, title: str, details: list[tuple[str, Any]]) -> None:
+    with ui.dialog().props("backdrop-filter=blur(3px)") as dialog:
+        with (
+            ui.card()
+            .classes("w-96")
+            .style("background: rgba(20, 28, 38, 0.82); border: 1px solid rgba(255, 255, 255, 0.16);")
+        ):
+            ui.label(title).classes("font-bold egse-title")
+            ui.separator()
+            with ui.column().classes("w-full gap-1"):
+                for label, value in details:
+                    if isinstance(value, bool):
+                        color = "green" if value else "grey"
+                        text = f"{label}: {'ON' if value else 'OFF'}"
+                    else:
+                        color = "grey"
+                        text = f"{label}: {value}"
+                    ui.chip(text, color=color).props("dense").classes("w-fit egse-metric-value")
             ui.button("Close", on_click=dialog.close)
     dialog.open()

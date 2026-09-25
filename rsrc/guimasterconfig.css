@@ -51,9 +51,9 @@
   --card-margin-y: 0.25rem;
 
   /* Application layout */
-  --packet-viewer: 12vw;
-  --console: 53vw;
-  --right-drawer: 35vw;
+  --packet-viewer: 10vw;
+  --console: 60vw;
+  --right-drawer: 30vw;
   --top-bar: 7.5vh;
   --log-console: 2vh;
 
