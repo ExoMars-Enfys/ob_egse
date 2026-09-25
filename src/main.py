@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from nicegui import app, ui
 
@@ -43,6 +44,7 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-np", "--nopsu", action="store_true")
     parser.add_argument("-s", "--script", action="store_true")
     parser.add_argument("--reload", action="store_true", help="Enable NiceGUI hot reload for development")
+    parser.add_argument("-m", "--mode", type=str, default=const.DEFAULT_STARTUP_MODE, choices=["EB", "OB"])
     return parser
 
 
@@ -117,10 +119,10 @@ def clean_exit(ob_port, psu_port, event_log, stop_event=None, psu_thread=None):
     #! TODO add emergency shutdown to that powers off the OB
 
 
-def main() -> None:
+def main(gui_runner: Callable[[bool], None] | None = None) -> None:
     parser = init_arparse()
     args = parser.parse_args()
-    startup_mode = const.DEFAULT_STARTUP_MODE
+    startup_mode = args.mode
     startup_eb_mode = startup_mode == "EB"
     psu_mode_state = {"ebmode": startup_eb_mode, "voltage_mode": "NOM"}
     psu_com = com_port_name(args.psuport)
@@ -243,12 +245,15 @@ def main() -> None:
             stop_event=stop_event,
             psu_mode_state=psu_mode_state,
         )
-        ui.run(
-            port=8085,
-            reload=args.reload,
-            show=not args.reload,
-            uvicorn_reload_includes="*.py, *.css",
-        )
+        if gui_runner is not None:
+            gui_runner(args.reload)
+        else:
+            ui.run(
+                port=8085,
+                reload=args.reload,
+                show=not args.reload,
+                uvicorn_reload_includes="*.py, *.css",
+            )
         # TODO What about stop_event?
 
     event_log.info("Shutting down")
