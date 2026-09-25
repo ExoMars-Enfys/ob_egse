@@ -3,10 +3,11 @@ from __future__ import annotations
 import ast
 import math
 import re
+from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from nicegui import ui
+from nicegui import run, ui
 
 from core_modules import cmd_ids
 from utility_modules import ebtcs, tc
@@ -40,6 +41,7 @@ EB_DEFAULT_COMMANDS = list(cmd_ids.enfys_tc_defs.keys())
 
 # Maps each Enfys TC name to the corresponding ebtcs function attribute name.
 _EB_TC_ATTR_BY_NAME = {
+    "HK_Request": "hk_request",
     "RET": "ret",
     "REQUEST_HK": "hk_request",
     "PATCH": "patch",
@@ -263,6 +265,8 @@ def create_console_input_widget(
                 result = ui_runtime_controller.dispatch_eb_tc(state, _dispatch)
             else:
                 result = ui_runtime_controller.dispatch_ob_tc(state, _dispatch)
+            if isinstance(result, Future):
+                result = await run.io_bound(result.result)
             if result != "ERROR" and selected_command == "Clear_Errors":
                 ui_runtime_controller.reset_ob_fdir_simulator(state, logger)
             if logger is not None:

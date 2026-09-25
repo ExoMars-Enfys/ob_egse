@@ -3967,12 +3967,21 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
 
 def dispatch_ob_tc(state: dict[str, Any], command: Any, *args: Any, **kwargs: Any) -> Any:
     """Send an OB TC using the shared OB port lock when available."""
-    ob_port = state.get("ob_port")
-    if ob_port is None:
-        ui.notify("OB port unavailable", color="negative")
-        return
 
+    def _port_is_available(port: Any) -> bool:
+        if port is None or not callable(getattr(port, "write", None)):
+            return False
+        is_open = getattr(port, "is_open", True)
+        return bool(is_open)
+
+    ob_port = state.get("ob_port")
     worker = state.get("ob_worker")
+    worker_port = getattr(worker, "port", None) if worker is not None else None
+    active_port = worker_port if worker is not None else ob_port
+    if not _port_is_available(active_port):
+        ui.notify("OB port unavailable", color="negative")
+        return "ERROR"
+
     if worker is not None:
         return worker.submit(command, *args, priority=1, **kwargs)
     lock = state.get("port_lock")

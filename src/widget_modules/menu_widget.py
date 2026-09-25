@@ -586,19 +586,35 @@ def _open_scope_settings_dialog() -> None:
     dialog.open()
 
 
-def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
+async def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
     """Pick a .txt script file and typecast it to CmdTool."""
-    file_path = file_dialog_window_widget.select_file_dialog(
-        title="Select Text Script",
-        filetypes=[("Text Scripts", "*.txt"), ("All Files", "*.*")],
-    )
+    if state.get("txt_script_busy", False):
+        ui.notify("A text script is already being sent", type="warning")
+        return
+
+    state["txt_script_busy"] = True
+    try:
+        file_path = await run.io_bound(
+            lambda: file_dialog_window_widget.select_file_dialog(
+                title="Select Text Script",
+                filetypes=[("Text Scripts", "*.txt"), ("All Files", "*.*")],
+            )
+        )
+    except Exception as exc:
+        state["txt_script_busy"] = False
+        state["logger"].error("Text script picker error: %s", exc)
+        ui.notify("Failed to open text script picker", color="negative")
+        return
+
     if not file_path:
+        state["txt_script_busy"] = False
         return
 
     try:
         interface = eb_interface.get_egse_interface()
         state["logger"].info("Typecasting text script: %s", file_path)
-        ok = interface.typecast(file_path, verbose=True)
+        ui.notify("Sending text script to CmdTool...", type="info")
+        ok = await run.io_bound(lambda: interface.typecast(file_path, verbose=True))
         if ok:
             state["logger"].info("Text script completed: %s", file_path)
             ui.notify("Text script sent to CmdTool")
@@ -608,6 +624,8 @@ def _run_txt_script(state: dict[str, Any], buttons_row: Any = None) -> None:
     except Exception as exc:
         state["logger"].error("Text script error: %s", exc)
         ui.notify("Text script error", color="negative")
+    finally:
+        state["txt_script_busy"] = False
 
 
 async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_row: Any = None) -> None:
@@ -615,7 +633,7 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
     key = (script_key or "").strip().lower()
 
     if key == "txt_script":
-        _run_txt_script(state, buttons_row)
+        await _run_txt_script(state, buttons_row)
         return
 
     script = _discover_eb_scripts().get(key)
