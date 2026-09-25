@@ -679,6 +679,21 @@ def adu_to_temp(adu):
 
 
 # EB
+def eb_tec_adu_to_temp(adu: int) -> float:
+    """Convert the EB TEC thermistor ADC DN to degrees Celsius."""
+    if adu <= 0 or adu >= 65535:
+        return float("nan")
+
+    adc_maxval = (1 << 16) - 0.5
+    resistance = 4990.0 * adu / (adc_maxval - adu)
+    a = 1.364e-4
+    b = -3.758e-2
+    c = 8.153
+    discriminant = b * b - 4.0 * a * (c - math.log(resistance))
+    discriminant = max(discriminant, 0.0)
+    return (-b - math.sqrt(discriminant)) / (2.0 * a)
+
+
 def decode_eb_trps(adu: int) -> float:
     """Convert a thermistor ADU value to temperature in Celsius using the B-parameter equation."""
     # Constants

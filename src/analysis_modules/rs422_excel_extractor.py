@@ -562,6 +562,7 @@ def import_decoder(project_root: Path | None) -> Any:
 
 def convert_hk(hk: Any, decoder: Any) -> dict[str, float | None]:
     thermistor = getattr(decoder, "thermistor_adu_to_temp", None) or getattr(decoder, "decode_eb_trps", None)
+    peltier_thermistor = getattr(decoder, "eb_tec_adu_to_temp", None)
     ob_thermistor = getattr(decoder, "decode_ob_trps", None) or getattr(decoder, "adu_to_temp", None)
 
     def attr(name: str) -> float | None:
@@ -591,7 +592,7 @@ def convert_hk(hk: Any, decoder: Any) -> dict[str, float | None]:
     peltier = attr("EB_PELTIER_TEMP")
     result = {
         "MCU temp (°C)": None if mcu is None else mcu * 0.01637198 - 273.0,
-        "Peltier Temp(°C)": None if peltier is None else peltier * -0.001830011 + 51.27039922,
+        "Peltier Temp(°C)": None if peltier is None else converted(peltier_thermistor, "EB_PELTIER_TEMP"),
         "EB Internal Temp(°C)": converted(thermistor, "EB_INTERNAL_TRP_TEMP"),
         "PSU board Temp (°C)": converted(thermistor, "EB_PSU_BOARD_TEMP"),
         "EB +12V (V)": None,

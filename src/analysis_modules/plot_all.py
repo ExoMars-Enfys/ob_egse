@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core_modules import tmstruct
 from utility_modules import eb_packet_utility
-from utility_modules.eb_packet_utility import adu_to_temp, decode_eb_trps, parse_eb_hk
+from utility_modules.eb_packet_utility import adu_to_temp, decode_eb_trps, eb_tec_adu_to_temp, parse_eb_hk
 from utility_modules.psu_log_utility import load_psu_channel_samples
 
 # Ensure Unicode characters (e.g. box-drawing) survive PowerShell piping
@@ -419,7 +419,7 @@ def _extract_temperatures(hk):
         ("EB_MCU", "EB_MCU_INTERNAL_TEMP", lambda raw: raw * 0.01637198 - 273.0),
         ("EB_PSU_BOARD", "EB_PSU_BOARD_TEMP", decode_eb_trps),
         ("EB_INTERNAL_TRP", "EB_INTERNAL_TRP_TEMP", decode_eb_trps),
-        ("EB_PELTIER", "EB_PELTIER_TEMP", lambda raw: raw * -0.001830011 + 51.27039922),
+        ("EB_PELTIER", "EB_PELTIER_TEMP", eb_tec_adu_to_temp),
     )
     for output_name, field_name, convert in scalar_conversions:
         raw = getattr(hk, field_name, None)
@@ -491,6 +491,79 @@ def build_hk_arrays(hk_packets):
         for k in volt_keys:
             volt_data[k].append(volts.get(k, np.nan))
     return timestamps, temp_data, volt_data
+
+
+def build_hk_motor_anchors(hk_packets, source_type):
+    """Return time-ordered motor positions for one SCI source."""
+    anchors = []
+    for hk in hk_packets:
+        is_native_ob = getattr(hk, "LOG_SOURCE", None) == "OB"
+        if (source_type == "ob") != is_native_ob:
+            continue
+        timestamp = getattr(hk, "TIME", None)
+        step_field = "MTR_ABS_STEPS" if source_type == "ob" else "OB_MOTOR_ABS_STEPS"
+        steps = getattr(hk, step_field, None)
+        if not isinstance(timestamp, datetime) or steps is None:
+            continue
+        try:
+            anchors.append((timestamp, float(steps)))
+        except (TypeError, ValueError):
+            continue
+    anchors.sort(key=lambda item: item[0])
+    return anchors
+
+
+def interpolate_mode0_sci_times(
+    sci_datetimes,
+    sci_abs_steps,
+    sci_sample_modes,
+    sci_sources,
+    hk_anchors_by_source,
+    packet_boundaries=None,
+):
+    """Assign Mode 0 sample times by walking backward from each packet timestamp."""
+    if (
+        len(sci_datetimes) != len(sci_abs_steps)
+        or len(sci_datetimes) != len(sci_sample_modes)
+        or len(sci_datetimes) != len(sci_sources)
+    ):
+        return list(sci_datetimes)
+    result = list(sci_datetimes)
+    boundaries = packet_boundaries or []
+    for boundary in boundaries:
+        start, end, _packet_num, packet_timestamp, packet_mode, source_type = boundary[:6]
+        if packet_mode != 0x00 or not isinstance(packet_timestamp, datetime):
+            continue
+        if len(boundary) >= 8 and boundary[6] is not None and boundary[7] is not None:
+            continue
+        hk_motor_anchors = hk_anchors_by_source.get(source_type, [])
+        if len(hk_motor_anchors) < 2:
+            continue
+
+        cursor_time = packet_timestamp
+        result[end] = packet_timestamp
+        for index in range(end - 1, start - 1, -1):
+            sample_steps = float(sci_abs_steps[index])
+            candidates = []
+            for left, right in zip(hk_motor_anchors, hk_motor_anchors[1:]):
+                left_time, left_steps = left
+                right_time, right_steps = right
+                if right_time > cursor_time or left_steps == right_steps:
+                    continue
+                low_steps = min(left_steps, right_steps)
+                high_steps = max(left_steps, right_steps)
+                if not low_steps <= sample_steps <= high_steps:
+                    continue
+                fraction = (sample_steps - left_steps) / (right_steps - left_steps)
+                candidate_time = left_time + (right_time - left_time) * fraction
+                if candidate_time <= cursor_time:
+                    candidates.append(candidate_time)
+
+            if candidates:
+                cursor_time = max(candidates)
+                result[index] = cursor_time
+
+    return result
 
 
 def list_numeric_hk_fields(hk_packets):
@@ -691,10 +764,10 @@ def filter_sci_to_acq_windows(
 # Byte layout (0-indexed, big-endian u16s):
 #   [8]       = 0x16 (payload length)
 #   [9]       = Mode     (u8)  0=spectrum, 1=fixed-point
-#   [13-14]   = SampleTime (u16 BE)  unit = 10 ms  (0x0064 = 100 = 1 s)
+#   [13-14]   = SampleTime (u16 BE)  unit = 1 ms  (0x00FA = 250 = 250 ms)
 #   [15-16]   = Duration   (u16 BE)
 _SET_ACQ_PAYLOAD_LEN = 0x16
-_SAMPLE_TIME_UNIT_MS = 10  # 1 unit = 10 ms
+_SAMPLE_TIME_UNIT_MS = 1  # 1 unit = 1 ms
 
 
 def extract_acq_configs_tcs(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET_HOURS)):
@@ -856,6 +929,17 @@ def extract_sci_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET
                     "tm_type_id": tm_type_id,
                     "source_type": "rs422",
                     "series": series,
+                    "start_elapsed_s": (
+                        float(getattr(sci_data, "START_TIME_S")) + float(getattr(sci_data, "START_TIME_MS", 0)) / 1000.0
+                        if hasattr(sci_data, "START_TIME_S")
+                        else None
+                    ),
+                    "end_elapsed_s": (
+                        float(getattr(sci_data, "END_TIME_S")) + float(getattr(sci_data, "END_TIME_MS", 0)) / 1000.0
+                        if hasattr(sci_data, "END_TIME_S")
+                        else None
+                    ),
+                    "header_mode": getattr(sci_data, "ACQUISITION_MODE", None),
                 }
             )
 
@@ -877,6 +961,8 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
     mwir_low, mwir_med, mwir_high = [], [], []
     packet_boundaries = []
     packet_modes = []
+    sci_sample_modes = []
+    sci_sample_sources = []
     if acq_configs_list is None:
         acq_configs_list = []
 
@@ -898,10 +984,26 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
             else None
         )
 
-        packet_mode = cfg["mode"] if cfg is not None else None
+        # Native OB SCI logs do not include the RS422 set_acq_configs TC. Each
+        # packet still carries its motor position, so treat them as spectrum
+        # samples for the axis decision unless an explicit config exists.
+        packet_mode = cfg["mode"] if cfg is not None else (0x00 if packet.get("source_type") == "ob" else None)
+        if packet.get("header_mode") in (0x00, 0x01):
+            packet_mode = packet["header_mode"]
         packet_modes.append(packet_mode)
 
-        if cfg is not None and cfg["mode"] == 0x01 and cfg["spacing_ms"] > 0:
+        start_elapsed_s = packet.get("start_elapsed_s")
+        end_elapsed_s = packet.get("end_elapsed_s")
+        has_elapsed_bounds = (
+            packet_timestamp is not None
+            and isinstance(start_elapsed_s, (int, float))
+            and isinstance(end_elapsed_s, (int, float))
+            and end_elapsed_s >= start_elapsed_s
+        )
+        if has_elapsed_bounds:
+            spacing_ms = ((end_elapsed_s - start_elapsed_s) * 1000.0) / (num_points - 1) if num_points > 1 else 0.0
+            spacing_source = "SCI packet START_TIME/END_TIME"
+        elif cfg is not None and cfg["mode"] == 0x01 and cfg["spacing_ms"] > 0:
             spacing_ms = cfg["spacing_ms"]
             spacing_source = f"Mode=1 set_acq_configs (sample_time={cfg['sample_time_raw']} × {_SAMPLE_TIME_UNIT_MS}ms)"
         elif cfg is not None and cfg["mode"] == 0x00:
@@ -935,10 +1037,16 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
         mwir_med.extend(series["mwir_med"])
         mwir_high.extend(series["mwir_high"])
         sci_abs_steps.extend(series["abs_steps"])
+        sci_sample_modes.extend([packet_mode] * num_points)
+        sci_sample_sources.extend([packet.get("source_type", "rs422")] * num_points)
 
         for i in range(num_points):
-            offset_ms = (num_points - 1 - i) * spacing_ms
-            sci_datetimes.append(packet_timestamp - timedelta(milliseconds=offset_ms))
+            if has_elapsed_bounds:
+                elapsed_s = start_elapsed_s + (end_elapsed_s - start_elapsed_s) * i / max(num_points - 1, 1)
+                sci_datetimes.append(packet_timestamp - timedelta(seconds=end_elapsed_s - elapsed_s))
+            else:
+                offset_ms = (num_points - 1 - i) * spacing_ms
+                sci_datetimes.append(packet_timestamp - timedelta(milliseconds=offset_ms))
 
         end_idx = len(sci_datetimes) - 1
         packet_boundaries.append(
@@ -949,6 +1057,8 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
                 packet_timestamp,
                 packet_mode,
                 packet.get("source_type", "rs422"),
+                start_elapsed_s,
+                end_elapsed_s,
             )
         )
 
@@ -960,6 +1070,8 @@ def build_sci_arrays(sci_packets, acq_configs_list=None):
     return (
         sci_datetimes,
         sci_abs_steps,
+        sci_sample_modes,
+        sci_sample_sources,
         sci_axis_mode,
         swir_low,
         swir_med,
@@ -1514,7 +1626,7 @@ def _draw_all_axes(
     volt_jumps,
     sci_datetimes,
     sci_abs_steps,
-    sci_axis_mode,
+    sci_sample_modes,
     swir_low,
     swir_med,
     swir_high,
@@ -1540,7 +1652,15 @@ def _draw_all_axes(
     custom_series = custom_series or {}
     replay_overlay = replay_overlay or {}
 
-    axes = [ax_temp, ax_volt, ax_err, ax_psu_ch3, ax_psu_ch4, ax_swir, ax_mwir] + [ax for _field, ax in custom_axes]
+    axes = [
+        ax_temp,
+        ax_volt,
+        ax_err,
+        ax_psu_ch3,
+        ax_psu_ch4,
+        ax_swir,
+        ax_mwir,
+    ] + [ax for _field, ax in custom_axes]
     for ax in axes:
         ax.cla()
         ax.set_visible(True)
@@ -1556,9 +1676,7 @@ def _draw_all_axes(
     }
 
     for panel, ax in panel_axes.items():
-        if ax is None:
-            continue
-        if not panel_visibility.get(panel, True):
+        if ax is not None and not panel_visibility.get(panel, True):
             ax.set_visible(False)
 
     active_error_times = [ts for ts, eb, ob, mtr in (error_events or []) if eb or ob or mtr]
@@ -1808,104 +1926,84 @@ def _draw_all_axes(
     _plot_psu_axis(ax_psu_ch3, "psu_ch3", "CH3", "PSU Current (CH3)")
     _plot_psu_axis(ax_psu_ch4, "psu_ch4", "CH4", "PSU Current (CH4)")
 
-    sci_x = sci_abs_steps if sci_axis_mode == "abs_steps" else sci_datetimes
+    def _plot_sci_panel(ax, group, title, channel_map):
+        if not ax.get_visible():
+            return
+        all_x_values = np.asarray(sci_datetimes, dtype=object)
+        plotted = 0
+        segments = []
+        for boundary in packet_boundaries:
+            start, end, _packet_num, _packet_timestamp, packet_mode = boundary[:5]
+            packet_indices = np.arange(start, end + 1, dtype=int)
+            if packet_mode == 0x00 and len(packet_indices) > 1:
+                packet_steps = np.asarray(sci_abs_steps, dtype=float)[packet_indices]
+                split_points = np.flatnonzero(np.abs(np.diff(packet_steps)) > 200.0) + 1
+                segments.extend(np.split(packet_indices, split_points))
+            else:
+                segments.append(packet_indices)
 
-    # SWIR
-    if ax_swir.get_visible():
-        swir_map = {"SWIR_LOW": swir_low, "SWIR_MED": swir_med, "SWIR_HIGH": swir_high}
-        plotted_swir = 0
-        if sci_x:
-            for key, label in SCI_PLOT_SPECS["swir"]:
-                if not _has_param("swir", key):
+        for key, label in SCI_PLOT_SPECS[group]:
+            if not _has_param(group, key):
+                continue
+            values = np.asarray(channel_map[key], dtype=float)
+            for segment_number, segment_indices in enumerate(segments):
+                x_values = all_x_values[segment_indices]
+                segment_values = values[segment_indices]
+                if len(x_values) == 0:
                     continue
-                vals = swir_map[key]
-                ax_swir.scatter(sci_x, vals, s=2, label=label, alpha=0.6)
-                ax_swir.plot(sci_x, vals, linewidth=0.3, alpha=0.4)
-                plotted_swir += 1
-            if plotted_swir > 0:
-                if sci_axis_mode == "time":
-                    for boundary in packet_boundaries:
-                        _start, _end, packet_num, packet_rx_ts, _packet_mode = boundary[:5]
-                        source_type = boundary[5] if len(boundary) > 5 else "rs422"
-                        # Native OB SCI logs contain one sample per packet.  A
-                        # packet marker at every sample obscures the science
-                        # trace, so keep boundaries only for RS422 packets.
-                        if source_type == "ob":
-                            continue
-                        ax_swir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
-                        ax_swir.text(
-                            packet_rx_ts,
-                            0.95,
-                            f"{packet_num}",
-                            transform=ax_swir.get_xaxis_transform(),
-                            rotation=90,
-                            va="top",
-                            ha="left",
-                            fontsize=8,
-                            color="red",
-                            alpha=0.7,
-                        )
-        if plotted_swir == 0:
-            _show_no_params(ax_swir, "SWIR")
-        else:
-            ax_swir.set_ylabel("Intensity")
-            ax_swir.set_title("SWIR")
-            ax_swir.grid(True, alpha=0.3)
-            if sci_axis_mode == "abs_steps":
-                ax_swir.set_xlabel("Absolute Motor Steps")
-            for ts in active_error_times:
-                if sci_axis_mode == "time":
-                    ax_swir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
-            handles, labels = ax_swir.get_legend_handles_labels()
-            if handles:
-                ax_swir.legend(loc="upper right", fontsize=7)
+                ax.scatter(
+                    x_values,
+                    segment_values,
+                    s=2,
+                    label=label if plotted == 0 and segment_number == 0 else None,
+                    alpha=0.6,
+                )
+                ax.plot(x_values, segment_values, linewidth=0.3, alpha=0.4)
+            if segments:
+                plotted += 1
+        if plotted == 0:
+            _show_no_params(ax, title)
+            return
+        ax.set_ylabel("Intensity")
+        ax.set_title(title)
+        ax.set_xlabel("Time (HH:MM:SS)")
+        ax.grid(True, alpha=0.3)
+        for boundary in packet_boundaries:
+            _start, _end, packet_num, packet_rx_ts, _packet_mode = boundary[:5]
+            source_type = boundary[5] if len(boundary) > 5 else "rs422"
+            if source_type == "ob":
+                continue
+            ax.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
+            ax.text(
+                packet_rx_ts,
+                0.95,
+                f"{packet_num}",
+                transform=ax.get_xaxis_transform(),
+                rotation=90,
+                va="top",
+                ha="left",
+                fontsize=8,
+                color="red",
+                alpha=0.7,
+            )
+        for ts in active_error_times:
+            ax.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(loc="upper right", fontsize=7)
 
-    # MWIR
-    if ax_mwir.get_visible():
-        mwir_map = {"MWIR_LOW": mwir_low, "MWIR_MED": mwir_med, "MWIR_HIGH": mwir_high}
-        plotted_mwir = 0
-        if sci_x:
-            for key, label in SCI_PLOT_SPECS["mwir"]:
-                if not _has_param("mwir", key):
-                    continue
-                vals = mwir_map[key]
-                ax_mwir.scatter(sci_x, vals, s=2, label=label, alpha=0.6)
-                ax_mwir.plot(sci_x, vals, linewidth=0.3, alpha=0.4)
-                plotted_mwir += 1
-            if plotted_mwir > 0:
-                if sci_axis_mode == "time":
-                    for boundary in packet_boundaries:
-                        _start, _end, packet_num, packet_rx_ts, _packet_mode = boundary[:5]
-                        source_type = boundary[5] if len(boundary) > 5 else "rs422"
-                        if source_type == "ob":
-                            continue
-                        ax_mwir.axvline(x=packet_rx_ts, color="red", linestyle="--", linewidth=1, alpha=0.5)
-                        ax_mwir.text(
-                            packet_rx_ts,
-                            0.95,
-                            f"{packet_num}",
-                            transform=ax_mwir.get_xaxis_transform(),
-                            rotation=90,
-                            va="top",
-                            ha="left",
-                            fontsize=8,
-                            color="red",
-                            alpha=0.7,
-                        )
-        if plotted_mwir == 0:
-            _show_no_params(ax_mwir, "MWIR")
-        else:
-            ax_mwir.set_ylabel("Intensity")
-            ax_mwir.set_title("MWIR")
-            ax_mwir.grid(True, alpha=0.3)
-            if sci_axis_mode == "abs_steps":
-                ax_mwir.set_xlabel("Absolute Motor Steps")
-            for ts in active_error_times:
-                if sci_axis_mode == "time":
-                    ax_mwir.axvline(ts, color="crimson", linestyle="--", linewidth=1.0, alpha=0.35)
-            handles, labels = ax_mwir.get_legend_handles_labels()
-            if handles:
-                ax_mwir.legend(loc="upper right", fontsize=7)
+    _plot_sci_panel(
+        ax_swir,
+        "swir",
+        "SWIR",
+        {"SWIR_LOW": swir_low, "SWIR_MED": swir_med, "SWIR_HIGH": swir_high},
+    )
+    _plot_sci_panel(
+        ax_mwir,
+        "mwir",
+        "MWIR",
+        {"MWIR_LOW": mwir_low, "MWIR_MED": mwir_med, "MWIR_HIGH": mwir_high},
+    )
 
     # Custom parameter subplots (same figure)
     for field_name, ax_custom in custom_axes:
@@ -1942,7 +2040,36 @@ def _draw_all_axes(
             style = ".-"
             title = "Replay: Motor MOVING / HOMING_COMPLETE"
             ylabel = "Flag"
-        ax_custom.plot(ts, vals, style, markersize=2, linewidth=0.8, label=display_name)
+        if source_name == "SCI" and parameter_name in _SCI_SAMPLE_FIELDS:
+            time_values = np.asarray(ts, dtype=object)
+            numeric_values = np.asarray(vals, dtype=float)
+            split_points = []
+            if len(numeric_values) > 1:
+                value_jumps = (
+                    np.abs(np.diff(numeric_values)) > 200.0
+                    if parameter_name == "MTR_ABS_STEPS"
+                    else np.zeros(len(numeric_values) - 1, dtype=bool)
+                )
+                time_jumps = np.array(
+                    [
+                        (right - left).total_seconds() > 30.0 or (right - left).total_seconds() < 0.0
+                        for left, right in zip(time_values, time_values[1:])
+                    ],
+                    dtype=bool,
+                )
+                split_points = (np.flatnonzero(value_jumps | time_jumps) + 1).tolist()
+            for segment_number, segment in enumerate(np.split(np.arange(len(numeric_values)), split_points)):
+                if len(segment):
+                    ax_custom.plot(
+                        time_values[segment],
+                        numeric_values[segment],
+                        style,
+                        markersize=2,
+                        linewidth=0.8,
+                        label=display_name if segment_number == 0 else None,
+                    )
+        else:
+            ax_custom.plot(ts, vals, style, markersize=2, linewidth=0.8, label=display_name)
         ax_custom.set_title(title)
         ax_custom.set_ylabel(ylabel)
         ax_custom.grid(True, alpha=0.3)
@@ -1955,14 +2082,10 @@ def _draw_all_axes(
     visible_axes = [ax for ax in axes if ax is not None and ax.get_visible()]
     if visible_axes:
         bottom_ax = visible_axes[-1]
-        if sci_axis_mode == "abs_steps" and bottom_ax in (ax_swir, ax_mwir):
-            bottom_ax.set_xlabel("Absolute Motor Steps")
-        else:
-            bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-            bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            bottom_ax.set_xlabel("Time (HH:MM:SS)")
-    if not (sci_axis_mode == "abs_steps" and visible_axes and visible_axes[-1] in (ax_swir, ax_mwir)):
-        fig.autofmt_xdate(rotation=45, ha="right")
+        bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        bottom_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        bottom_ax.set_xlabel("Time (HH:MM:SS)")
+    fig.autofmt_xdate(rotation=45, ha="right")
 
     # Give every visible plot (built-in and single-parameter) exactly the same
     # height.  Do this after autofmt_xdate/subplot adjustment so Matplotlib
@@ -2082,6 +2205,8 @@ def main():
         (
             sci_datetimes,
             sci_abs_steps,
+            sci_sample_modes,
+            sci_sample_sources,
             sci_axis_mode,
             swir_low,
             swir_med,
@@ -2091,6 +2216,16 @@ def main():
             mwir_high,
             packet_boundaries,
         ) = sci
+
+        hk_motor_anchors = {source_type: build_hk_motor_anchors(all_hk, source_type) for source_type in ("rs422", "ob")}
+        sci_datetimes = interpolate_mode0_sci_times(
+            sci_datetimes,
+            sci_abs_steps,
+            sci_sample_modes,
+            sci_sample_sources,
+            hk_motor_anchors,
+            packet_boundaries,
+        )
 
         acq_windows = extract_acq_windows(all_hk)
         if acq_windows:
@@ -2171,6 +2306,9 @@ def main():
             "err_data": err_data,
             "sci_datetimes": sci_datetimes,
             "sci_abs_steps": sci_abs_steps,
+            "sci_sample_modes": sci_sample_modes,
+            "sci_sample_sources": sci_sample_sources,
+            "hk_motor_anchors": hk_motor_anchors,
             "sci_axis_mode": sci_axis_mode,
             "swir_low": swir_low,
             "swir_med": swir_med,
@@ -2599,9 +2737,18 @@ def main():
             win.mainloop()
 
     # Fixed layout: always include dedicated CH3 and CH4 PSU subplots.
-    fig, (ax_temp, ax_volt, ax_err, ax_psu_ch3, ax_psu_ch4, ax_swir, ax_mwir) = plt.subplots(
-        7, 1, figsize=(16, 21), sharex=True
-    )
+    (
+        fig,
+        (
+            ax_temp,
+            ax_volt,
+            ax_err,
+            ax_psu_ch3,
+            ax_psu_ch4,
+            ax_swir,
+            ax_mwir,
+        ),
+    ) = plt.subplots(7, 1, figsize=(16, 21), sharex=True)
     fig.subplots_adjust(top=0.90, hspace=0.35)
 
     # Keep controls on a dedicated row below the title to avoid overlap.
@@ -2625,7 +2772,7 @@ def main():
     ax_btn_replay = fig.add_axes((button_x[2], 0.92, button_w, 0.024))
     btn_replay = _make_legend_button(ax_btn_replay, "Replay", face="#dfeeff", hover="#bddcff")
     ax_btn_axis = fig.add_axes((button_x[3], 0.92, button_w, 0.024))
-    btn_axis = _make_legend_button(ax_btn_axis, "SCI: Auto", face="#dff7e6", hover="#b8ecc5")
+    btn_axis = _make_legend_button(ax_btn_axis, "SCI: Combined", face="#dff7e6", hover="#b8ecc5")
     ax_btn_errors = fig.add_axes((button_x[4], 0.92, button_w, 0.024))
     btn_errors = _make_legend_button(ax_btn_errors, "Errors", face="#ffe6e6", hover="#ffc5c5")
     ax_btn_rs422 = fig.add_axes((button_x[5], 0.92, button_w, 0.024))
@@ -2661,22 +2808,10 @@ def main():
     }
 
     def _update_sci_axis_button_label():
-        display_mode = state.get("sci_axis_display_mode")
-        if display_mode == "abs_steps":
-            btn_axis.label.set_text("SCI: Steps")
-        elif display_mode == "time":
-            btn_axis.label.set_text("SCI: Time")
-        else:
-            btn_axis.label.set_text("SCI: Auto")
+        btn_axis.label.set_text("SCI: Combined")
 
     def _toggle_sci_axis_mode(_event=None):
-        current_mode = state.get("sci_axis_display_mode")
-        next_mode = "abs_steps" if current_mode != "abs_steps" else "time"
-        state["sci_axis_display_mode"] = next_mode
-        _update_sci_axis_button_label()
-        last_result = state.get("last_result")
-        if isinstance(last_result, dict):
-            _apply_analysis(last_result)
+        return None
 
     _update_sci_axis_button_label()
 
@@ -3100,7 +3235,7 @@ def main():
             result["volt_jumps"],
             result["sci_datetimes"],
             result["sci_abs_steps"],
-            display_sci_axis_mode,
+            result["sci_sample_modes"],
             result["swir_low"],
             result["swir_med"],
             result["swir_high"],
@@ -3164,8 +3299,8 @@ def main():
 
         hdlr = ClickHandler(
             result["sci_datetimes"],
-            result["sci_abs_steps"] if display_sci_axis_mode == "abs_steps" else result["sci_datetimes"],
-            display_sci_axis_mode,
+            result["sci_abs_steps"],
+            "abs_steps",
             result["sci_abs_steps"],
             result["swir_low"],
             result["swir_med"],

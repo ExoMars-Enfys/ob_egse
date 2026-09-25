@@ -633,7 +633,7 @@ def _build_timeseries(packets: list) -> dict:
         eb_mcu_temp = pkt.EB_MCU_INTERNAL_TEMP * 0.01637198 - 273
         ts_data["eb_mcu_temp"].append(sanitize_temp(eb_mcu_temp))
 
-        eb_peltier_temp = pkt.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
+        eb_peltier_temp = eb_sniffer.eb_tec_adu_to_temp(pkt.EB_PELTIER_TEMP)
         ts_data["eb_peltier_temp"].append(sanitize_temp(eb_peltier_temp))
 
         eb_internal_trp = _eb_thermistor_to_temp(pkt.EB_INTERNAL_TRP_TEMP)
@@ -805,7 +805,7 @@ def _format_hk_data(hk) -> str:
     eb_mcu = hk.EB_MCU_INTERNAL_TEMP * 0.01637198 - 273
     info += f"  MCU Internal: {eb_mcu:.2f}°C (ADU: {hk.EB_MCU_INTERNAL_TEMP})\n"
 
-    eb_peltier = hk.EB_PELTIER_TEMP * -0.001830011 + 51.27039922
+    eb_peltier = eb_sniffer.eb_tec_adu_to_temp(hk.EB_PELTIER_TEMP)
     info += f"  Peltier:      {eb_peltier:.2f}°C (ADU: {hk.EB_PELTIER_TEMP})\n"
 
     eb_internal_trp = _eb_thermistor_to_temp(hk.EB_INTERNAL_TRP_TEMP)

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from analysis_modules import rs422_excel_extractor as extractor
+from utility_modules.eb_packet_utility import eb_tec_adu_to_temp
 
 
 def test_convert_hk_includes_tec_current_and_peltier_temperature() -> None:
@@ -13,11 +14,11 @@ def test_convert_hk_includes_tec_current_and_peltier_temperature() -> None:
         EB_PELTIER_TEMP=20000,
     )
 
-    result = extractor.convert_hk(hk, SimpleNamespace())
+    result = extractor.convert_hk(hk, SimpleNamespace(eb_tec_adu_to_temp=eb_tec_adu_to_temp))
 
     assert "TEC Current (A)" in extractor.HEADERS
     assert result["TEC Current (A)"] == pytest.approx(1.0044, rel=1e-6)
-    assert result["Peltier Temp(°C)"] == pytest.approx(14.67017922, rel=1e-6)
+    assert result["Peltier Temp(°C)"] == pytest.approx(12.85553177, rel=1e-6)
 
 
 def test_summary_headers_include_tec_current_and_peltier_temperature() -> None:
@@ -32,7 +33,11 @@ def test_group_rows_by_test_matrix_keeps_non_matrix_sft_runs() -> None:
             (
                 Path(f"/tmp/SFT{sft_number}.log"),
                 extractor.Summary(
-                    values={"Temp (°C)": temp_c, "run": f"SFT{sft_number}", "SFT Date/Time": datetime(2024, 1, 1, 12, 0, 0)},
+                    values={
+                        "Temp (°C)": temp_c,
+                        "run": f"SFT{sft_number}",
+                        "SFT Date/Time": datetime(2024, 1, 1, 12, 0, 0),
+                    },
                     hk_count=1,
                     science_packets=0,
                     first_time=datetime(2024, 1, 1, 12, 0, 0),
@@ -80,10 +85,11 @@ def test_tec_at_setpoint_row_uses_science_acquisition_assertion() -> None:
             ),
         ),
     ]
-    rows = [extractor.convert_hk(packet.hk, SimpleNamespace()) for packet in hk_packets]
+    decoder = SimpleNamespace(eb_tec_adu_to_temp=eb_tec_adu_to_temp)
+    rows = [extractor.convert_hk(packet.hk, decoder) for packet in hk_packets]
 
     selected = extractor._tec_at_setpoint_row(hk_packets, rows)
 
     assert selected is rows[1]
     assert selected["TEC Current (A)"] == pytest.approx(1.0044, rel=1e-6)
-    assert selected["Peltier Temp(°C)"] == pytest.approx(14.67017922, rel=1e-6)
+    assert selected["Peltier Temp(°C)"] == pytest.approx(12.85553177, rel=1e-6)

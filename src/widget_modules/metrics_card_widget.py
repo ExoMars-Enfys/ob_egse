@@ -17,7 +17,7 @@ from core_modules import tmstruct
 
 # utilities
 from utility_modules import hk_conversions
-from utility_modules.eb_packet_utility import adu_to_temp
+from utility_modules.eb_packet_utility import adu_to_temp, eb_tec_adu_to_temp
 
 # widgets
 from widget_modules import monitoring_limits, popup_widget
@@ -478,7 +478,7 @@ def _tec_temp(packet: Any) -> float | None:
             return float(raw)
         except (TypeError, ValueError):
             return None
-    return float(raw) * -0.001830011 + 51.27039922
+    return eb_tec_adu_to_temp(int(raw))
 
 
 def _tec_drive_current(packet: Any) -> float | None:
