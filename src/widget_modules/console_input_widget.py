@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import math
 import re
 from concurrent.futures import Future
@@ -192,6 +193,47 @@ def _resolve_command_handler(state: dict[str, Any], selected_command: str) -> Ca
     return COMMAND_TO_TC_FUNC.get(selected_command)
 
 
+def _command_parameter_hint(command: str, mode: str, parameter_count: int) -> str:
+    """Return inline help while a console command has too few parameters."""
+    mode_upper = str(mode or "OB").upper()
+    if mode_upper == "EB":
+        func = COMMAND_TO_EB_TC_FUNC.get(command)
+        definition = cmd_ids.enfys_tc_defs.get(command, {})
+        arg_count = definition.get("arg_count")
+        if isinstance(arg_count, tuple) and len(arg_count) == 2:
+            minimum, maximum = (int(arg_count[0]), int(arg_count[1]))
+            if parameter_count > 0 and parameter_count >= minimum:
+                return ""
+            if maximum == 0:
+                return "Parameters: none"
+            if minimum == maximum:
+                return f"Parameters ({minimum}): p1, p2, ... p{minimum}"
+            return f"Parameters ({minimum}-{maximum}): p1, p2, ... p{maximum}"
+    else:
+        func = COMMAND_TO_TC_FUNC.get(command)
+
+    if func is None:
+        return "Parameters: unavailable"
+
+    parameters = list(inspect.signature(func).parameters.values())[1:]
+    required = [parameter for parameter in parameters if parameter.default is inspect.Parameter.empty]
+    if parameter_count > 0 and parameter_count >= len(required):
+        return ""
+
+    if not parameters:
+        return "Parameters: none"
+
+    names = []
+    for parameter in parameters:
+        if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
+            names.append(f"{parameter.name}, ...")
+        elif parameter.default is inspect.Parameter.empty:
+            names.append(parameter.name)
+        else:
+            names.append(f"{parameter.name} (optional)")
+    return "Parameters: " + ", ".join(names)
+
+
 def create_console_input_widget(
     state: dict[str, Any],
     *,
@@ -294,10 +336,29 @@ def create_console_input_widget(
             .classes("w-64")
         )
 
-        command_input = ui.input(
-            label="Command parameters",
-            placeholder="Space- or comma-separated: 03 = decimal 3, 0x03 = hexadecimal 3",
-        ).classes("grow")
+        with ui.column().classes("grow gap-0"):
+            command_input = ui.input(
+                label="Command parameters",
+                placeholder="Space- or comma-separated: 03 = decimal 3, 0x03 = hexadecimal 3",
+            ).classes("w-full")
+
+            parameter_hint = ui.label("").classes("egse-metric-label whitespace-nowrap")
+            parameter_hint.set_visibility(False)
+
+        def _update_parameter_hint(event: Any = None) -> None:
+            selected = str(command_selector.value or state.get("cmd") or "").strip()
+            mode_now = str(state.get("mode", "OB") or "OB").upper()
+            if event is None:
+                raw_value = command_input.value
+            else:
+                raw_value = getattr(event, "value", event)
+            hint = _command_parameter_hint(selected, mode_now, len(_parse_command_params(raw_value or "")))
+            parameter_hint.set_text(hint)
+            parameter_hint.set_visibility(bool(hint))
+
+        command_input.on_value_change(_update_parameter_hint)
+        command_input.on("update:model-value", _update_parameter_hint)
+        _update_parameter_hint()
 
         command_input.on("keydown.enter", lambda _e: _send_command())
 

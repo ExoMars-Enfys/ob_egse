@@ -81,7 +81,7 @@ def hk_request(port, verify=True):
     ## --- Send CMD ---
     cmd = "00" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send HK:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, cmd_type="HK")
 
     ## --- Get Response and check type ---
@@ -107,7 +107,7 @@ def clear_errors(port, verify_ack=True):
     ## --- Send CMD ---
     cmd = "02" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Clearing Errors:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Clearing Errors:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, cmd_type="CLR_ERRS")
 
     ## --- Get Response and check type ---
@@ -159,7 +159,7 @@ def set_errors(
     param3 = (ig_b << 7) + (ig_o << 6) + (0 << 5) + (0 << 4) + (m_cd << 3) + (m_ab << 2) + (m_abs << 1) + (m_dse)
     cmd = "03" + f"{param1:02X}" + f"{param2:02X}" + f"{param3:02X}" + "00" * 3
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Setting Errors - {bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Setting Errors - {bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SET_ERRS")
 
     #!No ACK
@@ -168,7 +168,7 @@ def set_errors(
         if len(response) != 0:
             raise ValueError(f"Expected response length 0, got {len(response)}")
         else:
-            info_log.info("Response length is 0 as expected.")
+            info_log.debug("Response length is 0 as expected.")
 
     except ValueError:
         info_log.error("Incorrect response to Set_Errors CMD")
@@ -185,7 +185,7 @@ def power_control(port, pwr_stat, verify_ack=True):
     ## --- Send CMD ---
     cmd = "04" + f"{pwr_stat:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Power Control:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "PWR_CTRL")
 
     ## --- Get ACK and check type ---
@@ -231,7 +231,7 @@ def heater_control(
     param = (htr_sci_tog << 4) + (htr_detec_man << 3) + (htr_detec_auto << 2) + (htr_mech_man << 1) + (htr_mech_auto)
     cmd = "05" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Heater Control:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "HTR_CTRL")
 
     ## --- Get ACK and check type ---
@@ -280,7 +280,7 @@ def set_mech_sp(port, thrm_mech_off_sp, thrm_mech_on_sp, verify_ack: bool = True
     ## --- Send CMD ---
     cmd = "06" + f"{thrm_mech_off_sp:04X}" + f"{thrm_mech_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Set MECH SP:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SET_MECH_SP")
 
     ## --- Get ACK and check type ---
@@ -335,7 +335,7 @@ def set_detec_sp(port, thrm_detec_off_sp, thrm_detec_on_sp, verify_ack: bool = T
     ## --- Send CMD ---
     cmd = "07" + f"{thrm_detec_off_sp:04X}" + f"{thrm_detec_on_sp:04X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Set DETEC SP:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SET_DETEC_SP")
 
     ## --- Get ACK and check type ---
@@ -397,7 +397,7 @@ def set_mtr_param(port, peak_current, guard, recval, speed, verify_ack: bool = T
     ## --- Send CMD ---
     cmd = "08" + f"{peak_current:02X}{guard:02X}{recval:02X}{speed:02X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Set_MTR_Param:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SET_MTR_PARAM")
 
     ## -- Get ACK and check type ---
@@ -444,7 +444,7 @@ def mtr_mov_pos(port, pos_steps, verify_ack=True):
     ## --- Send CMD ---
     cmd = "09" + f"{pos_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Move Pos Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "MTR_MOV_POS")
 
     ## --- Get ACK and check type ---
@@ -484,7 +484,7 @@ def mtr_mov_neg(port, neg_steps, verify_ack=True):
     ## --- Send CMD ---
     cmd = "0A" + f"{neg_steps:04X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Move Neg Steps:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "MTR_MOV_NEG")
 
     ## --- Get ACK and check type ---
@@ -523,7 +523,7 @@ def mtr_homing(port, CAL: bool, OUTER: bool, verify=True):
     param = (CAL << 1) + (OUTER)
     cmd = "0C" + f"{param:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send MTR_Homing:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "MTR_HOM")
 
     ## --- Get Response and check type ---
@@ -560,7 +560,7 @@ def mtr_halt(port, verify=True):
     ## --- Send CMD ---
     cmd = "0B" + "00" * 6
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send MTR_Halt:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "MTR_HALT")
 
     ## --- Get Response and check type ---
@@ -595,7 +595,7 @@ def set_hk_samples(port, samp, verify_ack: bool = True):
     ## --- Send CMD ---
     cmd = "0D" + f"{samp:02X}" + "00" * 5
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Set HK Samples:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Set HK Samples:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SET_HK_SAMPLES")
 
     ## --- Get ACK and check type ---
@@ -636,7 +636,7 @@ def sci_offset(port, swir_offset, mwir_offset, verify: bool = True):
     ## --- Send CMD ---
     cmd = "0E" + f"0{swir_offset:03X}" + f"0{mwir_offset:03X}" + "00" * 2
     cmd_tc = crc8Calculate(cmd)
-    info_log.info(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
+    info_log.debug(f"Send Set Sci Offset:{bytes.hex(cmd_tc, ' ', 2)}")
     send_tc(port, cmd_tc, "SCI_OFFSET")
 
     ## --- Get ACK and check type ---
@@ -686,7 +686,7 @@ def sci_request(port, sci_adc_samp, sci_adc_skip, verify_resp=True):
     ## --- Send CMD ---
     cmd = "0F" + f"0{sci_adc_samp:01X}" + f"{sci_adc_skip:02X}" + "00" * 4
     cmd_tc = crc8Calculate(cmd)
-    info_log.info("Requesting Science Reading")
+    info_log.debug("Requesting Science Reading")
     send_tc(port, cmd_tc, "SCI_REQUEST")
 
     ## --- Get Response and check type ---

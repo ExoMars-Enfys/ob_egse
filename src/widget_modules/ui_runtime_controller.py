@@ -483,6 +483,14 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
         simulator["current_alarm"] = set()
         _attach_simulated_ob_fdir_fields(hk, set(), set())
         return []
+    if not bool(state.get("mms", {}).get("enabled", True)):
+        simulator["warning_latched"] = set()
+        simulator["alarm_latched"] = set()
+        simulator["current_warning"] = set()
+        simulator["current_alarm"] = set()
+        simulator["latest_adu"] = {}
+        _attach_simulated_ob_fdir_fields(hk, set(), set())
+        return []
 
     warning_latched: set[str] = simulator["warning_latched"]
     alarm_latched: set[str] = simulator["alarm_latched"]
@@ -605,7 +613,8 @@ def simulate_ob_fdir(state: dict[str, Any], hk: Any, logger: Any = None) -> list
                 "alarm",
             )
             prompt_reasons.append(f"OB thermistor alarm: {flag_name} ({measurement})")
-        _open_ob_psu_shutdown_dialog(state, active_logger, prompt_reasons)
+        if prompt_reasons:
+            _open_ob_psu_shutdown_dialog(state, active_logger, prompt_reasons)
 
     _attach_simulated_ob_fdir_fields(hk, warning_latched, alarm_latched)
     return simulated_ob_fdir_details(state)
@@ -3795,6 +3804,8 @@ async def mms(
     ob5v_pre_action: bool,
 ):
     mms_cfg = state.setdefault("mms", {})
+    if not bool(mms_cfg.get("enabled", True)):
+        return
     if mms_cfg.get("latched"):
         return
     if mms_cfg.get("in_progress"):
@@ -3804,6 +3815,8 @@ async def mms(
 
     def _run_mms_actions() -> None:
         mms_cfg = state.setdefault("mms", {})
+        if not bool(mms_cfg.get("enabled", True)):
+            return
         if mms_cfg.get("latched"):
             return
 

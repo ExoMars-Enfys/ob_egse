@@ -155,7 +155,7 @@ class HK(TM):
 
         const.HK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.HK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        info_log.debug(f"HK received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         self.TIME = datetime.now()
 
         # Allocate variables based on tm struct
@@ -180,7 +180,7 @@ class HK(TM):
         )
         self.MTR_ERR_MSK = SimpleNamespace(**{str(k): v for k, v in mtr_mask.items()})
 
-        info_log.info(f"CMD Count: {self.CMD_CNT=}")
+        info_log.debug(f"CMD Count: {self.CMD_CNT=}")
 
         self.check_len()
         self.check_errors()
@@ -214,7 +214,7 @@ class ACK(TM):
 
         const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(
+        info_log.debug(
             "TM log ACK received: %s",
             bytes.hex(self.raw_bytes, " ", 2),
         )
@@ -250,7 +250,7 @@ class SCI(TM):
 
         const.SCI_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
         const.SCI_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
-        info_log.info(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
+        info_log.debug(f"SCI received: {bytes.hex(self.raw_bytes, ' ', 2)}")
         self.TIME = datetime.now()
 
         # Allocate variables based on tm struct
@@ -291,7 +291,7 @@ class NACK(TM):
 def get_response(port: serial.rs485.RS485, no_of_bytes: int = 1000) -> bytes:
     """Read the raw bytes from the serial port and return them"""
     raw_bytes = port.read(no_of_bytes)
-    info_log.info(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
+    info_log.debug(f"Response: {bytes.hex(raw_bytes, ' ', 2)}")
     return raw_bytes
 
 

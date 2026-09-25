@@ -73,11 +73,7 @@ def fdir_actions(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
 
 
 def _parameter(flag_name: str) -> monitoring_limits.ObFdirParameter:
-    return next(
-        parameter
-        for parameter in monitoring_limits.OB_FDIR_PARAMETERS
-        if parameter.flag_name == flag_name
-    )
+    return next(parameter for parameter in monitoring_limits.OB_FDIR_PARAMETERS if parameter.flag_name == flag_name)
 
 
 def _midpoint(bounds: tuple[float, float]) -> int:
@@ -114,15 +110,13 @@ def _alarm_value(parameter: monitoring_limits.ObFdirParameter) -> int:
         return alarm_low - 1
 
     raise AssertionError(
-        f"Cannot choose an out-of-alarm 12-bit value for {parameter.flag_name}: "
-        f"{parameter.alarm_limits}"
+        f"Cannot choose an out-of-alarm 12-bit value for {parameter.flag_name}: {parameter.alarm_limits}"
     )
 
 
 def _nominal_hk(**overrides: int) -> SimpleNamespace:
     values = {
-        parameter.hk_field: _midpoint(parameter.warning_limits)
-        for parameter in monitoring_limits.OB_FDIR_PARAMETERS
+        parameter.hk_field: _midpoint(parameter.warning_limits) for parameter in monitoring_limits.OB_FDIR_PARAMETERS
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -352,6 +346,7 @@ def test_reset_clears_ob_fdir_latches_and_allows_retrigger(
 # Additional FDIR boundaries, state restoration, and mixed-fault priority
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "flag_name",
     [parameter.flag_name for parameter in monitoring_limits.OB_FDIR_PARAMETERS],
@@ -558,7 +553,7 @@ def test_reset_updates_ob_alarm_light_controller(
             self.reset_count = 0
             self.updates: list[tuple[dict[str, Any], str]] = []
 
-        def reset_acknowledgements(self) -> None:
+        def reset_latches(self) -> None:
             self.reset_count += 1
 
         def update_from_faults(self, faults: dict[str, Any], *, source: str) -> None:

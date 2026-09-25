@@ -128,7 +128,7 @@ def test_mms_runs_actions_and_latches(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         urc.psu,
-        "emergencyShutDown",
+        "shutdown_psu_outputs",
         lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
     )
     monkeypatch.setattr(urc.time, "sleep", lambda *_args, **_kwargs: None)
@@ -257,7 +257,7 @@ def test_mms_safe_command_failure_still_attempts_psu_shutdown(monkeypatch) -> No
     monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: calls.__setitem__("ret", calls["ret"] + 1))
     monkeypatch.setattr(
         urc.psu,
-        "emergencyShutDown",
+        "shutdown_psu_outputs",
         lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
     )
 
@@ -278,7 +278,7 @@ def test_mms_ret_command_failure_still_attempts_psu_shutdown(monkeypatch) -> Non
     monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: "ERROR")
     monkeypatch.setattr(
         urc.psu,
-        "emergencyShutDown",
+        "shutdown_psu_outputs",
         lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
     )
 
@@ -328,7 +328,7 @@ def test_mms_unconfirmed_safe_state_still_shuts_down_psu(monkeypatch) -> None:
     monkeypatch.setattr(urc.ebtcs, "ret", lambda *_args, **_kwargs: "OK")
     monkeypatch.setattr(
         urc.psu,
-        "emergencyShutDown",
+        "shutdown_psu_outputs",
         lambda *_args, **_kwargs: calls.__setitem__("shutdown", calls["shutdown"] + 1),
     )
 
@@ -347,7 +347,7 @@ def test_mms_psu_shutdown_exception_is_logged_but_trigger_stays_latched(monkeypa
     monkeypatch.setattr(urc.ebtcs, "safe", lambda *_args, **_kwargs: "ERROR")
     monkeypatch.setattr(
         urc.psu,
-        "emergencyShutDown",
+        "shutdown_psu_outputs",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("PSU failed")),
     )
 
