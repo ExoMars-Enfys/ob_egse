@@ -213,8 +213,10 @@ eb_hk = [
     ("OB_HK_ID", "u8"),
     ("OB_COMMAND_COUNT", "u8"),
     ("OB_LAST_ERROR", "u8"),
+    # Verified against recorded EB HK logs: OB power status is the 5th byte of the OB block.
+    ("SPARES_BLOCK_4A", "u8"),
     ("OB_POWER_STATUS", "u8"),
-    ("SPARES_BLOCK_4", "u32"),
+    ("SPARES_BLOCK_4", "u24"),
     ("OB_MOTOR_ERROR", "u8"),
     ("OB_MOTOR_ABS_STEPS", "u16"),
     ("OB_MOTOR_REL_STEPS", ">s16"),

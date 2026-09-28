@@ -188,8 +188,7 @@ def test_perform_hk_check_failure_reports_actual_and_expected_range() -> None:
 
     assert result["passed"] is False
     assert any(
-        "EB 12V out of range. Got:" in detail and "Expected: 11.00 to 13.00 V" in detail
-        for detail in result["details"]
+        "EB 12V out of range. Got:" in detail and "Expected: 11.00 to 13.00 V" in detail for detail in result["details"]
     )
 
 
@@ -247,7 +246,16 @@ def test_perform_post_check_reports_each_failed_status_or_crc() -> None:
 
 
 def test_perform_post_failure_diagnostics_are_separate_from_errors() -> None:
-    post = _valid_post(MEASUREMENT_TABLE_CRC=0)
+    # Raw ADU values that convert to nominal 12 V, -12 V, 5 V, 3.3 V, 25 C and 0 C.
+    post = _valid_post(
+        MEASUREMENT_TABLE_CRC=0,
+        TM_12V=29959,
+        TM_NEG12V=31457,
+        TM_5V=32716,
+        TM_3V3=43250,
+        EB_PROCESSOR_TEMP=18202,
+        TEC_DETECTOR_TEMP=28016,
+    )
 
     result = urc.perform_hk_check(post=post, hk_type="post")
 
@@ -256,39 +264,27 @@ def test_perform_post_failure_diagnostics_are_separate_from_errors() -> None:
     assert "MEASUREMENT_TABLE_CRC mismatch" in result["details"][0]
     diagnostics = result.get("diagnostics", [])
     assert any(
-        "TM_12V: Got:" in detail
-        and "Expected: 11.00 to 13.00 V" in detail
-        and "[PASS]" in detail
+        "TM_12V: Got:" in detail and "Expected: 11.00 to 13.00 V" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
     assert any(
-        "TM_NEG12V: Got:" in detail
-        and "Expected: -13.00 to -11.00 V" in detail
-        and "[PASS]" in detail
+        "TM_NEG12V: Got:" in detail and "Expected: -13.00 to -11.00 V" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
     assert any(
-        "TM_5V: Got:" in detail
-        and "Expected: 4.50 to 5.50 V" in detail
-        and "[PASS]" in detail
+        "TM_5V: Got:" in detail and "Expected: 4.50 to 5.50 V" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
     assert any(
-        "TM_3V3: Got:" in detail
-        and "Expected: 3.00 to 3.45 V" in detail
-        and "[PASS]" in detail
+        "TM_3V3: Got:" in detail and "Expected: 3.00 to 3.45 V" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
     assert any(
-        "EB_PROCESSOR_TEMP: Got:" in detail
-        and "Expected: -45.00 to 125.00 C" in detail
-        and "[PASS]" in detail
+        "EB_PROCESSOR_TEMP: Got:" in detail and "Expected: -45.00 to 125.00 C" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
     assert any(
-        "TEC_DETECTOR_TEMP: Got:" in detail
-        and "Expected: -45.00 to 35.00 C" in detail
-        and "[PASS]" in detail
+        "TEC_DETECTOR_TEMP: Got:" in detail and "Expected: -45.00 to 35.00 C" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
 

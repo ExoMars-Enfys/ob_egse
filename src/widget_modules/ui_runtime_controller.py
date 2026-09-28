@@ -32,6 +32,7 @@ from utility_modules.eb_packet_utility import (
 
 # core
 from core_modules import tmstruct, constants as const, config
+from core_modules import measurement_config
 from core_modules.constants import HEATER_INCLUSIVE_STATES, MODEL_CONSUMPTION
 
 from widget_modules import monitoring_limits
@@ -101,7 +102,9 @@ def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]
 
     # Check OB_5V_ENABLED and SAFE mode
     instr_status_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
-    ob_5v_enabled = (instr_status_flags >> 5) & 0x1  # OB_5V_ENABLED is bit 5
+    ob_5v_enabled = (
+        instr_status_flags >> 10
+    ) & 0x1  # Flags are MSB-first: HOMING_COMPLETE is bit 15, OB_5V_ENABLED bit 10
     current_state = int(
         getattr(hk, "CURRENT_OPERATING_STATE", 0) if getattr(hk, "CURRENT_OPERATING_STATE", None) is not None else 0
     )
@@ -398,7 +401,7 @@ def _open_ob_psu_shutdown_dialog(state: dict[str, Any], logger: Any, details: li
                         "egse-text"
                     )
                     ui.separator()
-                    details_label = ui.label("").classes("whitespace-pre-wrap warning-text")
+                    details_label = ui.column().classes("gap-0")
                     with ui.row().classes("w-full justify-end gap-2"):
 
                         def _keep_psu_on() -> None:
@@ -435,7 +438,9 @@ def _open_ob_psu_shutdown_dialog(state: dict[str, Any], logger: Any, details: li
             )
             return
 
-    details_label.set_text("\n".join(f"• {detail}" for detail in sorted(pending)))
+    details_label.clear()
+    with details_label:
+        _render_message_lines("\n".join(f"• {detail}" for detail in sorted(pending)), default_severity="warning")
     active_logger.warning("OB PSU shutdown confirmation requested: %s", "; ".join(sorted(pending)))
     try:
         dialog.open()
@@ -949,6 +954,29 @@ def replay_ob_sci_log(
     return total_points
 
 
+_LINE_SEVERITY_PATTERNS = (
+    ("negative", re.compile(r"fail|error|alarm|mismatch|out of range|missing|timeout|abort", re.IGNORECASE)),
+    ("warning", re.compile(r"warn|skipp", re.IGNORECASE)),
+    ("positive", re.compile(r"\[pass\]|passed|\bok\b", re.IGNORECASE)),
+)
+_NUMBERED_LINE = re.compile(r"^\s*\d+\.\s")
+
+
+def _render_message_lines(
+    message: str, numbered_severity: str | None = None, default_severity: str | None = None
+) -> None:
+    """Render a popup message line by line, colouring pass/warning/error lines green/yellow/red."""
+    for line in str(message).splitlines() or [""]:
+        severity = next((name for name, pattern in _LINE_SEVERITY_PATTERNS if pattern.search(line)), None)
+        if severity is None and numbered_severity and _NUMBERED_LINE.match(line):
+            severity = numbered_severity
+        severity = severity or (default_severity if line.strip() else None)
+        classes = "egse-text whitespace-pre-wrap"
+        if severity:
+            classes += f" text-{severity}"
+        ui.label(line or "\u00a0").classes(classes)
+
+
 def _remove_force_pause_popup(popup: Any) -> None:
     """Remove either the current non-modal popup or a legacy dialog safely."""
     delete = getattr(popup, "delete", None)
@@ -1001,7 +1029,7 @@ def _open_force_pause_dialogs(message: str, passed: bool | None = None) -> None:
                     )
                     with popup_card as popup:
                         ui.label(title).classes(f"font-bold egse-title {title_class}")
-                        ui.label(message).classes("egse-text whitespace-pre-wrap")
+                        _render_message_lines(message, None if passed is None else accent_color)
                         ui.separator()
                         ui.label("Press Resume in Script Controls to continue.").classes("egse-text")
                     _FORCE_PAUSE_DIALOGS[client.id] = popup
@@ -1063,6 +1091,7 @@ def request_confirmation(
     title: str = "Confirm",
     confirm_label: str = "Confirm",
     cancel_label: str = "Cancel",
+    severity: str | None = None,
 ) -> bool:
     """Show a confirmation dialog and block until the user responds. Safe to call from a background script thread.
 
@@ -1082,9 +1111,11 @@ def request_confirmation(
         for client in list(_NiceGuiClient.instances.values()):
             try:
                 with client:
-                    with ui.dialog() as dialog, ui.card().classes("w-[34rem] max-w-full"):
-                        ui.label(title).classes("font-bold egse-title")
-                        ui.label(message).classes("egse-text whitespace-pre-wrap")
+                    with ui.dialog() as dialog, ui.card().classes("w-[34rem] max-w-full") as card:
+                        if severity:
+                            card.classes("border-2").style(f"border-color: var(--q-{severity})")
+                        ui.label(title).classes("font-bold egse-title" + (f" text-{severity}" if severity else ""))
+                        _render_message_lines(message, severity)
                         ui.separator()
                         with ui.row().classes("w-full justify-end gap-2"):
 
@@ -1119,6 +1150,21 @@ def request_confirmation(
     return _CONFIRM_RESULT
 
 
+def request_repeat_acquisition(label: str) -> bool:
+    """Pause after a science acquisition; return True if the operator wants to repeat it."""
+    request_force_pause(f"{label} finished. Review the science data, then press Resume to continue.")
+    repeat = request_confirmation(
+        f"{label} finished.\n\nRepeat this science acquisition or continue with the script?",
+        title=f"{label} complete",
+        confirm_label="Repeat",
+        cancel_label="Continue",
+    )
+    if is_aborted():
+        raise ScriptAbortRequested
+    info_log.info("%s: operator chose to %s", label, "repeat" if repeat else "continue")
+    return repeat
+
+
 def handle_script_check_failure(
     label: str,
     errors: list[str],
@@ -1142,6 +1188,7 @@ def handle_script_check_failure(
         title=f"{label} check failed",
         confirm_label="Continue",
         cancel_label="Abort",
+        severity="negative",
     )
     if continue_run:
         info_log.warning("Operator overrode failed OB FFT check: %s — %s", label, errors)
@@ -1749,6 +1796,7 @@ def perform_acq_check_sync(
     acq_duration_s: int = 0,
     acq_timeout_s: float | None = None,
     acq_sample_time_ms: int = 0,
+    check_state6: bool = True,
 ) -> None:
     """Synchronous acquisition wait helper. Blocks until acquisition completes or timeout/abort.
 
@@ -1776,6 +1824,7 @@ def perform_acq_check_sync(
         acq_timeout_s: override the computed timeout (seconds).
         acq_sample_time_ms: ACQ_SAMPLE_TIME field from SET_ACQ_CONFIGS, in ms.
             Used to compute effective spacing; values below 250 are clamped to 250.
+        check_state6: run the t+150s State 6 power consumption check.
 
     This can be called from synchronous script code (e.g. inside `run_fft`).
     For async callers, use `await perform_acq_check()` which delegates to `run.io_bound`.
@@ -1802,7 +1851,9 @@ def perform_acq_check_sync(
             acq_timeout_s = 300
     _ACQ_STATE = 0x08
     start_time = time.monotonic()
-    _acq_150s_checked = False
+    _acq_150s_checked = not check_state6
+    received_start = eb_packet_utility.get_sci_received_count()
+    sent_start: int | None = None
     progress = ProgressNotifier(f"Acquisition wait: 0s / {acq_timeout_s:.0f}s")
 
     info_log.debug("Starting acquisition wait: waiting for CURRENT_OPERATING_STATE=0x08...")
@@ -1820,6 +1871,7 @@ def perform_acq_check_sync(
         latest_hk = get_latest_hk()
         if latest_hk is not None and getattr(latest_hk, "CURRENT_OPERATING_STATE", None) == _ACQ_STATE:
             sci_count = getattr(latest_hk, "SCIENCE_PACKETS_SENT", 0)
+            sent_start = int(sci_count or 0)
             info_log.info(
                 "Acquisition started (CURRENT_OPERATING_STATE=0x08), initial SCIENCE_PACKETS_SENT=%s",
                 sci_count,
@@ -1899,10 +1951,12 @@ def perform_acq_check_sync(
                 getattr(latest_hk, "TIME", None),
             )
             notify_positive(acq_complete_msg)
+            _warn_if_sci_packets_missing(sent_start, sci_count_end, received_start)
             # Do not consume from const.sci_queue here: the telemetry poll loop
             # owns draining it into the packet viewer/state, and stealing a
             # packet for logging would make it disappear from the GUI.
             progress.finish()
+            _check_eb_sci_temperatures(received_start)
             return
 
         info_log.info(
@@ -1911,9 +1965,67 @@ def perform_acq_check_sync(
         )
         progress.update(
             f"Acquisition in progress: {time.monotonic() - start_time:.0f}s / {acq_timeout_s:.0f}s "
-            f"(SCIENCE_PACKETS_SENT={getattr(latest_hk, 'SCIENCE_PACKETS_SENT', 'N/A')})"
+            f"(SCI this acq: EB sent {_sci_delta(sent_start, getattr(latest_hk, 'SCIENCE_PACKETS_SENT', None))}, "
+            f"received {eb_packet_utility.get_sci_received_count() - received_start})"
         )
         time.sleep(10)
+
+
+def _sci_delta(sent_start: int | None, sent_now: Any) -> int | str:
+    try:
+        return max(0, int(sent_now) - int(sent_start))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "N/A"
+
+
+def _warn_if_sci_packets_missing(
+    sent_start: int | None, sent_end: Any, received_start: int, grace_s: float = 15.0
+) -> None:
+    """Warn when the EB HK counter says SCI packets were sent but fewer arrived in the RS422 log."""
+    sent = _sci_delta(sent_start, sent_end)
+    if not isinstance(sent, int) or sent == 0:
+        return
+    # The RS422 log is parsed on the telemetry poll, so give late packets a chance to be decoded.
+    deadline = time.monotonic() + grace_s
+    received = eb_packet_utility.get_sci_received_count() - received_start
+    while received < sent and time.monotonic() < deadline and not is_aborted():
+        time.sleep(1)
+        received = eb_packet_utility.get_sci_received_count() - received_start
+    if received >= sent:
+        info_log.info("SCI packets this acquisition: EB sent %d, received %d", sent, received)
+        return
+    msg = (
+        f"Warning: EB reported {sent} SCI packet{'s' if sent != 1 else ''} sent this acquisition "
+        f"(SCIENCE_PACKETS_SENT {sent_start} -> {sent_end}) but only {received} arrived in the RS422 log. "
+        "Known EB software issue - science data for this acquisition may be missing."
+    )
+    info_log.warning(msg)
+    notify(msg, color="warning")
+
+
+def _check_eb_sci_temperatures(received_start: int) -> None:
+    """Range-check the header temperatures of every EB SCI packet received this acquisition."""
+    packets = eb_packet_utility.get_sci_packets_since(received_start)
+    if not packets:
+        return
+    errors: list[str] = []
+    for packet in packets:
+        packet_number = getattr(packet, "PACKET_NUMBER", "?")
+        for field, (minimum, maximum) in measurement_config.EB_SCI_TEMPERATURE_LIMITS.items():
+            value = getattr(packet, field, None)
+            if value is None:
+                errors.append(f"SCI packet {packet_number}: missing field {field}")
+            elif not minimum <= value <= maximum:
+                errors.append(f"SCI packet {packet_number}: {field}={value}, expected {minimum}..{maximum}")
+    if errors:
+        count = len(errors)
+        numbered = "\n".join(f"{index + 1}. {error}" for index, error in enumerate(errors))
+        raise AssertionError(
+            f"SCI temperature verification failed: {count} error{'s' if count != 1 else ''}:\n{numbered}"
+        )
+    msg = f"SCI temperatures OK for {len(packets)} packet{'s' if len(packets) != 1 else ''}"
+    info_log.info(msg)
+    notify_positive(msg)
 
 
 def perform_hk_check(hk: Any = None, post: Any = None, hk_type: str = "hk") -> dict:
@@ -2120,9 +2232,9 @@ def perform_homing_check_sync(homing_timeout_s: float = 90) -> None:
         elif hasattr(latest_hk, "INSTR_STATUS_FLAGS"):
             homing_complete = int(getattr(latest_hk.INSTR_STATUS_FLAGS, "HOMING_COMPLETE", 0) or 0)
         elif hasattr(latest_hk, "INSTRUMENT_STATUS_FLAGS"):
-            # Fallback: treat numeric flags as bitmask and check LSB as HOMING_COMPLETE.
+            # Fallback: flags are MSB-first, so HOMING_COMPLETE is bit 15.
             try:
-                homing_complete = 1 if (int(getattr(latest_hk, "INSTRUMENT_STATUS_FLAGS", 0)) & 0x1) != 0 else 0
+                homing_complete = (int(getattr(latest_hk, "INSTRUMENT_STATUS_FLAGS", 0)) >> 15) & 0x1
             except Exception:
                 homing_complete = 0
         else:
@@ -3274,9 +3386,12 @@ def update_plot_cards(
         # Fallback for packets containing only the numeric flag field.
         try:
             numeric_flags = int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0))
-            ob_enabled = bool((numeric_flags >> 5) & 0x1)
+            ob_enabled = bool((numeric_flags >> 10) & 0x1)
         except (TypeError, ValueError):
             ob_enabled = False
+
+    # OB_5V_ENABLED asserts before the OB reports; until then the relayed OB HK is all zeros with OB_HK_ID == 0.
+    ob_enabled = ob_enabled and bool(getattr(hk, "OB_HK_ID", 0))
 
     trp_card.set_stream_enabled(ob_enabled)
     voltage_card.set_stream_enabled(ob_enabled)

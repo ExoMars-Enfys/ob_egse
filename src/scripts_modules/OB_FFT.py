@@ -555,15 +555,17 @@ def fft_stage_1(
     )
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
     sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
-    capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 1 science scan")
-    try:
-        sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
-        ui_runtime_controller.request_force_pause("Click to continue once finished from the science scan.")
-    except BaseException:
-        ui_runtime_controller.cancel_ob_sci_capture(capture_id)
-        raise
-    else:
-        ui_runtime_controller.end_ob_sci_capture(capture_id)
+    while True:
+        capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 1 science scan")
+        try:
+            sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+        except BaseException:
+            ui_runtime_controller.cancel_ob_sci_capture(capture_id)
+            raise
+        else:
+            ui_runtime_controller.end_ob_sci_capture(capture_id)
+        if not ui_runtime_controller.request_repeat_acquisition("OB FFT Stage 1 science scan"):
+            break
     _run_ob_transaction(worker, port_lock, tc.mtr_halt, port)
     ui_runtime_controller.abortible_sleep(2)
 
@@ -664,15 +666,17 @@ def fft_stage_2(
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
     sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
-    capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
-    try:
-        sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
-    except BaseException:
-        ui_runtime_controller.cancel_ob_sci_capture(capture_id)
-        raise
-    else:
-        ui_runtime_controller.end_ob_sci_capture(capture_id)
-
+    while True:
+        capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
+        try:
+            sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+        except BaseException:
+            ui_runtime_controller.cancel_ob_sci_capture(capture_id)
+            raise
+        else:
+            ui_runtime_controller.end_ob_sci_capture(capture_id)
+        if not ui_runtime_controller.request_repeat_acquisition("OB FFT Stage 2 TEC science scan"):
+            break
     # endregion
 
     # region Home, Park, and Automatic Power OFF

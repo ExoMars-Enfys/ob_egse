@@ -1122,15 +1122,18 @@ def create_default_eb_metrics_card() -> MetricsCardController:
             pills=pills,
         )
         _render_metric_grid(
-            specs=[spec_map[k] for k in ("eb_12v", "eb_neg12v", "eb_5v", "eb_3v3")],
-            columns=4,
+            specs=[
+                spec_map[k]
+                for k in ("eb_12v", "eb_neg12v", "eb_5v", "eb_3v3", "eb_mcu_temp", "eb_internal_temp", "eb_psu_temp")
+            ],
+            columns=7,
             pills=pills,
         )
-        _render_metric_grid(
-            specs=[spec_map[k] for k in ("eb_mcu_temp", "eb_internal_temp", "eb_psu_temp")],
-            columns=3,
-            pills=pills,
-        )
+        # _render_metric_grid(
+        #     specs=[spec_map[k] for k in ("eb_mcu_temp", "eb_internal_temp", "eb_psu_temp")],
+        #     columns=3,
+        #     pills=pills,
+        # )
 
         ui.space()
         tec_lbl = ui.label("TEC STATUS")

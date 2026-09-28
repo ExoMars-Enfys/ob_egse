@@ -31,7 +31,7 @@ DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 EXP_MODEL_ID = 7
 
 # PSU Config
-PSU_COM_PORT = 6
+PSU_COM_PORT = 8
 PSU_LOGGING_FREQ = 10  # in HZ
 
 # TEC current configuration used by FFT and power-state verification.

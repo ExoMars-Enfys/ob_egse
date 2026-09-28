@@ -11,7 +11,11 @@ from widget_modules import ui_runtime_controller
 
 info_log = logging.getLogger("info_log")
 
+# Same +40 C limit (12-bit TRP ADU) as the OB FFT manual heater checks.
+HEATER_ENABLE_MAX_TRP_ADU = 2196
 
+
+# region Helper Functions
 def _prompt_check_failure(label: str, message: str) -> None:
     """Ask whether INST FFT execution should continue after a failed check."""
     if ui_runtime_controller.handle_script_check_failure(label, [message]):
@@ -59,6 +63,54 @@ def _fresh_psu_sample(timeout: float = 2.0):
     return smoothed if isinstance(smoothed, dict) else fresh
 
 
+def _tec_ramp_before_acquisition(interface: Any, tec_setpoint_adu: int, label: str) -> None:
+    info_log.info("%s: commanding TEC current ramp for 60 s before acquisition", label)
+    ui_runtime_controller.notify(f"{label}: TEC ramp-up for 60 s before acquisition", color="primary")
+    tec_setpoint_adu = 0xFFF
+    ebtcs.set_tec_current(interface, 0x00, tec_setpoint_adu)
+    ebtcs.hk_request(interface, 0)
+    ui_runtime_controller.abortible_sleep_with_progress(60, f"{label}: TEC ramp-up", update_interval=1.0)
+    info_log.info("%s: setting TEC current to 0 before acquisition", label)
+    ui_runtime_controller.notify(f"{label}: setting TEC current to 0 before acquisition", color="primary")
+
+
+def _read_ob_trps(interface: Any) -> dict[str, int] | None:
+    """Request fresh HK and return the 12-bit OB mechanism/motor/detector TRP ADUs."""
+    sequence = ebpu.get_hk_sequence()
+    ebtcs.hk_request(interface, 0)
+    hk = ebpu.wait_for_fresh_hk(timeout=5.0, after_sequence=sequence)
+    if hk is None or not getattr(hk, "OB_HK_ID", 0):
+        return None
+    trps = {}
+    for name, field in (("MECH", "OB_MECHANISM_TRP"), ("MOTOR", "OB_MOTOR_TRP"), ("DET", "OB_DETECTOR_TRP")):
+        raw = getattr(hk, field, None)
+        if raw is None:
+            return None
+        trps[name] = int(raw) >> 4
+    info_log.info("OB TRPs before heater check: %s", trps)
+    return trps
+
+
+def _mech_heater_allowed(trps: dict[str, int] | None) -> bool:
+    return trps is not None and (
+        trps["MECH"] <= HEATER_ENABLE_MAX_TRP_ADU or trps["MOTOR"] <= HEATER_ENABLE_MAX_TRP_ADU
+    )
+
+
+def _det_heater_allowed(trps: dict[str, int] | None) -> bool:
+    return trps is not None and trps["DET"] <= HEATER_ENABLE_MAX_TRP_ADU
+
+
+def _skip_heater_check(label: str, trps: dict[str, int] | None) -> None:
+    reason = "OB TRPs unavailable" if trps is None else f"OB above +40 C (TRPs {trps})"
+    msg = f"Skipping {label}: {reason}"
+    info_log.warning(msg)
+    ui_runtime_controller.notify(msg, color="warning")
+
+
+# endregion
+
+
 def run_fft(verification: bool = True) -> None:
     interface = eb_interface.get_egse_interface()
     tec_setpoint_adu, tec_expected_current_a, tec_current_tolerance_a = _get_tec_current_config()
@@ -71,6 +123,7 @@ def run_fft(verification: bool = True) -> None:
     )
     # FFT.txt sequence
 
+    # region Boot Checks
     # ?RET and first check - State 1
     interface = eb_interface.get_egse_interface()
     # RET command (SAFE mode)
@@ -89,7 +142,9 @@ def run_fft(verification: bool = True) -> None:
     # delay still count as fresh for this transition.
     standby_hk_sequence = ebpu.get_hk_sequence()
     standby_psu_sequence = ebpu.get_psu_sequence()
-    ebtcs.standby(interface, 5, 1)  #! Change according to what image you want to start
+    ebtcs.standby(
+        interface, 5, 1
+    )  #! Change according to what image you want to start. For EQM at 3.6.2 image 5 (25.09.26)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     ebtcs.hk_request(interface, 0)
     ebtcs.set_hk_rate(interface, 0, 1)
@@ -106,83 +161,101 @@ def run_fft(verification: bool = True) -> None:
             _prompt_check_failure("STANDBY RET", f"STANDBY RET verification failed:\n{msg}")
         else:
             info_log.info("STANDBY RET verification passed:\n%s", msg)
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
+    # endregion
 
+    # region Heater Checks
     time.sleep(1)
-    # ?Send Set Heater Configs + Enable Mech Heater - Standby + Mech HTR
     ebtcs.set_heater_configs(interface, 0x00, 0x08A3, 0x0881, 0x08A3, 0x0881)
-    ebtcs.en_mech_heater(interface, 0x1)
-    ebtcs.hk_request(interface, 0)
-    time.sleep(3.5)
-    if verification:
-        errors = []
-        latest_hk = ebpu.get_latest_hk()
-        latest_psu = _fresh_psu_sample(timeout=2.0)
-        if latest_hk is None:
-            errors.append("Missing HK data (mech ON, det OFF)")
-        if latest_psu is None:
-            errors.append("Missing fresh PSU monitor data (mech ON, det OFF)")
-        ch4_current_ma = (
-            ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
-            if latest_psu is not None
-            else None
-        )
-        if errors:
-            count = len(errors)
-            numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-            info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
-            msg = (
-                f"Heater config verification failed (mech ON, det OFF): {count} error{'s' if count != 1 else ''} :\n"
-                + "\n".join(numbered)
-            )
-            ui_runtime_controller.notify_negative(msg)
-            _prompt_check_failure("Heater config: mech ON, det OFF", msg)
-        else:
-            msg = f"Heater config: Mech ON, Det OFF — PSU_EB_I: {ch4_current_ma:.2f} mA"
-            info_log.info(msg)
-            ui_runtime_controller.notify_positive(msg)
 
-    # ?Send Set Heater Configs + Enable Det Heater - Standby + Det HTR
-    ebtcs.en_mech_heater(interface, 0x0)
-    ebtcs.en_det_heater(interface, 0x1)
-    ebtcs.hk_request(interface, 0)
-    time.sleep(3.5)
-    if verification:
-        errors = []
-        latest_hk = ebpu.get_latest_hk()
-        latest_psu = _fresh_psu_sample(timeout=2.0)
-        if latest_hk is None:
-            errors.append("Missing HK data (mech OFF, det ON)")
-        if latest_psu is None:
-            errors.append("Missing fresh PSU monitor data (mech OFF, det ON)")
-        ch4_current_ma = (
-            ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
-            if latest_psu is not None
-            else None
-        )
-        if errors:
-            count = len(errors)
-            numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
-            info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
-            msg = (
-                f"Heater config verification failed (mech OFF, det ON): {count} error{'s' if count != 1 else ''} :\n"
-                + "\n".join(numbered)
+    # ?Enable Mech Heater - Standby + Mech HTR (only at or below +40 C)
+    trps = _read_ob_trps(interface)
+    if not _mech_heater_allowed(trps):
+        _skip_heater_check("mech heater check", trps)
+    else:
+        ebtcs.en_mech_heater(interface, 0x1)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            errors = []
+            latest_hk = ebpu.get_latest_hk()
+            latest_psu = _fresh_psu_sample(timeout=2.0)
+            if latest_hk is None:
+                errors.append("Missing HK data (mech ON, det OFF)")
+            if latest_psu is None:
+                errors.append("Missing fresh PSU monitor data (mech ON, det OFF)")
+            ch4_current_ma = (
+                ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
+                if latest_psu is not None
+                else None
             )
-            ui_runtime_controller.notify_negative(msg)
-            _prompt_check_failure("Heater config: mech OFF, det ON", msg)
-        else:
-            msg = f"Heater config: Mech OFF, Det ON — PSU_EB_I: {ch4_current_ma:.2f} mA"
-            info_log.info(msg)
-            ui_runtime_controller.notify_positive(msg)
+            if errors:
+                count = len(errors)
+                numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+                info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+                msg = (
+                    f"Heater config verification failed (mech ON, det OFF): {count} error{'s' if count != 1 else ''} :\n"
+                    + "\n".join(numbered)
+                )
+                ui_runtime_controller.notify_negative(msg)
+                _prompt_check_failure("Heater config: mech ON, det OFF", msg)
+            else:
+                msg = f"Heater config: Mech ON, Det OFF — PSU_EB_I: {ch4_current_ma:.2f} mA"
+                info_log.info(msg)
+                ui_runtime_controller.notify_positive(msg)
+        ebtcs.en_mech_heater(interface, 0x0)
 
-    # ?Turn on both heaters - State 2 - OB Heating
-    ebtcs.en_mech_heater(interface, 0x1)
-    ebtcs.hk_request(interface, 0)
-    time.sleep(3.5)
-    if verification:
-        result = _run_check("State2", ui_runtime_controller.verify_power_state, "State2")
-        msg, passed = result if result is not None else ("State2 check was skipped", True)
-        if not passed:
-            _prompt_check_failure("State2", msg)
+    # ?Enable Det Heater - Standby + Det HTR (only at or below +40 C)
+    trps = _read_ob_trps(interface)
+    if not _det_heater_allowed(trps):
+        _skip_heater_check("det heater check", trps)
+    else:
+        ebtcs.en_det_heater(interface, 0x1)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            errors = []
+            latest_hk = ebpu.get_latest_hk()
+            latest_psu = _fresh_psu_sample(timeout=2.0)
+            if latest_hk is None:
+                errors.append("Missing HK data (mech OFF, det ON)")
+            if latest_psu is None:
+                errors.append("Missing fresh PSU monitor data (mech OFF, det ON)")
+            ch4_current_ma = (
+                ui_runtime_controller.consumption_check(["Standby"], latest_psu, errors, latest_hk)
+                if latest_psu is not None
+                else None
+            )
+            if errors:
+                count = len(errors)
+                numbered = [f"{i + 1}. {err.strip()}" for i, err in enumerate(errors)]
+                info_log.info(f"PSU_EB_I: {ch4_current_ma if ch4_current_ma is not None else 'N/A'} mA")
+                msg = (
+                    f"Heater config verification failed (mech OFF, det ON): {count} error{'s' if count != 1 else ''} :\n"
+                    + "\n".join(numbered)
+                )
+                ui_runtime_controller.notify_negative(msg)
+                _prompt_check_failure("Heater config: mech OFF, det ON", msg)
+            else:
+                msg = f"Heater config: Mech OFF, Det ON — PSU_EB_I: {ch4_current_ma:.2f} mA"
+                info_log.info(msg)
+                ui_runtime_controller.notify_positive(msg)
+        ebtcs.en_det_heater(interface, 0x0)
+
+    # ?Turn on both heaters - State 2 - OB Heating (only if both may be enabled)
+    trps = _read_ob_trps(interface)
+    if not (_mech_heater_allowed(trps) and _det_heater_allowed(trps)):
+        _skip_heater_check("State2 dual heater check", trps)
+    else:
+        ebtcs.en_mech_heater(interface, 0x1)
+        ebtcs.en_det_heater(interface, 0x1)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            result = _run_check("State2", ui_runtime_controller.verify_power_state, "State2")
+            msg, passed = result if result is not None else ("State2 check was skipped", True)
+            if not passed:
+                _prompt_check_failure("State2", msg)
 
     # ?Set Heater Configs to flight
     ebtcs.en_mech_heater(interface, 0x0)
@@ -222,7 +295,10 @@ def run_fft(verification: bool = True) -> None:
             )
             info_log.info(msg)
             ui_runtime_controller.notify_positive(msg)
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
+    # endregion
 
+    # region Mechanism Checks and Homing
     # ?Turn on the mechanism board, set configs and home - State 2 + Mech Board ON + Moving
     ebtcs.en_mech_board(interface, 0x1)
     ui_runtime_controller.abortible_sleep(5)
@@ -231,7 +307,10 @@ def run_fft(verification: bool = True) -> None:
 
     ebtcs.ob_homing(interface, 0x01)
     _run_check("Initial homing", ui_runtime_controller.perform_homing_check_sync)
+    ui_runtime_controller.request_force_pause("Click to continue once ready.")
+    # endregion
 
+    # region TEC tests
     # ?Turn on TEC - State 2 + Mech Board ON + TEC clamped at configured current
     ebtcs.set_tec_current(interface, 0x00, tec_setpoint_adu)
 
@@ -322,7 +401,9 @@ def run_fft(verification: bool = True) -> None:
             msg = f"TEC off OK — TEC: {tec_current:.4f} A, PSU_EB_I: {ch4_current_ma:.2f} mA"
             info_log.info(msg)
             ui_runtime_controller.notify_positive(msg)
+    # endregion
 
+    # region Full Dark SCI Scan @-35oC
     # ?Set TEC setpoint to -35oC, enable detectors, and start acquisition
     ebtcs.set_tec_setpoint(interface, 0x0, 0xC018)
     ebtcs.en_det_board(interface, 0x1)
@@ -340,15 +421,22 @@ def run_fft(verification: bool = True) -> None:
 
     # ?State 6 SCI ACQ
     ebtcs.set_acq_configs(
-        interface, 0x00, 0x00, 0x0000, 0x0000, 0x0000, 0x0001, 0x00B9, 0x00, 0x1, 0x1, 0x1, 0x1, 0x01, 0x0C
+        interface, 0, 0, 0, 0, 0, 1, 249, 0, 1, 42, 0, 0, 0, 12
     )  #! This is a baseline ACQ that ABU verified with table 12 - This can be changed if needed later on
-    ebtcs.set_hk_rate(interface, 0, 2)
+    ebtcs.set_hk_rate(interface, 0, 1)
     time.sleep(3)
-    ebtcs.acquisition(interface, 0x0)
-    time.sleep(3)
-    if verification:
-        _run_check("State 6 acquisition", ui_runtime_controller.perform_acq_check_sync)
+    check_state6 = True
+    while True:
+        ebtcs.acquisition(interface, 0x0)
+        time.sleep(3)
+        if verification:
+            _run_check("State 6 acquisition", ui_runtime_controller.perform_acq_check_sync, check_state6=check_state6)
+        check_state6 = False
+        if not ui_runtime_controller.request_repeat_acquisition("Full Dark SCI Scan @-35C"):
+            break
+    # endregion
 
+    # region Setup for Fixed point Dark SCI Scan
     # ?State3 - OB Heating + Powered On
     ebtcs.set_hk_rate(interface, 0, 1)
     ebtcs.en_mech_heater(interface, 0x0)
@@ -425,7 +513,9 @@ def run_fft(verification: bool = True) -> None:
             msg = "\n".join(errors)
             ui_runtime_controller.notify_negative(msg)
             _prompt_check_failure("TEC setpoint -35C", msg)
+    # endregion
 
+    # region Fixed point Dark SCI Scan @-35oC with Heaters
     # ?State 6 SCI ACQ with heaters ON
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
@@ -433,26 +523,43 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.en_mech_heater(interface, 0x1)
     ebtcs.en_det_heater(interface, 0x1)
     ebtcs.set_acq_configs(
-        interface, 0x01, 0x00, 0x0000, 0x0064, 0x0078, 0x0005, 0x0, 0x00, 0x1, 0x1, 0x1, 0x1, 0x00, 0x12
+        interface,
+        0x01,
+        0x00,
+        0x0000,
+        0x00FA,
+        0x0078,
+        0x0000,
+        0x0,
+        0x00,
+        0x1,
+        0x1,
+        0x1,
+        0x1,
+        0x00,
+        0x01,  # MT12 , spacing 250ms, duration 120s, start position 5 ()
     )  #! Todo Check the measurement tables for the correct fixed point measurement
-    ebtcs.set_hk_rate(interface, 0, 10)
-    ebtcs.acquisition(interface, 0x0)
-    ebtcs.hk_request(interface, 0)
-    time.sleep(3.5)
-    if verification:
-        _run_check(
-            "State 6 acquisition with heaters",
-            ui_runtime_controller.perform_acq_check_sync,
-            acq_mode=2,
-            acq_duration_s=0x0078,
-            acq_sample_time_ms=0x0064,
-        )
-
-    ui_runtime_controller.request_force_pause(
-        "Remove Baffle Hat and continue with acquisition. Click to continue once ready."
-    )
     ebtcs.set_hk_rate(interface, 0, 1)
+    while True:
+        ebtcs.acquisition(interface, 0x0)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            _run_check(
+                "State 6 acquisition with heaters",
+                ui_runtime_controller.perform_acq_check_sync,
+                acq_mode=2,
+                acq_duration_s=0x0078,
+                acq_sample_time_ms=0x0064,
+                check_state6=False,
+            )
+        if not ui_runtime_controller.request_repeat_acquisition("Fixed point Dark SCI Scan @-35C with heaters"):
+            break
 
+    ebtcs.set_hk_rate(interface, 0, 1)
+    # endregion
+
+    # region Full Light Scan @-35oC
     # ?State 6 SCI ACQ with heaters OFF and baffle hat off
     ebtcs.en_mech_heater(interface, 0x0)
     ebtcs.en_det_heater(interface, 0x0)
@@ -461,22 +568,48 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.en_det_heater(interface, 0x1)
 
     ebtcs.set_acq_configs(
-        interface, 0x00, 0x00, 0x0000, 0x0000, 0x0000, 0x0001, 0x00B9, 0x00, 0x1, 0x1, 0x1, 0x1, 0x01, 0x0C
+        interface, 0, 0, 0, 0, 0, 1, 249, 0, 1, 42, 0, 0, 0, 12
     )  #! This is a baseline ACQ that ABU verified with table 12 - This can be changed if needed later on
-    ebtcs.set_hk_rate(interface, 0, 2)
-    ebtcs.acquisition(interface, 0x0)
-    ebtcs.hk_request(interface, 0)
-    time.sleep(3.5)
-    if verification:
-        _run_check("State 6 acquisition without heaters", ui_runtime_controller.perform_acq_check_sync)
+    ebtcs.set_hk_rate(interface, 0, 1)
+    while True:
+        ebtcs.acquisition(interface, 0x0)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            _run_check(
+                "State 6 acquisition without heaters",
+                ui_runtime_controller.perform_acq_check_sync,
+                check_state6=False,
+            )
+        if not ui_runtime_controller.request_repeat_acquisition("Full Light Scan @-35C (hat on)"):
+            break
+    # endregion
 
-    ebtcs.ob_homing(interface, 0x02)
+    # region Last scan with hat off
+    ui_runtime_controller.request_force_pause(
+        "Remove Baffle Hat and continue with acquisition. Click to continue once ready."
+    )
+    while True:
+        ebtcs.acquisition(interface, 0x0)
+        ebtcs.hk_request(interface, 0)
+        time.sleep(3.5)
+        if verification:
+            _run_check(
+                "State 6 acquisition without heaters",
+                ui_runtime_controller.perform_acq_check_sync,
+                check_state6=False,
+            )
+        if not ui_runtime_controller.request_repeat_acquisition("Full Light Scan @-35C (hat off)"):
+            break
+    # endregion
+
+    # region Park and Power down
+    ebtcs.ob_park(interface, 0x00)
     _run_check("Final homing", ui_runtime_controller.perform_homing_check_sync)
-    ui_runtime_controller.request_force_pause("Click to continue once ready.")
 
-    ebtcs.generic_tc(interface, 0x1, 0x0A, 0x01, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     ui_runtime_controller.request_force_pause("Click to continue once ready.")
     ebtcs.safe(interface, 0)
     ebtcs.ret(interface, 0, 0, 0, 0, 0, 0)
     # End of FFT
     ui_runtime_controller.notify_script_done()
+    # endregion

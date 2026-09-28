@@ -39,6 +39,40 @@ _psu_published_monotonic = 0.0
 # a large historical/live log from repeatedly scanning the entire file.
 _LATEST_RS422_TAIL_BYTES = 4 * 1024 * 1024
 
+# Distinct SCI packets seen in the RS422 log; latest_only reads re-see the same packet on every parse.
+_sci_seen_order: deque[int] = deque(maxlen=4096)
+_sci_seen: set[int] = set()
+_sci_received_count = 0
+_sci_recent_packets: deque[tuple[int, bytes]] = deque(maxlen=64)
+_sci_lock = threading.Lock()
+
+
+def _note_sci_packet(byte_string: str, byte_array: bytes) -> None:
+    global _sci_received_count
+    key = hash(byte_string)
+    with _sci_lock:
+        if key in _sci_seen:
+            return
+        if len(_sci_seen_order) == _sci_seen_order.maxlen:
+            _sci_seen.discard(_sci_seen_order[0])
+        _sci_seen_order.append(key)
+        _sci_seen.add(key)
+        _sci_received_count += 1
+        _sci_recent_packets.append((_sci_received_count, bytes(byte_array)))
+
+
+def get_sci_received_count() -> int:
+    """Return the number of distinct EB science packets decoded from the RS422 log."""
+    with _sci_lock:
+        return _sci_received_count
+
+
+def get_sci_packets_since(received_count: int) -> list[SimpleNamespace]:
+    """Return decoded headers of EB science packets received after *received_count*."""
+    with _sci_lock:
+        raw_packets = [packet for index, packet in _sci_recent_packets if index > received_count]
+    return [decode_cscience_data(packet) for packet in raw_packets]
+
 
 def get_hk_sequence() -> int:
     with _hk_lock:
@@ -241,6 +275,8 @@ def read_pkt(file_path, latest_only: bool = False):
         if len(byte_array) < 6:
             continue
         tm_type_id = (byte_array[5] >> 2) & 0x3F
+        if tm_type_id in (0x5, 0x6):
+            _note_sci_packet(byte_string, byte_array)
 
         # Proccess HK packets (Regular and Response packets)
         if tm_type_id in (0x1, 0x2):

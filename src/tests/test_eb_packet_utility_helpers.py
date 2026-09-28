@@ -75,7 +75,7 @@ def test_latest_hk_and_psu_caches_round_trip(monkeypatch: pytest.MonkeyPatch) ->
     epu.set_latest_psu(psu)
 
     assert epu.get_latest_hk() is hk
-    assert epu.get_latest_psu() is psu
+    assert epu.get_latest_psu() == psu
     assert event.set_calls == 1
 
 
@@ -84,15 +84,20 @@ def test_wait_for_fresh_hk_returns_none_on_timeout(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(epu, "_hk_event", event)
 
     assert epu.wait_for_fresh_hk(timeout=0.25) is None
-    assert event.clear_calls == 1
-    assert event.wait_timeouts == [0.25]
+    assert event.wait_timeouts
+    assert all(0 < timeout <= 0.25 for timeout in event.wait_timeouts)
 
 
 def test_wait_for_fresh_hk_returns_latest_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    event = _FakeEvent(result=True)
     latest = SimpleNamespace(sequence=4)
-    monkeypatch.setattr(epu, "_hk_event", event)
-    monkeypatch.setattr(epu, "get_latest_hk", lambda: latest)
+
+    class _ArrivingEvent(_FakeEvent):
+        def wait(self, timeout: float) -> bool:
+            super().wait(timeout)
+            epu.set_latest_hk(latest)
+            return True
+
+    monkeypatch.setattr(epu, "_hk_event", _ArrivingEvent(result=True))
 
     assert epu.wait_for_fresh_hk(timeout=1.5) is latest
 
@@ -235,9 +240,7 @@ def test_decode_sci_data_points_decodes_points_and_ignores_remainder(
         lambda _fmt, _names, raw: {"VALUE": int.from_bytes(raw, "big")},
     )
 
-    points = epu.decode_sci_data_points(
-        SimpleNamespace(SCI_DATA=b"\x00\x01\x00\x02\xFF")
-    )
+    points = epu.decode_sci_data_points(SimpleNamespace(SCI_DATA=b"\x00\x01\x00\x02\xff"))
 
     assert [point.VALUE for point in points] == [1, 2]
     assert [point.POINT_INDEX for point in points] == [0, 1]

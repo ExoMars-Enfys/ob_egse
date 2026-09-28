@@ -183,7 +183,7 @@ def _parse_rs422_hk(root: Path, rs422_offset_hours: float) -> list[HkPoint]:
                     homing_complete = 0
             elif hasattr(hk, "INSTRUMENT_STATUS_FLAGS"):
                 try:
-                    homing_complete = 1 if (int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0)) & 0x1) != 0 else 0
+                    homing_complete = (int(getattr(hk, "INSTRUMENT_STATUS_FLAGS", 0)) >> 15) & 0x1
                 except Exception:
                     homing_complete = 0
             points.append(
@@ -470,7 +470,11 @@ def _render_run_html(
     check_text: list[str] = []
     check_colors: list[str] = []
     if replay_options.include_acq_check:
-        check_x = [event.check_start + (event.check_end - event.check_start) / 2 for event in events if event.median_ma is not None]
+        check_x = [
+            event.check_start + (event.check_end - event.check_start) / 2
+            for event in events
+            if event.median_ma is not None
+        ]
         check_y = [event.median_ma for event in events if event.median_ma is not None]
         check_text = [
             (
@@ -483,9 +487,7 @@ def _render_run_html(
             if event.median_ma is not None and event.expected_min_ma is not None and event.expected_max_ma is not None
         ]
         check_colors = [
-            "#2e7d32" if event.result == "PASS" else "#c62828"
-            for event in events
-            if event.median_ma is not None
+            "#2e7d32" if event.result == "PASS" else "#c62828" for event in events if event.median_ma is not None
         ]
 
     if replay_options.include_acq_check and check_x:
@@ -540,7 +542,9 @@ def _render_run_html(
             fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=2, col=1)  # type: ignore[arg-type]
             fig.add_vline(x=homing_time, line_dash="dashdot", line_color="#8e24aa", row=3, col=1)  # type: ignore[arg-type]
 
-    fig.update_yaxes(title_text="State", row=1, col=1, tickmode="array", tickvals=[0, 2, 4, 8], ticktext=["0", "SAFE", "STBY", "ACQ"])
+    fig.update_yaxes(
+        title_text="State", row=1, col=1, tickmode="array", tickvals=[0, 2, 4, 8], ticktext=["0", "SAFE", "STBY", "ACQ"]
+    )
     fig.update_yaxes(title_text="MOVING", row=2, col=1, range=[-0.1, 1.1], tickmode="array", tickvals=[0, 1])
     fig.update_yaxes(title_text="PSU CH4 (mA)", row=3, col=1)
 
@@ -563,17 +567,36 @@ def _render_run_html(
         cursor_trace_start = len(fig.data)  # type: ignore[arg-type]
 
         fig.add_trace(
-            go.Scatter(x=[cursor_time, cursor_time], y=[0, 8], mode="lines", line=dict(color="#6a1b9a", width=2), name="Replay cursor", showlegend=False),
+            go.Scatter(
+                x=[cursor_time, cursor_time],
+                y=[0, 8],
+                mode="lines",
+                line=dict(color="#6a1b9a", width=2),
+                name="Replay cursor",
+                showlegend=False,
+            ),
             row=1,
             col=1,
         )
         fig.add_trace(
-            go.Scatter(x=[cursor_time, cursor_time], y=[0, 1], mode="lines", line=dict(color="#6a1b9a", width=2), showlegend=False),
+            go.Scatter(
+                x=[cursor_time, cursor_time],
+                y=[0, 1],
+                mode="lines",
+                line=dict(color="#6a1b9a", width=2),
+                showlegend=False,
+            ),
             row=2,
             col=1,
         )
         fig.add_trace(
-            go.Scatter(x=[cursor_time, cursor_time], y=[psu_min, psu_max], mode="lines", line=dict(color="#6a1b9a", width=2), showlegend=False),
+            go.Scatter(
+                x=[cursor_time, cursor_time],
+                y=[psu_min, psu_max],
+                mode="lines",
+                line=dict(color="#6a1b9a", width=2),
+                showlegend=False,
+            ),
             row=3,
             col=1,
         )
@@ -662,7 +685,11 @@ def generate_replay_suite(
 
     grouped: dict[tuple[str, str], list[CheckEvent]] = {}
     for event in events:
-        if run_filter and run_filter.lower() not in event.run.lower() and run_filter.lower() not in event.cmd_file.lower():
+        if (
+            run_filter
+            and run_filter.lower() not in event.run.lower()
+            and run_filter.lower() not in event.cmd_file.lower()
+        ):
             continue
         grouped.setdefault((event.run, event.psu_log), []).append(event)
 

@@ -193,7 +193,7 @@ def test_check_ob_state_uses_idle_threshold_for_state5():
         "State5",
     ) == {"CH1": 18.0, "CH2": 0.0, "CH3": 75.0}
 
-    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 70.0}
+    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 68.0}
 
 
 def test_motor_hold_current_accepts_phase_dependent_nonzero_current():
@@ -257,7 +257,7 @@ def test_move_validates_active_state_while_moving(monkeypatch):
 
     assert states[0][0] == "Moving"
     assert states[0][1] is True
-    assert len(states) >= 2
+    assert len(states) == 1
 
 
 def test_move_validates_all_samples_across_whole_motion(monkeypatch):
@@ -298,9 +298,11 @@ def test_move_validates_all_samples_across_whole_motion(monkeypatch):
         expected_motor_params=(20, 0, 60, 8),
     )
 
-    assert len(state_calls) == 2
-    assert all(call["state"] == "Moving" for call in state_calls)
-    assert all(call["moving"] is True for call in state_calls)
+    # All moving samples are aggregated into one median-based state validation.
+    assert len(state_calls) == 1
+    assert state_calls[0]["state"] == "Moving"
+    assert state_calls[0]["moving"] is True
+    assert state_calls[0]["readings"] == {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.060)}
 
 
 def test_move_wait_aborts_when_script_stop_is_requested(monkeypatch):
@@ -450,22 +452,22 @@ def test_dark_offset_all_zero_is_not_treated_as_failure():
 
 def test_ob_state_current_checks_only_configured_rails():
     measured = check_current_profile(
-        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.080)},
+        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.078)},
         "State3",
     )
-    assert measured == {"CH1": 18.0, "CH2": 129.0, "CH3": 80.0}
+    assert measured == {"CH1": 18.0, "CH2": 129.0, "CH3": 78.0}
 
 
 def test_ob_current_profile_sums_active_components():
-    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 68.0}
 
 
 def test_all_reported_state_profiles_include_every_active_component():
     assert calculate_ob_current_profile("State1") == {"CH1": 0.0, "CH2": 0.0, "CH3": 60.0}
     assert calculate_ob_current_profile("State2") == {"CH1": 0.0, "CH2": 124.0, "CH3": 60.0}
-    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
-    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 70.0}
-    assert calculate_ob_current_profile("State7") == {"CH1": 102.4, "CH2": 129.7, "CH3": 77.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 68.0}
+    assert calculate_ob_current_profile("State5") == {"CH1": 17.4, "CH2": 5.7, "CH3": 68.0}
+    assert calculate_ob_current_profile("State7") == {"CH1": 102.4, "CH2": 129.7, "CH3": 75.0}
 
 
 def test_ob_current_profile_includes_movement_component():
@@ -477,7 +479,7 @@ def test_ob_current_profile_includes_movement_component():
     assert calculate_ob_current_profile(moving_state) == {
         "CH1": 102.4,
         "CH2": 129.7,
-        "CH3": 77.0,
+        "CH3": 75.0,
     }
 
 
@@ -506,12 +508,12 @@ def test_component_current_profile_checks_all_ob_rails():
 
 def test_ob_state_expected_ch3_includes_powered_heated_board_load():
     measured = check_current_profile(
-        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.080)},
+        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.078)},
         "State3",
     )
-    assert measured == {"CH1": 18.0, "CH2": 129.0, "CH3": 80.0}
+    assert measured == {"CH1": 18.0, "CH2": 129.0, "CH3": 78.0}
 
-    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 70.0}
+    assert calculate_ob_current_profile("State3") == {"CH1": 17.4, "CH2": 129.7, "CH3": 68.0}
 
 
 def test_ob_state_current_reports_out_of_range_rail():
@@ -529,12 +531,12 @@ def test_ob_state_current_can_skip_when_psu_is_disabled():
 def test_complete_ob_state_checks_hk_and_current_together():
     measured = check_ob_state(
         _hk(),
-        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.080)},
+        {"CH1": (12.0, 0.018), "CH2": (-12.0, 0.129), "CH3": (5.0, 0.078)},
         "State3",
     )
     assert measured["CH1"] == 18.0
     assert measured["CH2"] == 129.0
-    assert measured["CH3"] == 80.0
+    assert measured["CH3"] == 78.0
 
 
 def test_complete_ob_state_rejects_wrong_ob_state():

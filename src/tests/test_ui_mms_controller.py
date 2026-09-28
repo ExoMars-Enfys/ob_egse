@@ -38,7 +38,7 @@ def test_menu_invoke_passes_ob_port_to_ob_fft_script() -> None:
 
 def test_mms_reasons_masks_ob_general_error(monkeypatch) -> None:
     hk = SimpleNamespace(
-        INSTRUMENT_STATUS_FLAGS=(1 << 5),
+        INSTRUMENT_STATUS_FLAGS=(1 << 10),
         CURRENT_OPERATING_STATE=0x04,
         POST_ERROR_FLAGS=0,
         ERROR_FLAGS=1,
@@ -62,7 +62,7 @@ def test_mms_reasons_masks_ob_general_error(monkeypatch) -> None:
 
 def test_mms_reasons_adds_ob_error_details_even_without_active_bits(monkeypatch) -> None:
     hk = SimpleNamespace(
-        INSTRUMENT_STATUS_FLAGS=(1 << 5),
+        INSTRUMENT_STATUS_FLAGS=(1 << 10),
         CURRENT_OPERATING_STATE=0x04,
         POST_ERROR_FLAGS=0,
         ERROR_FLAGS=0,
