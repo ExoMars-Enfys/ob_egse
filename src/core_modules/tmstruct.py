@@ -406,7 +406,7 @@ dump_data = [
     ("LOBT_RET_TIME", ">u48"),
     ("BLOCK_LENGTH", "u16"),
     ("MEM_ADDR", "u32"),
-    ("MEM_SIZE", "u32"),
+    ("MEM_SIZE", "u16"),
     ("DUMP_DATA", "u65376"),
 ]
 sci_data = [
