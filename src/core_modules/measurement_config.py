@@ -4,6 +4,8 @@ Keep qualification thresholds here rather than in ``constants.py`` so they can
 be updated without changing protocol/application constants.
 """
 
+from core_modules.constants import WLIM_TPR
+
 HK_REQUIRED_FIELDS = (
     "ERROR_BYTE",
     "ERROR_MTR",
@@ -127,18 +129,21 @@ DARK_HK_TEMPERATURE_LIMITS = {
     "MECH_TRP": (0, 0xFFFF),
     "MOTOR_TRP": (0, 0xFFFF),
 }
+# Manual heater check: a heated TRP must rise by this many 12-bit ADU within the timeout.
+HEATER_THERMAL_RESPONSE_MIN_ADU = 10
+HEATER_THERMAL_RESPONSE_TIMEOUT_S = 180.0
+# SCI temperature limits in degrees C, shared with the other instrument thermistor ranges.
 DARK_SCIENCE_TEMPERATURE_LIMITS = {
-    "SWIR_TEMP": (0, 0xFFFF),
-    "HT_SINK_TEMP": (0, 0xFFFF),
+    "SWIR_TEMP": [0, 200],
+    "HT_SINK_TEMP": WLIM_TPR,
 }
-# EB SCI packet header temperatures (raw ADU). Placeholder full-range limits until real values are provided.
 EB_SCI_TEMPERATURE_LIMITS = {
     "HEATSINK_START_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["HT_SINK_TEMP"],
     "HEATSINK_END_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["HT_SINK_TEMP"],
     "SWIR_START_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["SWIR_TEMP"],
     "SWIR_END_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["SWIR_TEMP"],
-    "MWIR_START_TEMP": (0, 0xFFFF),
-    "MWIR_END_TEMP": (0, 0xFFFF),
+    "MWIR_START_TEMP": WLIM_TPR,
+    "MWIR_END_TEMP": WLIM_TPR,
 }
 DARK_POSITIONS = {"SWIR": 9600, "MWIR": 8000}
 DARK_SCIENCE_LIMITS = {

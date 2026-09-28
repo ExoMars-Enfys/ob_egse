@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from utility_modules.eb_packet_utility import adu_to_temp as decode_ob_trps
 from utility_modules.eb_packet_utility import decode_eb_trps
+from utility_modules.eb_packet_utility import sci_temperature_to_c
 
 ConvertFn = Callable[[int], float]
 
@@ -58,6 +59,20 @@ CONVERSIONS: dict[str, FieldConversion] = {
     # ── OB ADC ───────────────────────────────────────────────────────
     "HK_MECH_CUR": FieldConversion("mA", lambda raw: (raw >> 4) * (0.12 / (0.2 * 10))),
     "OB_MECH_CURRENT": FieldConversion("mA", lambda raw: (raw >> 4) * (0.12 / (0.2 * 10))),
+    # ── SCI temperatures (OB SCI and EB SCI header) ──────────────────────────
+    **{
+        field: FieldConversion("°C", lambda raw, field=field: sci_temperature_to_c(field, raw))
+        for field in (
+            "SWIR_TEMP",
+            "HT_SINK_TEMP",
+            "HEATSINK_START_TEMP",
+            "HEATSINK_END_TEMP",
+            "SWIR_START_TEMP",
+            "SWIR_END_TEMP",
+            "MWIR_START_TEMP",
+            "MWIR_END_TEMP",
+        )
+    },
 }
 
 

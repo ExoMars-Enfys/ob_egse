@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -90,6 +91,47 @@ def _run_ob_transaction(worker: Any, port_lock: Any, command: Any, port: Any, *a
     return command(port, *args)
 
 
+def _wait_for_thermal_response(
+    port: Any, label: str, initial_values: dict[str, Any], port_lock: Any = None, worker: Any = None
+) -> Any:
+    """Poll HK until every heated TRP rises by the configured ADU step, or the timeout expires."""
+    min_increase = limits.HEATER_THERMAL_RESPONSE_MIN_ADU
+    timeout_s = limits.HEATER_THERMAL_RESPONSE_TIMEOUT_S
+    runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
+    progress = ui_runtime_controller.ProgressNotifier(
+        f"{label}: waiting for +{min_increase} ADU (0s / {timeout_s:.0f}s)"
+    )
+    start = time.monotonic()
+    response = None
+    try:
+        while True:
+            response = _run_checked(label, request_hk, port, label, port_lock=port_lock, transaction_runner=runner)
+            if response is None:
+                return None
+            increases = {
+                field: (getattr(response, field, 0) >> 4) - (baseline >> 4)
+                for field, baseline in initial_values.items()
+                if baseline is not None and getattr(response, field, None) is not None
+            }
+            elapsed = time.monotonic() - start
+            if len(increases) == len(initial_values) and all(
+                increase >= min_increase for increase in increases.values()
+            ):
+                event_log.info("%s: TRP rise %s reached after %.0f s", label, increases, elapsed)
+                return response
+            if elapsed >= timeout_s:
+                event_log.warning(
+                    "%s: no +%d ADU rise within %.0f s (changes: %s)", label, min_increase, timeout_s, increases
+                )
+                return response
+            progress.update(
+                f"{label}: waiting for +{min_increase} ADU ({elapsed:.0f}s / {timeout_s:.0f}s), changes {increases}"
+            )
+            ui_runtime_controller.abortible_sleep(5)
+    finally:
+        progress.finish()
+
+
 def _confirm_stage_2_start(psu_port: Any = None, nopsu: bool = False, psu_lock: Any = None) -> bool:
     """Block until the user confirms Stage 2 via a UI dialog. Switches off the PSU on cancellation."""
     confirmed = ui_runtime_controller.request_confirmation(
@@ -124,7 +166,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):
@@ -196,14 +238,12 @@ def fft_stage_1(
             "MECH_TRP": getattr(response, "MECH_TRP", None),
             "MOTOR_TRP": getattr(response, "MOTOR_TRP", None),
         }
-        ui_runtime_controller.abortible_sleep_with_progress(30, "Manual mechanism heater thermal response wait")
-        response = _run_checked(
-            "manual mechanism heater thermal response",
-            request_hk,
+        response = _wait_for_thermal_response(
             port,
             "manual mechanism heater thermal response",
+            initial_thermal_values,
             port_lock=port_lock,
-            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+            worker=worker,
         )
         log_thermal_status(response)
         errors = []
@@ -247,14 +287,12 @@ def fft_stage_1(
             notify_positive=ui_runtime_controller.notify_positive,
         )
         initial_thermal_values = {"DETEC_TRP": getattr(response, "DETEC_TRP", None)}
-        ui_runtime_controller.abortible_sleep_with_progress(30, "Manual detector heater thermal response wait")
-        response = _run_checked(
-            "manual detector heater thermal response",
-            request_hk,
+        response = _wait_for_thermal_response(
             port,
             "manual detector heater thermal response",
+            initial_thermal_values,
             port_lock=port_lock,
-            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+            worker=worker,
         )
         log_thermal_status(response)
         errors = []
@@ -558,7 +596,13 @@ def fft_stage_1(
     while True:
         capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 1 science scan")
         try:
-            sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+            sci_acq.measurement_scan(
+                port,
+                step_spacing=50,
+                port_lock=port_lock,
+                worker=worker,
+                on_failure=ui_runtime_controller.handle_script_check_failure,
+            )
         except BaseException:
             ui_runtime_controller.cancel_ob_sci_capture(capture_id)
             raise
@@ -669,7 +713,13 @@ def fft_stage_2(
     while True:
         capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
         try:
-            sci_acq.measurement_scan(port, step_spacing=50, port_lock=port_lock, worker=worker)
+            sci_acq.measurement_scan(
+                port,
+                step_spacing=50,
+                port_lock=port_lock,
+                worker=worker,
+                on_failure=ui_runtime_controller.handle_script_check_failure,
+            )
         except BaseException:
             ui_runtime_controller.cancel_ob_sci_capture(capture_id)
             raise

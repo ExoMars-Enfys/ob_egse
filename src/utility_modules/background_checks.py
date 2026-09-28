@@ -321,14 +321,23 @@ def check_science(response: Any, *, label: str = "SCI") -> Any:
         errors.append(f"ERROR_BYTE={response.ERROR_BYTE}")
     if getattr(response, "CMD_ID", None) != 0x0F:
         errors.append(f"CMD_ID={getattr(response, 'CMD_ID', None)}, expected 15")
-    for configured in (limits.DARK_SCIENCE_TEMPERATURE_LIMITS, limits.DARK_SCIENCE_LIMITS):
-        for field, (minimum, maximum) in configured.items():
-            value = getattr(response, field, None)
-            if value is not None and not minimum <= value <= maximum:
-                errors.append(f"{field}={value}, expected {minimum}..{maximum}")
+    for field, (minimum, maximum) in limits.DARK_SCIENCE_TEMPERATURE_LIMITS.items():
+        value = getattr(response, field, None)
+        if value is not None:
+            _check_science_temperature(field, value, minimum, maximum, errors)
+    for field, (minimum, maximum) in limits.DARK_SCIENCE_LIMITS.items():
+        value = getattr(response, field, None)
+        if value is not None and not minimum <= value <= maximum:
+            errors.append(f"{field}={value}, expected {minimum}..{maximum}")
     _assert_no_errors(label, errors)
     info_log.info("%s passed: %s", label, response)
     return response
+
+
+def _check_science_temperature(field: str, raw: int, minimum: float, maximum: float, errors: list[str]) -> None:
+    temp_c = eb_packet_utility.sci_temperature_to_c(field, raw)
+    if not minimum <= temp_c <= maximum:
+        errors.append(f"{field}={temp_c:.2f} C (raw {raw}), expected {minimum}..{maximum} C")
 
 
 def check_motor_params(response: Any, expected: tuple[int, int, int, int] = limits.MOTOR_NOMINAL_PARAMS) -> None:
@@ -577,8 +586,9 @@ def check_thermal_response(
     initial_values: dict[str, Any],
     heater_name: str,
     errors: list[str],
+    min_increase_adu: int = limits.HEATER_THERMAL_RESPONSE_MIN_ADU,
 ) -> None:
-    """Append an error when none of the monitored thermal values increases."""
+    """Append an error unless every monitored TRP rose by at least *min_increase_adu* (12-bit ADU)."""
     if not initial_values:
         event_log.warning(
             "%s heater thermal response cannot be compared because no baseline was supplied.", heater_name
@@ -588,8 +598,9 @@ def check_thermal_response(
     if any(value is None for value in values.values()) or any(value is None for value in initial_values.values()):
         event_log.warning("%s heater thermal response cannot be compared because a TRP value is missing.", heater_name)
         return
-    if not any(values[field] > (initial_values[field] + 4) for field in initial_values):
-        errors.append(f"{heater_name} heater did not increase the monitored thermal response")
+    increases = {field: (values[field] >> 4) - (initial_values[field] >> 4) for field in initial_values}
+    if not all(increase >= min_increase_adu for increase in increases.values()):
+        errors.append(f"{heater_name} heater did not raise every TRP by {min_increase_adu} ADU (changes: {increases})")
 
 
 def check_science_offsets(response: Any, swir_offset: int, mwir_offset: int, errors: list[str]) -> None:
@@ -692,7 +703,6 @@ def check_dark_science(hk: Any, science: Any) -> None:
     errors: list[str] = []
     configured_packets = (
         (hk, limits.DARK_HK_TEMPERATURE_LIMITS),
-        (science, limits.DARK_SCIENCE_TEMPERATURE_LIMITS),
         (science, limits.DARK_SCIENCE_LIMITS),
     )
     for packet, configured in configured_packets:
@@ -702,6 +712,12 @@ def check_dark_science(hk: Any, science: Any) -> None:
                 errors.append(f"{field} is missing")
             elif not minimum <= value <= maximum:
                 errors.append(f"{field}={value}, expected {minimum}..{maximum}")
+    for field, (minimum, maximum) in limits.DARK_SCIENCE_TEMPERATURE_LIMITS.items():
+        value = getattr(science, field, None)
+        if value is None:
+            errors.append(f"{field} is missing")
+        else:
+            _check_science_temperature(field, value, minimum, maximum, errors)
     _assert_no_errors("dark science", errors)
 
 

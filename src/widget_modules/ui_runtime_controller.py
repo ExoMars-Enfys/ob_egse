@@ -2015,8 +2015,12 @@ def _check_eb_sci_temperatures(received_start: int) -> None:
             value = getattr(packet, field, None)
             if value is None:
                 errors.append(f"SCI packet {packet_number}: missing field {field}")
-            elif not minimum <= value <= maximum:
-                errors.append(f"SCI packet {packet_number}: {field}={value}, expected {minimum}..{maximum}")
+                continue
+            temp_c = eb_packet_utility.sci_temperature_to_c(field, value)
+            if not minimum <= temp_c <= maximum:
+                errors.append(
+                    f"SCI packet {packet_number}: {field}={temp_c:.2f} C (raw {value}), expected {minimum}..{maximum} C"
+                )
     if errors:
         count = len(errors)
         numbered = "\n".join(f"{index + 1}. {error}" for index, error in enumerate(errors))
@@ -3332,6 +3336,36 @@ def update_packet_viewer(
         packet_list_controller.add_packet(packet_type, packet_data, label)
 
 
+_SCI_PLOT_KEYS = ("SWIR", "HT_SINK", "MWIR")
+
+
+def _record_sci_temperatures(
+    state: dict[str, Any], mode: str, fields: dict[str, str], get_field: Callable[[str], Any]
+) -> None:
+    """Remember the latest raw SCI temperatures so HK-rate plots can carry them forward."""
+    temps = {key: (field, get_field(field)) for key, field in fields.items() if get_field(field) is not None}
+    if temps:
+        state["latest_sci_temps"] = {"mode": mode, "values": temps}
+
+
+def _sci_temperature_plot_values(state: dict[str, Any], mode: str) -> list[list[float]]:
+    """Return the latest SCI temperatures (SWIR, heatsink, MWIR) for the Thermistors plot."""
+    latest = state.get("latest_sci_temps") or {}
+    values = latest.get("values", {}) if latest.get("mode") == mode else {}
+    adu_mode = str(state.get("hk_display_mode", "REAL")).upper() == "ADU"
+    result: list[list[float]] = []
+    for key in _SCI_PLOT_KEYS:
+        value = float("nan")
+        if key in values:
+            field, raw = values[key]
+            try:
+                value = float(int(raw) >> 4) if adu_mode else eb_packet_utility.sci_temperature_to_c(field, raw)
+            except (TypeError, ValueError, ZeroDivisionError):
+                value = float("nan")
+        result.append([value])
+    return result
+
+
 def update_plot_cards(
     state: dict[str, Any],
     hk: Any,
@@ -3358,7 +3392,7 @@ def update_plot_cards(
         if trp_values is not None:
             trp_card.push(
                 [time_value],
-                [[value] for value in trp_values],
+                [[value] for value in trp_values] + _sci_temperature_plot_values(state, "OB"),
             )
 
         ob_3v3 = decode_plot_field(hk, "HK_V_3V3", state)
@@ -3403,7 +3437,7 @@ def update_plot_cards(
     if trp_values is not None:
         trp_card.push(
             [time_value],
-            [[value] for value in trp_values],
+            [[value] for value in trp_values] + _sci_temperature_plot_values(state, "EB"),
         )
 
     voltage_values = decode_tuple(
@@ -3690,6 +3724,7 @@ def create_poll_tm(
 
                     latest_ob_sci = latest_sci
                     state["latest_ob_sci"] = latest_sci
+                    _record_sci_temperatures(state, "OB", {"SWIR": "SWIR_TEMP", "HT_SINK": "HT_SINK_TEMP"}, _field)
                     state_ob_metrics_card = state.get("ob_metrics_card")
                     if (
                         state_ob_metrics_card is not None
@@ -3795,6 +3830,12 @@ def create_poll_tm(
                         continue
                     sci_packets.append(latest_sci)
                     sci_packet_identities.add(sci_identity)
+                    _record_sci_temperatures(
+                        state,
+                        "EB",
+                        {"SWIR": "SWIR_END_TEMP", "HT_SINK": "HEATSINK_END_TEMP", "MWIR": "MWIR_END_TEMP"},
+                        lambda name, packet=latest_sci: getattr(packet, name, None),
+                    )
                     counts["sci"] = int(counts.get("sci", 0)) + 1
                     new_sci_packets += 1
 

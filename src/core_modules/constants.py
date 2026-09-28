@@ -64,8 +64,8 @@ ALIM_3V3 = (2.85, 3.75)
 WLIM_1V5 = (1.425, 1.575)
 ALIM_1V5 = (1.35, 1.65)
 
-WLIM_TPR = (-45, +35)
-ALIM_TPR = (-50, +45)
+WLIM_TPR = (-45, +45)
+ALIM_TPR = (-50, +50)
 
 # ADU-space limits derived from conversion formulas in utility_modules/hk_conversions.py
 # and utility_modules/eb_packet_utility.py
@@ -98,8 +98,8 @@ WLIM_1V5_ADU = (1425, 1575)
 ALIM_1V5_ADU = (1350, 1650)
 
 # OB thermistor ADU limits (adu_to_temp conversion)
-WLIM_TPR_ADU = (1849, 2178)
-ALIM_TPR_ADU = (1825, 2212)
+WLIM_TPR_ADU = (1849, 2212)
+ALIM_TPR_ADU = (1825, 2229)
 
 # ----Bus Voltage Settings-------------------------------------------------------------
 # Bus voltage settings for different modes and channels (Min, Nominal, Max)

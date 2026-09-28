@@ -730,6 +730,40 @@ def eb_tec_adu_to_temp(adu: int) -> float:
     return (-b - math.sqrt(discriminant)) / (2.0 * a)
 
 
+_PT1000_A = 3.9083e-3
+_PT1000_B = -5.775e-7
+
+
+def sci_pt1000_adu_to_temp(raw: int) -> float:
+    """Convert a 16-bit SCI PT1000 reading (12-bit ADC << 4, 10 kohm divider) to degrees Celsius."""
+    adc = raw / 16
+    if adc <= 0 or adc >= 4096:
+        return float("nan")
+    resistance = 10000.0 * adc / (4096 - adc)
+    discriminant = _PT1000_A * _PT1000_A - 4.0 * _PT1000_B * (1.0 - resistance / 1000.0)
+    if discriminant < 0:
+        return float("nan")
+    return (-_PT1000_A + math.sqrt(discriminant)) / (2.0 * _PT1000_B)
+
+
+# MWIR matches the EB TEC thermistor (reads the TEC setpoint), not the PT1000 divider.
+_SCI_TEMPERATURE_CONVERTERS = {
+    "SWIR_TEMP": sci_pt1000_adu_to_temp,
+    "HT_SINK_TEMP": sci_pt1000_adu_to_temp,
+    "HEATSINK_START_TEMP": sci_pt1000_adu_to_temp,
+    "HEATSINK_END_TEMP": sci_pt1000_adu_to_temp,
+    "SWIR_START_TEMP": sci_pt1000_adu_to_temp,
+    "SWIR_END_TEMP": sci_pt1000_adu_to_temp,
+    "MWIR_START_TEMP": eb_tec_adu_to_temp,
+    "MWIR_END_TEMP": eb_tec_adu_to_temp,
+}
+
+
+def sci_temperature_to_c(field: str, raw: int) -> float:
+    """Convert a raw SCI temperature field (OB SCI or EB SCI header) to degrees Celsius."""
+    return _SCI_TEMPERATURE_CONVERTERS[field](int(raw))
+
+
 def decode_eb_trps(adu: int) -> float:
     """Convert a thermistor ADU value to temperature in Celsius using the B-parameter equation."""
     # Constants

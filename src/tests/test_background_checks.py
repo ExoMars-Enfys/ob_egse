@@ -1,3 +1,4 @@
+import math
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -117,8 +118,24 @@ def _science(**overrides):
         )
     }
     values["CMD_ID"] = 0x0F
+    # Raw PT1000 readings seen in real OB SCI logs (~15 C).
+    values["HT_SINK_TEMP"] = 6270
+    values["SWIR_TEMP"] = 6270
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def test_sci_pt1000_conversion_matches_logged_ambient_readings():
+    from utility_modules import eb_packet_utility
+
+    assert eb_packet_utility.sci_pt1000_adu_to_temp(6282) == pytest.approx(15.43, abs=0.05)
+    assert math.isnan(eb_packet_utility.sci_pt1000_adu_to_temp(0))
+    assert eb_packet_utility.sci_temperature_to_c("MWIR_END_TEMP", 49172) == pytest.approx(-34.58, abs=0.05)
+
+
+def test_science_check_rejects_invalid_temperature():
+    with pytest.raises(AssertionError, match="SWIR_TEMP=nan C"):
+        check_science(_science(SWIR_TEMP=0), label="test science")
 
 
 def test_science_check_requires_every_tmstruct_field():
@@ -400,8 +417,8 @@ def test_dark_science_checks_all_configured_measurements():
         MWIR_HIGH=13,
         MWIR_MED=14,
         MWIR_LOW=15,
-        SWIR_TEMP=100,
-        HT_SINK_TEMP=100,
+        SWIR_TEMP=6270,
+        HT_SINK_TEMP=6270,
     )
     check_dark_science(_hk(), science)
 
@@ -413,8 +430,8 @@ def test_dark_science_rejects_missing_channel():
         SWIR_LOW=12,
         MWIR_HIGH=13,
         MWIR_MED=14,
-        SWIR_TEMP=100,
-        HT_SINK_TEMP=100,
+        SWIR_TEMP=6270,
+        HT_SINK_TEMP=6270,
     )
     with pytest.raises(AssertionError, match="MWIR_LOW is missing"):
         check_dark_science(_hk(), science)
@@ -589,3 +606,141 @@ def test_measurement_scan_async_respects_shared_port_lock(monkeypatch):
     assert isinstance(thread, type(threading.Thread()))
     thread.join(timeout=1)
     assert seen == ["entered", ("port", 50, True), "exited"]
+
+
+def _fake_dac_instrument(reading_for_offset):
+    """Simulated detector whose HIGH readings depend on the applied DAC offsets."""
+    applied = {"SWIR": 0, "MWIR": 0}
+    sent: list[tuple[int, int]] = []
+
+    def set_offset(swir, mwir):
+        applied["SWIR"], applied["MWIR"] = swir, mwir
+        sent.append((swir, mwir))
+
+    def science():
+        return SimpleNamespace(
+            SWIR_OFFSET=applied["SWIR"],
+            MWIR_OFFSET=applied["MWIR"],
+            SWIR_HIGH=reading_for_offset(applied["SWIR"]),
+            MWIR_HIGH=reading_for_offset(applied["MWIR"]),
+        )
+
+    return set_offset, science, sent
+
+
+def _run_abu_chop(monkeypatch, name, reading_for_offset, **kwargs):
+    from scripts_modules import abu_sequences
+
+    set_offset, science, sent = _fake_dac_instrument(reading_for_offset)
+    monkeypatch.setattr(abu_sequences, "_hk", lambda port: SimpleNamespace(PWR_STAT=3))
+    monkeypatch.setattr(abu_sequences, "repeat", lambda port, command, *args: set_offset(*args))
+    monkeypatch.setattr(abu_sequences, "_check_sci", lambda port, samp, skip: science())
+    return getattr(abu_sequences, name)("port", **kwargs), sent
+
+
+def _run_ob_fft_chop(monkeypatch, name, reading_for_offset, **kwargs):
+    set_offset, science, sent = _fake_dac_instrument(reading_for_offset)
+
+    def fake_transaction(worker, port_lock, func, port, *args):
+        if func is sci_acq.tc.hk_request:
+            return SimpleNamespace(PWR_STAT=3)
+        if func is sci_acq.sq.check_sci:
+            return science()
+        command, *values = args
+        if command is sci_acq.tc.sci_offset:
+            set_offset(*values)
+
+    monkeypatch.setattr(sci_acq, "_run_transaction", fake_transaction)
+    return getattr(sci_acq, name)("port", **kwargs), sent
+
+
+@pytest.mark.parametrize("name", ["swir_binary_chop", "mwir_binary_chop"])
+@pytest.mark.parametrize(
+    "reading_for_offset",
+    [lambda offset: 4095 - offset, lambda offset: 65535 - 16 * offset, lambda offset: 0],
+    ids=["in-window", "steep", "no-solution"],
+)
+def test_ob_fft_dac_chop_matches_abu_sequences(monkeypatch, name, reading_for_offset):
+    abu_result, abu_sent = _run_abu_chop(monkeypatch, name, reading_for_offset)
+    ob_result, ob_sent = _run_ob_fft_chop(monkeypatch, name, reading_for_offset)
+
+    assert ob_result == abu_result
+    assert ob_sent == abu_sent
+
+
+def _fake_scan_instrument():
+    """Simulated mechanism: every move completes immediately; records the command sequence."""
+    calls: list[tuple] = []
+    flags = SimpleNamespace(CAL=0, DIR=0, OUTER=0, BASE=0, MOVING=0, HOMING=0)
+
+    def hk():
+        return SimpleNamespace(
+            PWR_STAT=3,
+            MTR_CURRENT=64,
+            MTR_GUARD_SELECT=0,
+            MTR_CHOP=60,
+            MTR_SPEED=8,
+            MTR_FLAGS=flags,
+            MTR_ABS_STEPS=8960,
+            MTR_REL_STEPS=1,
+            ERROR_MTR=0,
+        )
+
+    def command(name, *args):
+        calls.append((name, *args))
+
+    def sci(samp, skip):
+        calls.append(("sci", samp, skip))
+        return SimpleNamespace(
+            **{name: 0 for name in ("MTR_ABS_STEPS", "SWIR_OFFSET", "MWIR_OFFSET", "HT_SINK_TEMP", "SWIR_TEMP")},
+            **{name: 0 for name in ("SWIR_LOW", "SWIR_MED", "SWIR_HIGH", "MWIR_LOW", "MWIR_MED", "MWIR_HIGH")},
+        )
+
+    return hk, command, sci, calls
+
+
+def test_ob_fft_measurement_scan_matches_abu_measurement_scan(monkeypatch):
+    from scripts_modules import abu_sequences
+
+    hk, command, sci, abu_calls = _fake_scan_instrument()
+    monkeypatch.setattr(abu_sequences, "_hk", lambda port: hk())
+    monkeypatch.setattr(abu_sequences, "_sci", lambda port, samp, skip: sci(samp, skip))
+    monkeypatch.setattr(abu_sequences, "repeat", lambda port, cmd, *args: command(cmd.__name__, *args))
+    monkeypatch.setattr(abu_sequences.time, "sleep", lambda _s: None)
+    abu_sequences.abu_measurement_scan("port", step_spacing=50)
+
+    hk, command, sci, ob_calls = _fake_scan_instrument()
+
+    def fake_transaction(worker, port_lock, func, port, *args):
+        if func is sci_acq.tc.hk_request:
+            return hk()
+        if func is sci_acq.tc.sci_request:
+            return sci(*args)
+        cmd, *values = args
+        return command(cmd.__name__, *values)
+
+    monkeypatch.setattr(sci_acq, "_run_transaction", fake_transaction)
+    faults = []
+    sci_acq.measurement_scan("port", step_spacing=50, on_failure=lambda label, errors: faults.append(label) or True)
+
+    assert ob_calls == abu_calls
+    assert sum(1 for call in ob_calls if call[0] == "sci") == 1 + len(range(0, 8600, 50))
+    # The simulated flags never satisfy the homing checks, so they must reach the operator prompt.
+    assert "Measurement scan cal to base" in faults
+    assert "Measurement scan home to outer" in faults
+
+
+def test_measurement_scan_stops_on_fault_without_handler(monkeypatch):
+    hk, command, sci, _calls = _fake_scan_instrument()
+
+    def fake_transaction(worker, port_lock, func, port, *args):
+        if func is sci_acq.tc.hk_request:
+            return hk()
+        if func is sci_acq.tc.sci_request:
+            return sci(*args)
+        cmd, *values = args
+        return command(cmd.__name__, *values)
+
+    monkeypatch.setattr(sci_acq, "_run_transaction", fake_transaction)
+    with pytest.raises(AssertionError, match="Measurement scan cal to base failed"):
+        sci_acq.measurement_scan("port", step_spacing=50)

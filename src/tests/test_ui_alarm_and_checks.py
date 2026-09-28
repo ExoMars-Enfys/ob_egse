@@ -284,7 +284,7 @@ def test_perform_post_failure_diagnostics_are_separate_from_errors() -> None:
         for detail in diagnostics
     )
     assert any(
-        "TEC_DETECTOR_TEMP: Got:" in detail and "Expected: -45.00 to 35.00 C" in detail and "[PASS]" in detail
+        "TEC_DETECTOR_TEMP: Got:" in detail and "Expected: -45.00 to 45.00 C" in detail and "[PASS]" in detail
         for detail in diagnostics
     )
 
