@@ -25,6 +25,7 @@ from utility_modules.port_selection import com_port_name, validate_com_port_sele
 from utility_modules import psu as psu
 from utility_modules import tc as tc
 from utility_modules import tm as tm
+from utility_modules.send_cmd import cmd_repeat as repeat
 
 # widgets
 from widget_modules import parent_window_widget
@@ -219,6 +220,10 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
         # ------------------------------------------------------------------------------------------
         # Clean up and exit
         # ------------------------------------------------------------------------------------------
+
+        # Ensure we're off either endstop when finishing up.
+        abu.move_off_endstops(ob_port)
+
         # Get final HK
         # sequences.parse_hk(ob_port)
 

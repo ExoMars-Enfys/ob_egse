@@ -87,6 +87,7 @@ class TM:
             [i[0] for i in pkt_struct],
             self.raw_bytes,
         )
+        self.params = []
         for k, v in param.items():
             setattr(self, str(k), v)
 
@@ -272,8 +273,9 @@ class NACK(TM):
     def __init__(self, response: Response):
         super().__init__(response)
 
-        const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
+        if const.ACK_LOG_FH is not None:
+            const.ACK_LOG_FH.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+            const.ACK_LOG_FH.write(f" - {bytes.hex(self.raw_bytes, ' ', 2)}\n")
         info_log.error(f"NACK recieved: {bytes.hex(self.raw_bytes, ' ', 2)}")
 
         self.decode_bytes(tmstruct.nack)
@@ -317,9 +319,9 @@ def parse_tm(response) -> Any:
         ack = SCI(response)
         if const.sci_queue is not None:
             const.sci_queue.put(ack)
-        info_log.warning(
-            f"SCI Received: SWIR_HIGH:{ack.SWIR_HIGH >> 4}, SWIR_MED:{ack.SWIR_MED >> 4}, SWIR_LOW:{ack.SWIR_LOW >> 4}, MWIR_HIGH:{ack.MWIR_HIGH >> 4}, MWIR_MED:{ack.MWIR_MED >> 4}, MWIR_LOW:{ack.MWIR_LOW >> 4}, HT_SINK_TEMP:{ack.HT_SINK_TEMP >> 4}, SWIR_TEMP:{ack.SWIR_TEMP >> 4}"
-        )
+        #info_log.warning(
+        #    f"SCI Received: SWIR_HIGH:{ack.SWIR_HIGH >> 4}, SWIR_MED:{ack.SWIR_MED >> 4}, SWIR_LOW:{ack.SWIR_LOW >> 4}, MWIR_HIGH:{ack.MWIR_HIGH >> 4}, MWIR_MED:{ack.MWIR_MED >> 4}, MWIR_LOW:{ack.MWIR_LOW >> 4}, HT_SINK_TEMP:{ack.HT_SINK_TEMP >> 4}, SWIR_TEMP:{ack.SWIR_TEMP >> 4}"
+        #)
     elif response.cmd_type == "NACK":
         ack = NACK(response)
     else:
