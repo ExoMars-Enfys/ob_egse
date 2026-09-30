@@ -125,12 +125,11 @@ def _science(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_sci_pt1000_conversion_matches_logged_ambient_readings():
-    from utility_modules import eb_packet_utility
+def test_sci_temperature_conversion_uses_shared_resistance_calibration():
+    from utility_modules import hk_conversions
 
-    assert eb_packet_utility.sci_pt1000_adu_to_temp(6282) == pytest.approx(15.43, abs=0.05)
-    assert math.isnan(eb_packet_utility.sci_pt1000_adu_to_temp(0))
-    assert eb_packet_utility.sci_temperature_to_c("MWIR_END_TEMP", 49172) == pytest.approx(-34.58, abs=0.05)
+    assert hk_conversions.sci_temperature_to_c("SWIR_TEMP", 6282) == pytest.approx(15.16, abs=0.05)
+    assert math.isnan(hk_conversions.sci_temperature_to_c("SWIR_TEMP", 0))
 
 
 def test_science_check_rejects_invalid_temperature():
@@ -628,6 +627,138 @@ def _fake_dac_instrument(reading_for_offset):
     return set_offset, science, sent
 
 
+def test_verify_sci_readings_checks_five_high_gain_samples_one_second_apart(monkeypatch):
+    responses = [
+        SimpleNamespace(
+            SWIR_OFFSET=2020,
+            MWIR_OFFSET=1920,
+            SWIR_HIGH=5250 + index,
+            MWIR_HIGH=25300 + index,
+        )
+        for index in range(5)
+    ]
+    requested = []
+    sleeps = []
+
+    def request_science(_port, checkpoint, **_kwargs):
+        requested.append(checkpoint)
+        return responses[len(requested) - 1]
+
+    monkeypatch.setattr(sci_acq.bg, "request_science", request_science)
+    monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
+    monkeypatch.setattr(sci_acq.time, "sleep", sleeps.append)
+
+    result = sci_acq.verify_sci_readings(
+        "port",
+        expected_swir_offset=2020,
+        expected_mwir_offset=1920,
+    )
+
+    assert result == responses
+    assert len(requested) == 5
+    assert sleeps == [1.0] * 4
+
+
+def test_verify_sci_readings_rejects_high_gain_values_outside_calibration(monkeypatch):
+    responses = [
+        SimpleNamespace(
+            SWIR_OFFSET=2020,
+            MWIR_OFFSET=1920,
+            SWIR_HIGH=5751 if index == 2 else 5250,
+            MWIR_HIGH=25300,
+        )
+        for index in range(5)
+    ]
+    monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: responses.pop(0))
+    monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
+    monkeypatch.setattr(sci_acq.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(AssertionError, match="SWIR_HIGH=5751"):
+        sci_acq.verify_sci_readings("port", expected_swir_offset=2020, expected_mwir_offset=1920)
+
+
+def test_verify_sci_readings_routes_failures_through_popup_callbacks(monkeypatch):
+    response = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=1920, SWIR_HIGH=5751, MWIR_HIGH=25300)
+    monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
+    monkeypatch.setattr(sci_acq.time, "sleep", lambda _seconds: None)
+    decisions = []
+    notifications = []
+
+    result = sci_acq.verify_sci_readings(
+        "port",
+        expected_swir_offset=2020,
+        expected_mwir_offset=1920,
+        on_failure=lambda label, errors, readings: decisions.append((label, errors, readings)) or True,
+        notify_negative=notifications.append,
+    )
+
+    assert len(result) == 5
+    assert decisions[0][0] == "SCI gain-channel readings"
+    assert any("SWIR_HIGH=5751" in error for error in decisions[0][1])
+    assert len(notifications) == 1
+
+
+def test_verify_dac_offset_checks_science_and_hk_echoes(monkeypatch):
+    sci = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=1920)
+    hk = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=2421)
+    monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: sci)
+    monkeypatch.setattr(sci_acq.bg, "request_hk", lambda *_args, **_kwargs: hk)
+
+    with pytest.raises(AssertionError, match="HK MWIR_OFFSET=2421"):
+        sci_acq.verify_dac_offset("port", expected_swir_offset=2020, expected_mwir_offset=1920)
+
+
+def test_choose_dac_offsets_reapplies_and_verifies_selected_pair(monkeypatch):
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, *_args, **_kwargs):
+            pass
+
+    commands = []
+    verifications = []
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
+    monkeypatch.setattr(
+        sci_acq,
+        "find_dac_offset",
+        lambda _port, sensor, *_args, **_kwargs: {"SWIR": 2020, "MWIR": 1920}[sensor],
+    )
+    monkeypatch.setattr(sci_acq, "_run_transaction", lambda *_args: commands.append(_args[-2:]))
+    monkeypatch.setattr(sci_acq, "verify_dac_offset", lambda *args, **kwargs: verifications.append(kwargs))
+
+    offsets = sci_acq.choose_dac_offsets("port")
+
+    assert offsets == (2020, 1920)
+    assert commands == [(2020, 1920)]
+    assert verifications[0]["expected_swir_offset"] == 2020
+    assert verifications[0]["expected_mwir_offset"] == 1920
+
+
+def test_choose_dac_offsets_rejects_out_of_range_selection_before_applying(monkeypatch):
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, *_args, **_kwargs):
+            pass
+
+    commands = []
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
+    monkeypatch.setattr(
+        sci_acq,
+        "find_dac_offset",
+        lambda _port, sensor, *_args, **_kwargs: {"SWIR": 1700, "MWIR": 1920}[sensor],
+    )
+    monkeypatch.setattr(sci_acq, "_run_transaction", lambda *_args: commands.append(_args[-2:]))
+
+    with pytest.raises(AssertionError, match="SWIR DAC offset 1700"):
+        sci_acq.choose_dac_offsets("port")
+
+    assert commands == []
+
+
 def _run_abu_chop(monkeypatch, name, reading_for_offset, **kwargs):
     from scripts_modules import abu_sequences
 
@@ -744,3 +875,25 @@ def test_measurement_scan_stops_on_fault_without_handler(monkeypatch):
     monkeypatch.setattr(sci_acq, "_run_transaction", fake_transaction)
     with pytest.raises(AssertionError, match="Measurement scan cal to base failed"):
         sci_acq.measurement_scan("port", step_spacing=50)
+
+
+def test_measurement_scan_routes_check_failures_to_popup_callback(monkeypatch):
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def home(self, *, label, **_kwargs):
+            if label == "measurement scan cal to base":
+                raise RuntimeError("calibration failed")
+
+    failures = []
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
+    monkeypatch.setattr(sci_acq, "_scan_step", lambda *_args, **_kwargs: None)
+
+    sci_acq.measurement_scan(
+        "port",
+        step_spacing=50,
+        on_failure=lambda label, errors: failures.append((label, errors)) or True,
+    )
+
+    assert failures == [("measurement scan cal to base", ["calibration failed"])]

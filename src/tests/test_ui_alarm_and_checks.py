@@ -1,6 +1,68 @@
+from datetime import datetime
 from types import SimpleNamespace
 from core_modules import config
 from widget_modules import ui_runtime_controller as urc
+
+
+def test_plot_samples_retain_real_and_adu_values_for_each_timestamp() -> None:
+    class _PlotCard:
+        def __init__(self) -> None:
+            self.samples = []
+
+        def set_stream_enabled(self, _enabled: bool) -> None:
+            pass
+
+        def push(self, *args, **kwargs) -> None:
+            self.samples.append((args, kwargs))
+
+    trp_card = _PlotCard()
+    voltage_card = _PlotCard()
+    timestamp = datetime(2026, 9, 29, 12, 0, 0)
+    hk = SimpleNamespace(
+        TIME=timestamp,
+        DIGITAL_TRP=2048,
+        DETEC_TRP=2100,
+        MECH_TRP=2200,
+        MOTOR_TRP=2300,
+        HK_V_3V3=2000,
+        HK_V_1V5=2500,
+    )
+
+    state = {
+        "mode": "OB",
+        "hk_display_mode": "REAL",
+        "psu_replay": {},
+        "latest_hk_packet": hk,
+        "latest_sci_temps": {"mode": "OB", "values": {"SWIR": ("SWIR_TEMP", 6282)}},
+    }
+    urc.update_plot_cards(
+        state,
+        hk,
+        trp_card,
+        voltage_card,
+    )
+
+    trp_args, trp_kwargs = trp_card.samples[0]
+    assert trp_args[0] == [timestamp]
+    assert trp_kwargs["display_values"]["ADU"][0] == [2048.0]
+    assert trp_kwargs["display_values"]["REAL"][0][0] != trp_kwargs["display_values"]["ADU"][0][0]
+    assert all(value[0] != value[0] for value in trp_kwargs["display_values"]["REAL"][4:])
+
+    sci_timestamp = timestamp.replace(second=1)
+    urc._push_sci_temperature_plot(
+        state,
+        SimpleNamespace(TIME=sci_timestamp, SWIR_TEMP=6282, HT_SINK_TEMP=6282),
+        "OB",
+        trp_card,
+    )
+    sci_args, sci_kwargs = trp_card.samples[1]
+    assert sci_args[0] == [sci_timestamp]
+    assert sci_kwargs["display_values"]["ADU"][4] == [392.0]
+    assert sci_kwargs["display_values"]["REAL"][4][0] > 0
+
+    voltage_args, voltage_kwargs = voltage_card.samples[0]
+    assert voltage_args[0] == [timestamp]
+    assert voltage_kwargs["display_values"]["ADU"][:2] == [[2000.0], [2500.0]]
 
 
 class _DummyLogger:

@@ -18,9 +18,27 @@ from typing import Any, Callable
 
 from utility_modules.eb_packet_utility import adu_to_temp as decode_ob_trps
 from utility_modules.eb_packet_utility import decode_eb_trps
-from utility_modules.eb_packet_utility import sci_temperature_to_c
+from utility_modules.eb_packet_utility import resistance_to_temp
 
 ConvertFn = Callable[[int], float]
+SCI_TEMPERATURE_FIELDS = (
+    "SWIR_TEMP",
+    "HT_SINK_TEMP",
+    "HEATSINK_START_TEMP",
+    "HEATSINK_END_TEMP",
+    "SWIR_START_TEMP",
+    "SWIR_END_TEMP",
+    "MWIR_START_TEMP",
+    "MWIR_END_TEMP",
+)
+
+def sci_temperature_to_c(field: str, raw: int) -> float:
+    """Convert a raw SCI temperature field to degrees Celsius."""
+    adc = int(raw) >> 4
+    if not 0 < adc < 4096:
+        return float("nan")
+    resistance = 10000.0 * adc / (4096 - adc)
+    return resistance_to_temp(resistance)
 
 
 @dataclass(frozen=True)
@@ -62,16 +80,7 @@ CONVERSIONS: dict[str, FieldConversion] = {
     # ── SCI temperatures (OB SCI and EB SCI header) ──────────────────────────
     **{
         field: FieldConversion("°C", lambda raw, field=field: sci_temperature_to_c(field, raw))
-        for field in (
-            "SWIR_TEMP",
-            "HT_SINK_TEMP",
-            "HEATSINK_START_TEMP",
-            "HEATSINK_END_TEMP",
-            "SWIR_START_TEMP",
-            "SWIR_END_TEMP",
-            "MWIR_START_TEMP",
-            "MWIR_END_TEMP",
-        )
+        for field in SCI_TEMPERATURE_FIELDS
     },
 }
 

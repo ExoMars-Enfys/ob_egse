@@ -2016,7 +2016,7 @@ def _check_eb_sci_temperatures(received_start: int) -> None:
             if value is None:
                 errors.append(f"SCI packet {packet_number}: missing field {field}")
                 continue
-            temp_c = eb_packet_utility.sci_temperature_to_c(field, value)
+            temp_c = hk_conversions.sci_temperature_to_c(field, value)
             if not minimum <= temp_c <= maximum:
                 errors.append(
                     f"SCI packet {packet_number}: {field}={temp_c:.2f} C (raw {value}), expected {minimum}..{maximum} C"
@@ -3336,9 +3336,6 @@ def update_packet_viewer(
         packet_list_controller.add_packet(packet_type, packet_data, label)
 
 
-_SCI_PLOT_KEYS = ("SWIR", "HT_SINK", "MWIR")
-
-
 def _record_sci_temperatures(
     state: dict[str, Any], mode: str, fields: dict[str, str], get_field: Callable[[str], Any]
 ) -> None:
@@ -3348,22 +3345,41 @@ def _record_sci_temperatures(
         state["latest_sci_temps"] = {"mode": mode, "values": temps}
 
 
-def _sci_temperature_plot_values(state: dict[str, Any], mode: str) -> list[list[float]]:
-    """Return the latest SCI temperatures (SWIR, heatsink, MWIR) for the Thermistors plot."""
-    latest = state.get("latest_sci_temps") or {}
-    values = latest.get("values", {}) if latest.get("mode") == mode else {}
-    adu_mode = str(state.get("hk_display_mode", "REAL")).upper() == "ADU"
-    result: list[list[float]] = []
-    for key in _SCI_PLOT_KEYS:
-        value = float("nan")
-        if key in values:
-            field, raw = values[key]
+def _push_sci_temperature_plot(state: dict[str, Any], packet: Any, mode: str, trp_card: Any) -> None:
+    """Plot SCI temperatures once, at the timestamp of their SCI packet."""
+    timestamp = packet.get("TIME") if isinstance(packet, dict) else getattr(packet, "TIME", None)
+    if timestamp is None:
+        return
+
+    hk_packet = state.get("latest_hk_packet")
+    hk_fields = _NATIVE_OB_TRP_FIELDS if mode == "OB" else _EB_OB_TRP_FIELDS
+    sci_fields = (
+        ("SWIR_TEMP", "HT_SINK_TEMP", None)
+        if mode == "OB"
+        else ("SWIR_END_TEMP", "HEATSINK_END_TEMP", "MWIR_END_TEMP")
+    )
+    display_values: dict[str, list[list[float]]] = {}
+    for display_mode in ("REAL", "ADU"):
+        display_state = {**state, "hk_display_mode": display_mode}
+        values = []
+        for field in hk_fields:
+            value = decode_plot_field(hk_packet, field, display_state) if hk_packet is not None else None
+            values.append([float(value) if value is not None else float("nan")])
+        for field in sci_fields:
+            raw = None if field is None else (packet.get(field) if isinstance(packet, dict) else getattr(packet, field, None))
             try:
-                value = float(int(raw) >> 4) if adu_mode else eb_packet_utility.sci_temperature_to_c(field, raw)
+                value = (
+                    float(int(raw) >> 4)
+                    if display_mode == "ADU"
+                    else hk_conversions.sci_temperature_to_c(field, raw)
+                )
             except (TypeError, ValueError, ZeroDivisionError):
                 value = float("nan")
-        result.append([value])
-    return result
+            values.append([float(value)])
+        display_values[display_mode] = values
+
+    selected_display_mode = "ADU" if str(state.get("hk_display_mode", "REAL")).upper() == "ADU" else "REAL"
+    trp_card.push([timestamp], display_values[selected_display_mode], display_values=display_values)
 
 
 def update_plot_cards(
@@ -3382,31 +3398,53 @@ def update_plot_cards(
         replay["hk_anchor"] = time_value
 
     mode = str(state.get("mode", "EB")).upper()
+    display_states = {
+        display_mode: {**state, "hk_display_mode": display_mode}
+        for display_mode in ("REAL", "ADU")
+    }
+    selected_display_mode = "ADU" if str(state.get("hk_display_mode", "REAL")).upper() == "ADU" else "REAL"
+
+    def _values_for_display(fields: tuple[str, ...], display_mode: str) -> list[list[float]]:
+        values = []
+        for field in fields:
+            value = decode_plot_field(hk, field, display_states[display_mode])
+            values.append([float(value) if value is not None else float("nan")])
+        return values
 
     if mode == "OB":
         # Receiving a standalone OB HK packet proves that the OB stream is alive.
         trp_card.set_stream_enabled(True)
         voltage_card.set_stream_enabled(True)
 
-        trp_values = decode_tuple(hk, _NATIVE_OB_TRP_FIELDS, state)
-        if trp_values is not None:
+        trp_display_values = {
+            display_mode: _values_for_display(_NATIVE_OB_TRP_FIELDS, display_mode)
+            + [[float("nan")]] * 3
+            for display_mode in ("REAL", "ADU")
+        }
+        if any(math.isfinite(values[0]) for mode_values in trp_display_values.values() for values in mode_values):
+            trp_values = trp_display_values[selected_display_mode]
             trp_card.push(
                 [time_value],
-                [[value] for value in trp_values] + _sci_temperature_plot_values(state, "OB"),
+                trp_values,
+                display_values=trp_display_values,
             )
 
-        ob_3v3 = decode_plot_field(hk, "HK_V_3V3", state)
-        ob_1v5 = decode_plot_field(hk, "HK_V_1V5", state)
-        if ob_3v3 is not None or ob_1v5 is not None:
+        voltage_display_values = {
+            display_mode: _values_for_display(("HK_V_3V3", "HK_V_1V5"), display_mode)
+            + [[float("nan")]]
+            for display_mode in ("REAL", "ADU")
+        }
+        if any(
+            math.isfinite(values[0])
+            for mode_values in voltage_display_values.values()
+            for values in mode_values[:2]
+        ):
             # The voltage card has three series: OB 3V3, OB 1V5 and EB 3V3.
             # Do not update the EB series from a standalone OB packet.
             voltage_card.push(
                 [time_value],
-                [
-                    [ob_3v3 if ob_3v3 is not None else float("nan")],
-                    [ob_1v5 if ob_1v5 is not None else float("nan")],
-                    [float("nan")],
-                ],
+                voltage_display_values[selected_display_mode],
+                display_values=voltage_display_values,
             )
 
         return
@@ -3433,22 +3471,28 @@ def update_plot_cards(
     if not ob_enabled:
         return
 
-    trp_values = decode_tuple(hk, _EB_OB_TRP_FIELDS, state)
-    if trp_values is not None:
+    trp_display_values = {
+        display_mode: _values_for_display(_EB_OB_TRP_FIELDS, display_mode)
+        + [[float("nan")]] * 3
+        for display_mode in ("REAL", "ADU")
+    }
+    if any(math.isfinite(values[0]) for mode_values in trp_display_values.values() for values in mode_values):
+        trp_values = trp_display_values[selected_display_mode]
         trp_card.push(
             [time_value],
-            [[value] for value in trp_values] + _sci_temperature_plot_values(state, "EB"),
+            trp_values,
+            display_values=trp_display_values,
         )
 
-    voltage_values = decode_tuple(
-        hk,
-        ("OB_3V3_VOLTAGE", "OB_1V5_VOLTAGE", "EB_MEAS_3V3"),
-        state,
-    )
-    if voltage_values is not None:
+    voltage_display_values = {
+        display_mode: _values_for_display(("OB_3V3_VOLTAGE", "OB_1V5_VOLTAGE", "EB_MEAS_3V3"), display_mode)
+        for display_mode in ("REAL", "ADU")
+    }
+    if any(math.isfinite(values[0]) for mode_values in voltage_display_values.values() for values in mode_values):
         voltage_card.push(
             [time_value],
-            [[value] for value in voltage_values],
+            voltage_display_values[selected_display_mode],
+            display_values=voltage_display_values,
         )
 
 
@@ -3587,6 +3631,7 @@ def create_poll_tm(
                             mms_cfg["pending"] = False
                             logger.exception("Could not schedule MMS task: %s", exc)
 
+            state["latest_hk_packet"] = hk
             update_plot_cards(state, hk, trp_card, voltage_card)
             if hk_explorer_card is not None:
                 hk_explorer_card.push_data({"EB_HK": hk})
@@ -3725,6 +3770,7 @@ def create_poll_tm(
                     latest_ob_sci = latest_sci
                     state["latest_ob_sci"] = latest_sci
                     _record_sci_temperatures(state, "OB", {"SWIR": "SWIR_TEMP", "HT_SINK": "HT_SINK_TEMP"}, _field)
+                    _push_sci_temperature_plot(state, latest_sci, "OB", trp_card)
                     state_ob_metrics_card = state.get("ob_metrics_card")
                     if (
                         state_ob_metrics_card is not None
@@ -3836,6 +3882,7 @@ def create_poll_tm(
                         {"SWIR": "SWIR_END_TEMP", "HT_SINK": "HEATSINK_END_TEMP", "MWIR": "MWIR_END_TEMP"},
                         lambda name, packet=latest_sci: getattr(packet, name, None),
                     )
+                    _push_sci_temperature_plot(state, latest_sci, "EB", trp_card)
                     counts["sci"] = int(counts.get("sci", 0)) + 1
                     new_sci_packets += 1
 

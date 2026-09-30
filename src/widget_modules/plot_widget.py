@@ -62,7 +62,7 @@ class PlotCardController:
     plot: Any
     set_mode: Callable[[str], None]
     set_display_mode: Callable[[str], None]
-    push: Callable[[list[Any], list[list[float]]], None]
+    push: Callable[..., None]
     set_series_labels: Callable[[list[str]], None]
     set_stream_enabled: Callable[[bool], None]
     close: Callable[[], None]
@@ -307,6 +307,8 @@ def create_plot_card(
     active_y_limits = _selected_y_limits()
     limits_user_visible = True
     rolling_y_values = [deque(maxlen=limit) for _ in series]
+    history_times: deque[Any] = deque(maxlen=limit)
+    display_history = {mode: [deque(maxlen=limit) for _ in series] for mode in ("REAL", "ADU")}
 
     def _rolling_auto_limits() -> tuple[float, float] | None:
         values: list[float] = []
@@ -476,13 +478,33 @@ def create_plot_card(
     stream_enabled = True
 
     def _reset_series() -> None:
+        plot.x.clear()
+        for values in plot.Y:
+            values.clear()
         for line in lines:
             line.set_data([], [])
+        history_times.clear()
+        for mode_history in display_history.values():
+            for history in mode_history:
+                history.clear()
         for history in rolling_y_values:
             history.clear()
         ax.relim()
         ax.autoscale_view(scalex=True, scaley=False)
         _redraw_plot()
+
+    def _replot_display_history() -> None:
+        timestamps = list(history_times)
+        plot.x[:] = timestamps
+        for index, line in enumerate(lines):
+            values = list(display_history[current_display_mode][index])
+            plot.Y[index][:] = values
+            line.set_data(timestamps, values)
+            rolling_y_values[index].clear()
+            rolling_y_values[index].extend(values)
+        _apply_y_axis_policy()
+        _update_limit_lines()
+        _refresh_legend()
 
     _apply_y_axis_policy()
     ax.set_ylabel("ADU" if current_display_mode == "ADU" else y_label)
@@ -612,7 +634,7 @@ def create_plot_card(
             display_upper = "REAL"
         current_display_mode = display_upper
         _apply_display_configuration()
-        _refresh_legend()
+        _replot_display_history()
 
     def set_stream_enabled(enabled: bool) -> None:
         nonlocal stream_enabled
@@ -622,16 +644,35 @@ def create_plot_card(
         stream_enabled = enabled
         _reset_series()
 
-    def push(time_points: list[Any], series_values: list[list[float]]) -> None:
+    def push(
+        time_points: list[Any],
+        series_values: list[list[float]],
+        *,
+        display_values: dict[str, list[list[float]]] | None = None,
+    ) -> None:
         """Push one sample per series.  series_values[i] is the list of y-values
-        for series i at the corresponding time_points."""
+        for series i at the corresponding time_points. Optional display_values
+        retains alternate REAL/ADU values for complete mode-switch redraws."""
         if stream_enabled and time_points:
+            values_by_mode = {
+                mode: (display_values or {}).get(mode, series_values)
+                for mode in ("REAL", "ADU")
+            }
+            for point_index, timestamp in enumerate(time_points):
+                history_times.append(timestamp)
+                for mode, mode_values in values_by_mode.items():
+                    for index, history in enumerate(display_history[mode]):
+                        try:
+                            history.append(float(mode_values[index][point_index]))
+                        except (IndexError, TypeError, ValueError):
+                            history.append(float("nan"))
+
             for index, values in enumerate(series_values[: len(rolling_y_values)]):
                 for value in values:
                     try:
                         rolling_y_values[index].append(float(value))
                     except (TypeError, ValueError):
-                        continue
+                        rolling_y_values[index].append(float("nan"))
             push_y_limits: tuple[float, float] | str
             if active_y_limits is not None:
                 push_y_limits = active_y_limits

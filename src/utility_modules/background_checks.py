@@ -18,7 +18,7 @@ from typing import Any, Callable
 from core_modules import config
 from core_modules import constants as const  # noqa: F401 - re-exported for test monkeypatching
 from core_modules import measurement_config as limits
-from utility_modules import eb_packet_utility, psu, tc
+from utility_modules import eb_packet_utility, hk_conversions, psu, tc
 from utility_modules.send_cmd import cmd_repeat as repeat
 
 event_log = logging.getLogger("event_log")
@@ -335,7 +335,7 @@ def check_science(response: Any, *, label: str = "SCI") -> Any:
 
 
 def _check_science_temperature(field: str, raw: int, minimum: float, maximum: float, errors: list[str]) -> None:
-    temp_c = eb_packet_utility.sci_temperature_to_c(field, raw)
+    temp_c = hk_conversions.sci_temperature_to_c(field, raw)
     if not minimum <= temp_c <= maximum:
         errors.append(f"{field}={temp_c:.2f} C (raw {raw}), expected {minimum}..{maximum} C")
 

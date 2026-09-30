@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from analysis_modules.plot_all import (
     build_hk_motor_anchors,
+    build_sci_temperature_series,
     interpolate_mode0_sci_times,
 )
 
@@ -23,6 +26,18 @@ def test_mode0_times_interpolate_from_hk_motor_positions():
     )
 
     assert result == [start + timedelta(seconds=5)]
+
+
+def test_sci_temperatures_are_converted_and_keep_packet_timestamps():
+    timestamp = datetime(2026, 9, 24, 10, 0, 0)
+    packets = [{"timestamp": timestamp, "raw_fields": {"SWIR_TEMP": 6282}}]
+
+    result = build_sci_temperature_series(packets)
+
+    timestamps, values = result["SCI_SWIR"]
+    assert timestamps == [timestamp]
+    assert values[0] == pytest.approx(15.08, abs=0.02)
+    assert result["SCI_HEATSINK"] == ([], [])
 
 
 def test_mode0_interpolation_handles_reverse_motor_motion():
