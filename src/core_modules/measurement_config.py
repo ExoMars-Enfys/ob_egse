@@ -4,7 +4,7 @@ Keep qualification thresholds here rather than in ``constants.py`` so they can
 be updated without changing protocol/application constants.
 """
 
-from core_modules.constants import WLIM_TPR
+from core_modules.constants import ALIM_TPR
 
 HK_REQUIRED_FIELDS = (
     "ERROR_BYTE",
@@ -134,16 +134,24 @@ HEATER_THERMAL_RESPONSE_MIN_ADU = 10
 HEATER_THERMAL_RESPONSE_TIMEOUT_S = 180.0
 # SCI temperature limits in degrees C, shared with the other instrument thermistor ranges.
 DARK_SCIENCE_TEMPERATURE_LIMITS = {
-    "SWIR_TEMP": [0, 200],
-    "HT_SINK_TEMP": WLIM_TPR,
+    "SWIR_TEMP": ALIM_TPR,
+    "HT_SINK_TEMP": ALIM_TPR,
 }
 EB_SCI_TEMPERATURE_LIMITS = {
     "HEATSINK_START_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["HT_SINK_TEMP"],
     "HEATSINK_END_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["HT_SINK_TEMP"],
     "SWIR_START_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["SWIR_TEMP"],
     "SWIR_END_TEMP": DARK_SCIENCE_TEMPERATURE_LIMITS["SWIR_TEMP"],
-    "MWIR_START_TEMP": WLIM_TPR,
-    "MWIR_END_TEMP": WLIM_TPR,
+    "MWIR_START_TEMP": ALIM_TPR,
+    "MWIR_END_TEMP": ALIM_TPR,
+}
+SCI_DAC_OFFSET_LIMITS = {
+    "SWIR": (1820, 2220),
+    "MWIR": (2000, 3000),
+}
+SCI_HIGH_GAIN_DN_LIMITS = {
+    "SWIR_HIGH": (4750, 5750),
+    "MWIR_HIGH": (20300, 30300),
 }
 DARK_POSITIONS = {"SWIR": 9600, "MWIR": 8000}
 DARK_SCIENCE_LIMITS = {

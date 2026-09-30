@@ -417,15 +417,12 @@ def _set_hk_display_mode(state: dict[str, Any], mode: str) -> None:
             except Exception:
                 continue
 
-    # Reset plot traces to avoid mixing REAL and ADU y-values in the same history window.
     for key in ("trp_card", "voltage_card"):
         plot_controller = state.get(key)
         if plot_controller is None:
             continue
         try:
             plot_controller.set_display_mode(mode_upper)
-            plot_controller.set_stream_enabled(False)
-            plot_controller.set_stream_enabled(True)
         except Exception:
             continue
 

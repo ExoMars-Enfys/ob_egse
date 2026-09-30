@@ -31,7 +31,7 @@ from matplotlib.widgets import Button
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core_modules import tmstruct
-from utility_modules import eb_packet_utility
+from utility_modules import eb_packet_utility, hk_conversions
 from utility_modules.eb_packet_utility import adu_to_temp, decode_eb_trps, eb_tec_adu_to_temp, parse_eb_hk
 from utility_modules.psu_log_utility import load_psu_channel_samples
 
@@ -493,6 +493,40 @@ def build_hk_arrays(hk_packets):
     return timestamps, temp_data, volt_data
 
 
+SCI_TEMP_PLOT_SPECS = (
+    ("SCI_SWIR", "SWIR_TEMP", "SCI SWIR", "o"),
+    ("SCI_HEATSINK", "HT_SINK_TEMP", "SCI Heatsink", "s"),
+    ("SCI_HEATSINK_START", "HEATSINK_START_TEMP", "SCI Heatsink Start", "^"),
+    ("SCI_HEATSINK_END", "HEATSINK_END_TEMP", "SCI Heatsink End", "v"),
+    ("SCI_SWIR_START", "SWIR_START_TEMP", "SCI SWIR Start", "D"),
+    ("SCI_SWIR_END", "SWIR_END_TEMP", "SCI SWIR End", "P"),
+    ("SCI_MWIR_START", "MWIR_START_TEMP", "SCI MWIR Start", "x"),
+    ("SCI_MWIR_END", "MWIR_END_TEMP", "SCI MWIR End", "*"),
+)
+
+
+def build_sci_temperature_series(sci_packets):
+    """Convert available SCI header temperatures into timestamped plot series."""
+    result = {key: ([], []) for key, _field, _label, _marker in SCI_TEMP_PLOT_SPECS}
+    for packet in sci_packets:
+        timestamp = packet.get("timestamp")
+        raw_fields = packet.get("raw_fields", {})
+        if timestamp is None or not isinstance(raw_fields, dict):
+            continue
+        for key, field, _label, _marker in SCI_TEMP_PLOT_SPECS:
+            raw = raw_fields.get(field)
+            if raw is None:
+                continue
+            try:
+                temperature = hk_conversions.sci_temperature_to_c(field, raw)
+            except (TypeError, ValueError, ZeroDivisionError):
+                continue
+            if np.isfinite(temperature):
+                result[key][0].append(timestamp)
+                result[key][1].append(float(temperature))
+    return result
+
+
 def build_hk_motor_anchors(hk_packets, source_type):
     """Return time-ordered motor positions for one SCI source."""
     anchors = []
@@ -940,6 +974,11 @@ def extract_sci_packets(log_path, rs422_offset=timedelta(hours=RS422_TIME_OFFSET
                         else None
                     ),
                     "header_mode": getattr(sci_data, "ACQUISITION_MODE", None),
+                    "raw_fields": {
+                        field: getattr(sci_data, field)
+                        for field in hk_conversions.SCI_TEMPERATURE_FIELDS
+                        if hasattr(sci_data, field)
+                    },
                 }
             )
 
@@ -1561,7 +1600,7 @@ TEMP_PLOT_SPECS = [
     ("EB_PSU_BOARD", "EB PSU Board", "p-", 3),
     ("EB_INTERNAL_TRP", "EB Int. TRP", "H-", 3),
     ("EB_PELTIER", "EB Peltier", "*-", 6),
-]
+] + [(key, label, marker, 5) for key, _field, label, marker in SCI_TEMP_PLOT_SPECS]
 
 VOLT_PLOT_SPECS = [
     ("EB_12V", "EB +12V", "o-", 3),
@@ -1620,6 +1659,7 @@ def _draw_all_axes(
     fig,
     hk_timestamps,
     temp_data,
+    sci_temp_data,
     volt_data,
     gaps,
     temp_jumps,
@@ -1708,11 +1748,18 @@ def _draw_all_axes(
         for key, label, style, ms in TEMP_PLOT_SPECS:
             if not _has_param("temp", key):
                 continue
-            if key not in temp_data:
+            if key in temp_data:
+                values = temp_data[key]
+                if key == "EB_PELTIER" and not any(not np.isnan(v) for v in values):
+                    continue
+                ax_temp.plot(hk_timestamps, values, style, label=label, markersize=ms)
+            elif key in sci_temp_data:
+                timestamps, values = sci_temp_data[key]
+                if not timestamps:
+                    continue
+                ax_temp.plot(timestamps, values, linestyle="None", marker=style, label=label, markersize=ms)
+            else:
                 continue
-            if key == "EB_PELTIER" and not any(not np.isnan(v) for v in temp_data[key]):
-                continue
-            ax_temp.plot(hk_timestamps, temp_data[key], style, label=label, markersize=ms)
             plotted_temp += 1
         if plotted_temp == 0:
             _show_no_params(ax_temp, "Temperatures")
@@ -2187,6 +2234,7 @@ def main():
         all_sci.sort(key=lambda pkt: (pkt["timestamp"] is None, pkt["timestamp"]))
 
         hk_timestamps, temp_data, volt_data = build_hk_arrays(all_hk)
+        sci_temp_data = build_sci_temperature_series(all_sci)
         err_ts, err_data = build_error_byte_arrays(all_hk)
         if all_hk:
             gaps, temp_jumps, volt_jumps = detect_hk_anomalies(hk_timestamps, temp_data, volt_data)
@@ -2297,6 +2345,7 @@ def main():
             "sci_field_options": sci_field_options,
             "hk_timestamps": hk_timestamps,
             "temp_data": temp_data,
+            "sci_temp_data": sci_temp_data,
             "volt_data": volt_data,
             "gaps": gaps,
             "temp_jumps": temp_jumps,
@@ -3229,6 +3278,7 @@ def main():
             fig,
             result["hk_timestamps"],
             result["temp_data"],
+            result["sci_temp_data"],
             result["volt_data"],
             result["gaps"],
             result["temp_jumps"],

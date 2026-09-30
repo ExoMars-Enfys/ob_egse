@@ -592,8 +592,25 @@ def fft_stage_1(
         readings=measured,
     )
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
-    sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
     while True:
+        swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
+            port,
+            port_lock=port_lock,
+            worker=worker,
+            on_failure=ui_runtime_controller.handle_script_check_failure,
+            notify_negative=ui_runtime_controller.notify_negative,
+            notify_positive=ui_runtime_controller.notify_positive,
+        )
+        sci_acq.verify_sci_readings(
+            port,
+            port_lock=port_lock,
+            worker=worker,
+            expected_swir_offset=swir_offset,
+            expected_mwir_offset=mwir_offset,
+            on_failure=ui_runtime_controller.handle_script_check_failure,
+            notify_negative=ui_runtime_controller.notify_negative,
+            notify_positive=ui_runtime_controller.notify_positive,
+        )
         capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 1 science scan")
         try:
             sci_acq.measurement_scan(
@@ -709,8 +726,25 @@ def fft_stage_2(
     # region SCI ACQ with TEC
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
-    sci_acq.choose_dac_offsets(port, port_lock=port_lock, worker=worker)
     while True:
+        swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
+            port,
+            port_lock=port_lock,
+            worker=worker,
+            on_failure=ui_runtime_controller.handle_script_check_failure,
+            notify_negative=ui_runtime_controller.notify_negative,
+            notify_positive=ui_runtime_controller.notify_positive,
+        )
+        sci_acq.verify_sci_readings(
+            port,
+            port_lock=port_lock,
+            worker=worker,
+            expected_swir_offset=swir_offset,
+            expected_mwir_offset=mwir_offset,
+            on_failure=ui_runtime_controller.handle_script_check_failure,
+            notify_negative=ui_runtime_controller.notify_negative,
+            notify_positive=ui_runtime_controller.notify_positive,
+        )
         capture_id = ui_runtime_controller.begin_ob_sci_capture("OB FFT Stage 2 TEC science scan")
         try:
             sci_acq.measurement_scan(

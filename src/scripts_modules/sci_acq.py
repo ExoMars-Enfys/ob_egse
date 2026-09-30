@@ -5,11 +5,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
-from core_modules import config
 from core_modules import measurement_config as limits
-from scripts_modules import sequences as sq
 from utility_modules import background_checks as bg
 from utility_modules import tc
 from utility_modules.send_cmd import cmd_repeat as repeat
@@ -17,12 +15,25 @@ from utility_modules.send_cmd import cmd_repeat as repeat
 # ----Logging Setup---------------------------------------------------------------------------------
 event_log = logging.getLogger("event_log")
 info_log = logging.getLogger("info_log")
+_scan_quiet = threading.Event()
+
+
+class _ScanLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _scan_quiet.is_set() or record.levelno >= logging.ERROR
+
+
+_scan_log_filter = _ScanLogFilter()
+event_log.addFilter(_scan_log_filter)
+info_log.addFilter(_scan_log_filter)
 
 # ----Constants Setup-------------------------------------------------------------------------------
 
 # Binary chop parameters
 SWIR_BINARY_CHOP_LOCATION = 9600
+SWIR_BINARY_CHOP_TARGET = 5250
 MWIR_BINARY_CHOP_LOCATION = 8000
+MWIR_BINARY_CHOP_TARGET = 25300
 
 # ----Helper Functions------------------------------------------------------------------------------
 
@@ -46,98 +57,118 @@ def _run_transaction(worker: Any, port_lock: Any, func, *args, **kwargs):
     return _run_with_port_lock(port_lock, func, *args, **kwargs)
 
 
-# Direct copies of abu_sequences.mwir_binary_chop / swir_binary_chop; only the serial access is
-# routed through the OB FFT worker/port lock.
-def _enable_detector(port: Any, port_lock: Any, worker: Any) -> None:
+def _run_with_failure_popup(on_failure: Callable[..., bool] | None, failure_label: str, func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except Exception as exc:
+        if on_failure is not None and on_failure(failure_label, [str(exc)]):
+            return None
+        raise
+
+
+def find_dac_offset(
+    port: Any,
+    sensor_name: str,
+    target_output: int,
+    fixed_offset: int,
+    max_miss: int = 1600,
+    port_lock: Any = None,
+    worker: Any = None,
+) -> int:
+    """Perform binary chop on a DAC offset.
+
+    This function tries to find a DAC offset which results in a high gain output close
+    to the value or target_output. The sensor that's *not* being configured has its gain
+    value set to fixed_offset, while binary chop is used to find a suitable offset for
+    the sensor that *is* being configured.
+
+    The offset is returned, and the instrument is left configured with that offset.
+
+    :param port: The serial port for comms with the instrument
+    :param sensor_name: "MWIR" or "SWIR" - which sensor we're calibrating
+    :param target_output: The output value we're aiming for
+    :param fixed_offset: The fixed value that the other sensor will take during the chop.
+    :param max_miss: If the final value is more than this distance from the target output, report a problem.
+    :return: The DAC offset that gives an output closest to the target value.
+    """
+    event_log.info(f"Running abu find_dac_offset for {sensor_name} with target value {target_output}")
+
+    if sensor_name not in ("MWIR", "SWIR"):
+        event_log.error(f"For DAC offsets, sensor name must be either MWIR or SWIR, not {sensor_name}")
+
     # Check detector powered, if not enable.
-    hk = _run_transaction(worker, port_lock, tc.hk_request, port)
+    hk = bg.request_hk(
+        port,
+        "find_dac_offset power check",
+        port_lock=port_lock,
+        transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+    )
     if not (hk.PWR_STAT & 0x02):
         # Perform bitwise OR in case Mechanism is on and we want to leave it powered
         _run_transaction(worker, port_lock, repeat, port, tc.power_control, hk.PWR_STAT | 0x02)
 
+    dac_value = 0x0
+    bit_value = 1 << 11
+    reading = 0
 
-def mwir_binary_chop(port, swir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2, port_lock: Any = None, worker: Any = None):
-    """
-    This fixes the SWIR DAC offset as per the functional call.
-    It then itterates throgh the MWIR DAC offsets doing a binary search.
-    The function aims for the science readings for the MWIR to be between the values set within the
-    constants file.
-    """
-    event_log.info("Running abu mwir_binary_chop")
+    # Binary chop - work down through the bits, homing in on
+    # the DAC offset value which gets closest to the target output.
+    while bit_value != 0:
+        # Make a test value with the current bit set.
+        test_value = dac_value | bit_value
 
-    _enable_detector(port, port_lock, worker)
+        event_log.info(f"Setting the {sensor_name} DAC offset value to: {test_value}")
 
-    mwir_value = 0x0  # Seed value
+        if sensor_name == "MWIR":
+            swir_offset, mwir_offset = fixed_offset, test_value
+        else:
+            swir_offset, mwir_offset = test_value, fixed_offset
 
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        mwir_delta = 0x1 << (i - 1)
-        event_log.info(f"Setting the MWIR Value to: {mwir_value + mwir_delta}")
-        _run_transaction(worker, port_lock, repeat, port, tc.sci_offset, swir_fixed, mwir_value + mwir_delta)
-        sci = _run_transaction(worker, port_lock, sq.check_sci, port, sci_adc_samp, sci_adc_skip)
-        if sci.MWIR_OFFSET != (mwir_value + mwir_delta):
-            event_log.error(
-                f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {mwir_value + mwir_delta}"
-            )
+        _run_transaction(worker, port_lock, repeat, port, tc.sci_offset, swir_offset, mwir_offset)
+        sci = bg.request_science(
+            port,
+            f"{sensor_name} DAC offset {test_value}",
+            port_lock=port_lock,
+            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+        )
 
-        event_log.info(f"Got the following MWIR High Reading: {sci.MWIR_HIGH}")
+        if sensor_name == "MWIR":
+            if sci.MWIR_OFFSET != test_value:
+                event_log.error(f"MWIR offset not updated in SCI. Got {sci.MWIR_OFFSET}, Expected: {test_value}")
+            reading = sci.MWIR_HIGH
+        else:
+            if sci.SWIR_OFFSET != test_value:
+                event_log.error(f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {test_value}")
+            reading = sci.SWIR_HIGH
 
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.MWIR_HIGH >= config.MWIR_DAC_MIN_TH:
-            mwir_value = mwir_value + mwir_delta
+        event_log.info(f"Got the following {sensor_name} high reading: {reading}")
 
-        # Check if we are within the range (we are done) otherwise loop
-        if config.MWIR_DAC_MIN_TH <= sci.MWIR_HIGH <= config.MWIR_DAC_MAX_TH:
-            event_log.info("MWIR offset in threshold finished!")
-            event_log.info(f"Final MWIR value: {mwir_value}")
-            return mwir_value
+        # If the HIGH reading is >= target_output, keep the bit, otherwise discard.
+        if reading >= target_output:
+            dac_value = test_value
 
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.MWIR_OFFSET}")
-    return sci.MWIR_OFFSET
+        bit_value >>= 1
 
+    if abs(reading - target_output) <= max_miss:
+        event_log.info(f"Suitable {sensor_name} offset found for target {target_output}.")
+    else:
+        event_log.error(f"No in-range {sensor_name} offset found for target {target_output}.")
 
-def swir_binary_chop(port, mwir_fixed=2048, sci_adc_samp=4, sci_adc_skip=2, port_lock: Any = None, worker: Any = None):
-    """
-    This sets the MWIR DAC offset as per the functional call.
-    It then itterates throgh the SWIR DAC offsets doing a binary search.
-    The function aims for the science readings for the SWIR to be between the values set within the
-    constants file.
-    """
-    event_log.info("Running abu swir_binary_chop")
-
-    _enable_detector(port, port_lock, worker)
-
-    swir_value = 0x0  # Seed Value
-
-    for i in range(12, 0, -1):
-        event_log.info(f"Testing bit {i} out of 12")
-        swir_delta = 0x1 << (i - 1)
-        event_log.info(f"Setting the SWIR value to: {swir_value + swir_delta}")
-        _run_transaction(worker, port_lock, repeat, port, tc.sci_offset, swir_value + swir_delta, mwir_fixed)
-        sci = _run_transaction(worker, port_lock, sq.check_sci, port, sci_adc_samp, sci_adc_skip)
-        if sci.SWIR_OFFSET != (swir_value + swir_delta):
-            event_log.error(
-                f"SWIR offset not updated in SCI. Got {sci.SWIR_OFFSET}, Expected: {swir_value + swir_delta}"
-            )
-
-        event_log.info(f"Got the following SWIR High Reading: {sci.SWIR_HIGH}")
-
-        # If the HIGH reading is greater than threshold (keep value)
-        if sci.SWIR_HIGH > config.SWIR_DAC_MIN_TH:
-            swir_value = swir_value + swir_delta
-
-        # Check if we are within the range (we are done) otherwise loop
-        if config.SWIR_DAC_MIN_TH <= sci.SWIR_HIGH <= config.SWIR_DAC_MAX_TH:
-            event_log.info("SWIR offset in threshold finished!")
-            event_log.info(f"Final SWIR value: {swir_value}")
-            return swir_value
-
-    event_log.error(f"No solution found. Last MWIR Offset set to: {sci.SWIR_OFFSET}")
-    return sci.SWIR_OFFSET
+    event_log.info(f"Final {sensor_name} DAC offset value: {dac_value}")
+    event_log.info(f"Final {sensor_name} high reading: {reading}")
+    return dac_value
 
 
-def choose_dac_offsets(port: Any, port_lock: Any = None, worker: Any = None) -> None:
-    """Select SWIR and MWIR DAC offsets using the ABU window method at the default chop locations."""
+def choose_dac_offsets(
+    port: Any,
+    port_lock: Any = None,
+    worker: Any = None,
+    *,
+    on_failure: Callable[..., bool] | None = None,
+    notify_negative: Callable[[str], Any] | None = None,
+    notify_positive: Callable[[str], Any] | None = None,
+) -> tuple[int, int]:
+    """Select SWIR and MWIR DAC offsets using the default locations and targets."""
     # Motor parameters are already nominal by the time this runs in the OB flow.
     checks = bg.CommandChecks(
         port,
@@ -149,276 +180,56 @@ def choose_dac_offsets(port: Any, port_lock: Any = None, worker: Any = None) -> 
 
     # SWIR binary chop
     checks.move_to_absolute_position(SWIR_BINARY_CHOP_LOCATION, label="SWIR DAC chop position")
-    swir_offset = swir_binary_chop(port, port_lock=port_lock, worker=worker)
+    swir_offset = find_dac_offset(port, "SWIR", SWIR_BINARY_CHOP_TARGET, 1, port_lock=port_lock, worker=worker)
     event_log.info(f"SWIR offset = {swir_offset}")
 
     # MWIR binary chop.
     checks.move_to_absolute_position(MWIR_BINARY_CHOP_LOCATION, label="MWIR DAC chop position")
-    # Hold SWIR at its chosen offset so both chosen offsets remain applied afterwards.
-    mwir_offset = mwir_binary_chop(port, swir_fixed=swir_offset, port_lock=port_lock, worker=worker)
+    mwir_offset = find_dac_offset(
+        port, "MWIR", MWIR_BINARY_CHOP_TARGET, swir_offset, port_lock=port_lock, worker=worker
+    )
     event_log.info(f"MWIR offset = {mwir_offset}")
 
-
-# Direct copies of abu_sequences cal_motor_to_base / home_to_outer / mv_pos_steps / mv_neg_steps /
-# move_and_measure / abu_measurement_scan. Same commands as ABU; serial access goes through the
-# worker/port lock, and the checks ABU only logs are raised through *on_failure* (Continue/Abort).
-def _hk(port: Any, port_lock: Any, worker: Any) -> Any:
-    return _run_transaction(worker, port_lock, tc.hk_request, port)
-
-
-def _sci(port: Any, sci_adc_samp: int, sci_adc_skip: int, port_lock: Any, worker: Any) -> Any:
-    return _run_transaction(worker, port_lock, tc.sci_request, port, sci_adc_samp, sci_adc_skip)
-
-
-def _repeat(port: Any, port_lock: Any, worker: Any, command: Any, *args: Any) -> Any:
-    return _run_transaction(worker, port_lock, repeat, port, command, *args)
-
-
-def _report_faults(label: str, errors: list[str], on_failure: Any) -> None:
-    """Log faults; continue only if *on_failure* (label, errors) approves, otherwise stop the scan."""
-    if not errors:
-        return
-    for error in errors:
-        event_log.error(error)
-    if on_failure is not None and on_failure(label, errors):
-        return
-    raise AssertionError(f"{label} failed:\n" + "\n".join(errors))
-
-
-def _wait_while_moving(
-    port: Any, port_lock: Any, worker: Any, hk_tm: Any, label: str, on_failure: Any, log_progress: bool
-):
-    deadline = time.monotonic() + limits.MOTOR_HOME_TIMEOUT_S
-    while hk_tm.MTR_FLAGS.MOVING:
-        if time.monotonic() >= deadline:
-            _report_faults(label, [f"Motor still moving after {limits.MOTOR_HOME_TIMEOUT_S:.0f} s"], on_failure)
-            break
-        if log_progress:
-            time.sleep(1)
-        hk_tm = _hk(port, port_lock, worker)
-        if log_progress:
-            event_log.info(
-                f"Motor MOVING: Absolute Steps : {hk_tm.MTR_ABS_STEPS:04d}, Relative Steps: {hk_tm.MTR_REL_STEPS:04d}"
-            )
-    return hk_tm
-
-
-def cal_motor_to_base(port, port_lock: Any = None, worker: Any = None, on_failure: Any = None):
-    """
-    This function powers the Mechanism board (if it isn't already).
-    Sets the default motor parameters
-    Then commands the motor to HOME to BASE with CAL applied.
-    As it moves it will report the relative and absolute steps.
-    """
-    event_log.info("Running abu cal_motor_to_base")
-    # Check mechanism powered, if not enable.
-    hk = _hk(port, port_lock, worker)
-    if not (hk.PWR_STAT & 0x01):
-        # Perform bitwise OR in case Detector is on and we want to leave it powered
-        _repeat(port, port_lock, worker, tc.power_control, hk.PWR_STAT | 0x01)
-
-        resp = _hk(port, port_lock, worker)
-
-    # Set motor parameters
-    _repeat(port, port_lock, worker, tc.set_mtr_param, 64, 0, 60, 8)
-    resp = _hk(port, port_lock, worker)
-    if resp.MTR_CURRENT != 64 or resp.MTR_GUARD_SELECT != 0 or resp.MTR_CHOP != 60 or resp.MTR_SPEED != 8:
-        _report_faults(
-            "Measurement scan motor parameters",
-            [
-                "OB Parameters not initialized correctly:"
-                + f"\n Current : {resp.MTR_CURRENT}                ~ Expected : 64"
-                + f"\n Guard Select : {resp.MTR_GUARD_SELECT}      ~ Expected : 0"
-                + f"\n Chopper : {resp.MTR_CHOP}                  ~ Expected : 60"
-                + f"\n Speed : {resp.MTR_SPEED}                   ~ Expected : 8"
-            ],
-            on_failure,
-        )
-
-    # Cal to BASE
-    _repeat(port, port_lock, worker, tc.mtr_homing, True, False)
-    hk_tm = _hk(port, port_lock, worker)
-
-    # Check to see if at the Base
-    if not hk_tm.MTR_FLAGS.BASE:
-        event_log.info("Moving to the BASE, waiting for switch to be pressed.")
-        hk_tm = _wait_while_moving(port, port_lock, worker, hk_tm, "Measurement scan cal to base", on_failure, True)
-        event_log.info("Motor movement finished")
-    else:
-        event_log.info("Motor Did not Move, Base Flag Asserted")
-
-    # Check motor status now its stopped.
-    resp = _hk(port, port_lock, worker)
     errors = []
-    if resp.MTR_FLAGS.CAL != 1:
-        errors.append(f" Calibration Flag not Asserted : {resp.MTR_FLAGS.CAL}")
-    if resp.MTR_FLAGS.DIR != 0:
-        errors.append(f" Calibration Dir not to BASE : {resp.MTR_FLAGS.DIR}")
-    if resp.MTR_FLAGS.OUTER != 0:
-        errors.append(f"OUTER Switch Flag raised : {resp.MTR_FLAGS.OUTER}")
-    if resp.MTR_FLAGS.BASE != 1:
-        errors.append(f"BASE Switch Flag is not asserted : {resp.MTR_FLAGS.BASE}")
-    if resp.MTR_FLAGS.MOVING != 0:
-        errors.append(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
-    if resp.MTR_FLAGS.HOMING != 0:
-        errors.append(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
+    for sensor, value in (("SWIR", swir_offset), ("MWIR", mwir_offset)):
+        low, high = limits.SCI_DAC_OFFSET_LIMITS[sensor]
+        if not low <= value <= high:
+            errors.append(f"{sensor} DAC offset {value} is outside the calibrated range {low}..{high}")
+    bg.report_check(
+        "SCI DAC offset selection",
+        errors,
+        on_failure=on_failure,
+        notify_negative=notify_negative,
+        notify_positive=notify_positive,
+    )
 
-    if resp.MTR_ABS_STEPS != 8960:
-        errors.append(f"Motor ABS Steps Do not match expected ABS : {resp.MTR_ABS_STEPS} , Expected : 8960")
-    if resp.MTR_REL_STEPS == 0:
-        errors.append(f"Motor Steps Do not match expected REL : {resp.MTR_REL_STEPS} , Expected : 0")
-    _report_faults("Measurement scan cal to base", errors, on_failure)
-
-    event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
-    event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
-
-
-def home_to_outer(port, port_lock: Any = None, worker: Any = None, on_failure: Any = None):
-    """
-    This function powers the Mechanism board (if it isn't already).
-    Then commands the motor to HOME to OUTER.
-    As it moves it will report the relative and absolute steps.
-    """
-    event_log.info("Running abu home_to_outer")
-    # Check mechanism powered, if not enable.
-    hk = _hk(port, port_lock, worker)
-    if not (hk.PWR_STAT & 0x01):
-        # Perform bitwise OR in case Detector is on and we want to leave it powered
-        _repeat(port, port_lock, worker, tc.power_control, hk.PWR_STAT | 0x01)
-
-        resp = _hk(port, port_lock, worker)
-
-    # Home to Outer with no Cal
-    _repeat(port, port_lock, worker, tc.mtr_homing, False, True)
-    hk_tm = _hk(port, port_lock, worker)
-
-    # Check to see if at the Outer
-    if not hk_tm.MTR_FLAGS.OUTER:
-        event_log.info("Moving to outer, waiting for switch to be pressed.")
-        hk_tm = _wait_while_moving(port, port_lock, worker, hk_tm, "Measurement scan home to outer", on_failure, True)
-        event_log.info("Motor movement finished")
-    else:
-        event_log.info("Motor Did not Move, Outer Flag Asserted")
-
-    # Check motor status now its stopped.
-    resp = _hk(port, port_lock, worker)
-    errors = []
-    if resp.MTR_FLAGS.CAL != 0:
-        errors.append(f" Calibration Flag Asserted : {resp.MTR_FLAGS.CAL}")
-    if resp.MTR_FLAGS.DIR != 1:
-        errors.append(f" Calibration Dir not to Outer : {resp.MTR_FLAGS.DIR}")
-    if resp.MTR_FLAGS.OUTER != 1:
-        errors.append(f"OUTER Switch Flag not asserted : {resp.MTR_FLAGS.OUTER}")
-    if resp.MTR_FLAGS.BASE != 0:
-        errors.append(f"Base Switch Flag is asserted : {resp.MTR_FLAGS.BASE}")
-    if resp.MTR_FLAGS.MOVING != 0:
-        errors.append(f"Motor moving flag still asserted: {resp.MTR_FLAGS.MOVING}")
-    if resp.MTR_FLAGS.HOMING != 0:
-        errors.append(f"Motor Homing flag is asserted: {resp.MTR_FLAGS.HOMING}")
-
-    if resp.MTR_REL_STEPS == 0:
-        errors.append("Motor Steps Do not match expected : " + f"\n REL : {resp.MTR_REL_STEPS} , Expected : 0")
-    _report_faults("Measurement scan home to outer", errors, on_failure)
-
-    event_log.info(f"Motor relative steps moved: {resp.MTR_REL_STEPS}")
-    event_log.info(f"Motor absolute steps: {resp.MTR_ABS_STEPS}")
+    _run_transaction(worker, port_lock, repeat, port, tc.sci_offset, swir_offset, mwir_offset)
+    verify_dac_offset(
+        port,
+        port_lock=port_lock,
+        worker=worker,
+        expected_swir_offset=swir_offset,
+        expected_mwir_offset=mwir_offset,
+        on_failure=on_failure,
+        notify_negative=notify_negative,
+        notify_positive=notify_positive,
+    )
+    return swir_offset, mwir_offset
 
 
-def _motor_error_details(hk: Any) -> list[str]:
-    if hk.ERROR_MTR == 0:
-        return []
-    return [
-        "***MOTOR ERROR*** got the following: "
-        + f"\n CD : {hk.MTR_ERRORS.CD}"
-        + f"\n AB : {hk.MTR_ERRORS.AB}"
-        + f"\n ABS : {hk.MTR_ERRORS.ABS}"
-        + f"\n DSE : {hk.MTR_ERRORS.DSE}"
-    ]
-
-
-def mv_pos_steps(port, pos_steps, port_lock: Any = None, worker: Any = None, on_failure: Any = None):
-    """
-    Script that moves the mechanism a certain number of steps positive (towards the base).
-    Automatically checks that we are not already at the base.
-    """
-    event_log.info("Running ABU move positive steps")
-
-    # First check that there we are are not already at the base.
-    hk = _hk(port, port_lock, worker)
-
-    if hk.MTR_FLAGS.BASE:
-        event_log.error("Request to move positive steps but already at the base, skipping movement")
-        return
-
-    # Then move the desired number of steps
-    _repeat(port, port_lock, worker, tc.mtr_mov_pos, pos_steps)
-
-    # Request a HK and wait until no longer moving
-    hk = _hk(port, port_lock, worker)
-    hk = _wait_while_moving(port, port_lock, worker, hk, "Measurement scan move", on_failure, False)
-
-    _report_faults("Measurement scan move", _motor_error_details(hk), on_failure)
-
-    return
-
-
-def mv_neg_steps(port, pos_steps, port_lock: Any = None, worker: Any = None, on_failure: Any = None):
-    """
-    Script that moves the mechanism a certain number of steps negative (towards the outer).
-    Automatically checks that we are not already at the outer.
-    """
-    event_log.info("Running ABU move negative steps")
-
-    # First check that we are not already at the outer.
-    hk = _hk(port, port_lock, worker)
-
-    if hk.MTR_FLAGS.OUTER:
-        event_log.error("Request to move negative steps but already at the outer, skipping movement")
-        return
-
-    # Then move the desired number of steps
-    _repeat(port, port_lock, worker, tc.mtr_mov_neg, pos_steps)
-
-    # Request a HK and wait until no longer moving
-    hk = _hk(port, port_lock, worker)
-    hk = _wait_while_moving(port, port_lock, worker, hk, "Measurement scan move", on_failure, False)
-
-    _report_faults("Measurement scan move", _motor_error_details(hk), on_failure)
-
-
-def move_and_measure(
-    port,
-    pos_steps,
-    sci_adc_samp=4,
-    sci_adc_skip=20,
-    port_lock: Any = None,
-    worker: Any = None,
-    on_failure: Any = None,
-):
-    """
-    Moves the specified number of steps forward and then takes a measurement. 0 steps can be entered
-    and the sequence will just measure the same point once again.
-
-    This sequence should be executed once the motor has been HOMING and the offsets applied.
-
-    The motor moves from the Outer to Base using (positive steps)
-    """
-    event_log.info("Running abu move_and_measure")
-
-    if pos_steps > 0:
-        mv_pos_steps(port, pos_steps, port_lock=port_lock, worker=worker, on_failure=on_failure)
-    elif pos_steps < 0:
-        mv_neg_steps(port, abs(pos_steps), port_lock=port_lock, worker=worker, on_failure=on_failure)
+def _scan_step(port: Any, steps: int, port_lock: Any, checks: bg.CommandChecks, worker: Any = None) -> None:
+    """Move (if needed) and take a science + HK reading at the resulting position."""
+    if steps != 0:
+        command = tc.mtr_mov_neg if steps < 0 else tc.mtr_mov_pos
+        _run_transaction(worker, port_lock, repeat, port, command, abs(steps))
+        time.sleep(0.45)
     else:
         event_log.info("No need to move any steps, proceeding to measurement")
-    # Request a Science Mesaurement and log to the screen.
-    sci = _sci(port, sci_adc_samp, sci_adc_skip, port_lock, worker)
-    try:
-        bg.check_science(sci, label="measurement scan science")
-    except (AssertionError, RuntimeError) as exc:
-        _report_faults("Measurement scan science", [str(exc)], on_failure)
-    hk_tm = _hk(port, port_lock, worker)
-    event_log.info(
+
+    runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
+    sci = bg.request_science(port, "measurement scan step science", port_lock=port_lock, transaction_runner=runner)
+    hk_tm = bg.request_hk(port, "measurement scan step hk", port_lock=port_lock, transaction_runner=runner)
+    event_log.debug(
         f"ABS_STEPS: {sci.MTR_ABS_STEPS:04d}" + f"   HK_ABS_STEPS: {hk_tm.MTR_ABS_STEPS:04d}"
         f"   SWIR_OFFSET: {sci.SWIR_OFFSET:04d}"
         + f"   MWIR_OFFSET: {sci.MWIR_OFFSET:04d}"
@@ -431,49 +242,89 @@ def move_and_measure(
         + f"\t\t HT_SINK_TEMP: {sci.HT_SINK_TEMP:04d}"
         + f"   SWIR_TEMP: {sci.SWIR_TEMP:04d}"
     )
-    return
 
 
 def measurement_scan(
     port: Any,
-    step_spacing: int = 50,
+    step_spacing: int = 30,
     port_lock: Any = None,
     worker: Any = None,
-    sci_adc_samp: int = 4,
-    sci_adc_skip: int = 20,
-    on_failure: Any = None,
+    on_failure: Callable[..., bool] | None = None,
 ) -> None:
-    """
-    Performs the basic Enfys science measurement
+    """Perform a basic Enfys science measurement scan.
+
+    Uses the same command primitives as the OB background checks (CommandChecks
+    for homing/movement, request_hk/request_science for telemetry) so this scan
+    is serialized against the shared port_lock the same way as the rest of the
+    OB qualification flow, rather than issuing raw commands of its own.
+
     Homes and Calibrates to Base
     Goes to the Outer
     Drives across the whole range of the mechanism using the step_spacing specified in the function
     Halts once Base Stop is reached
     """
     event_log.info("Running ABU Measurement Scan")
-    _hk(port, port_lock, worker)
-
-    # Cal to Base
-    cal_motor_to_base(port, port_lock=port_lock, worker=worker, on_failure=on_failure)
-
-    # Home to Outer
-    home_to_outer(port, port_lock=port_lock, worker=worker, on_failure=on_failure)
-
-    # Measurement sequence
-    event_log.info("Starting Science Measurements")
-    move_and_measure(port, 0, sci_adc_samp, sci_adc_skip, port_lock=port_lock, worker=worker, on_failure=on_failure)
-    for i in range(0, 8600, step_spacing):
-        move_and_measure(
-            port, step_spacing, sci_adc_samp, sci_adc_skip, port_lock=port_lock, worker=worker, on_failure=on_failure
+    event_level = event_log.level
+    info_level = info_log.level
+    _scan_quiet.set()
+    event_log.setLevel(logging.WARNING)
+    info_log.setLevel(logging.ERROR)
+    try:
+        # Motor parameters are already nominal by the time this runs in the OB flow.
+        checks = bg.CommandChecks(
+            port,
+            port_lock=port_lock,
+            transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+            last_power=3,
+            last_motor_params=limits.MOTOR_NOMINAL_PARAMS,
         )
 
-    event_log.info("Science Measurements Completed!!")
+        # Cal to Base
+        _run_with_failure_popup(
+            on_failure,
+            "measurement scan cal to base",
+            checks.home,
+            calibration=True,
+            outer=False,
+            label="measurement scan cal to base",
+        )
+
+        # Home to Outer
+        _run_with_failure_popup(
+            on_failure,
+            "measurement scan home to outer",
+            checks.home,
+            calibration=False,
+            outer=True,
+            label="measurement scan home to outer",
+        )
+
+        # Measurement sequence
+        event_log.warning("Starting Science Measurements")
+        _run_with_failure_popup(on_failure, "measurement scan initial step", _scan_step, port, 0, port_lock, checks, worker)
+        for _ in range(0, 8900, step_spacing):
+            _run_with_failure_popup(
+                on_failure,
+                "measurement scan step",
+                _scan_step,
+                port,
+                step_spacing,
+                port_lock,
+                checks,
+                worker,
+            )
+
+        event_log.warning("Science Measurements Completed!!")
+    finally:
+        _scan_quiet.clear()
+        event_log.setLevel(event_level)
+        info_log.setLevel(info_level)
 
 
 def measurement_scan_async(
     port: Any,
     *,
-    step_spacing: int = 50,
+    step_spacing: int = 30,
     daemon: bool = True,
     port_lock: Any = None,
     worker: Any = None,
@@ -491,3 +342,126 @@ def measurement_scan_async(
     )
     thread.start()
     return thread
+
+def _check_reported_dac_offsets(
+    response: Any,
+    source: str,
+    errors: list[str],
+    expected_swir_offset: int | None = None,
+    expected_mwir_offset: int | None = None,
+) -> None:
+    for sensor, expected in (("SWIR", expected_swir_offset), ("MWIR", expected_mwir_offset)):
+        field = f"{sensor}_OFFSET"
+        raw_value = getattr(response, field, None)
+        low, high = limits.SCI_DAC_OFFSET_LIMITS[sensor]
+        if raw_value is None:
+            errors.append(f"{source} {field} is missing or invalid: {raw_value!r}")
+            continue
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            errors.append(f"{source} {field} is missing or invalid: {raw_value!r}")
+            continue
+        if not low <= value <= high:
+            errors.append(f"{source} {field}={value} is outside the calibrated range {low}..{high}")
+        if expected is not None and value != expected:
+            errors.append(f"{source} {field}={value}, expected applied offset {expected}")
+
+
+def verify_dac_offset(
+    port: Any,
+    port_lock: Any = None,
+    worker: Any = None,
+    *,
+    expected_swir_offset: int | None = None,
+    expected_mwir_offset: int | None = None,
+    on_failure: Callable[..., bool] | None = None,
+    notify_negative: Callable[[str], Any] | None = None,
+    notify_positive: Callable[[str], Any] | None = None,
+) -> Any:
+    """Verify the applied calibration offsets in both SCI and HK telemetry."""
+    runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
+    sci = bg.request_science(port, "SCI DAC offset verification", port_lock=port_lock, transaction_runner=runner)
+    hk_tm = bg.request_hk(port, "SCI DAC offset HK verification", port_lock=port_lock, transaction_runner=runner)
+    errors: list[str] = []
+    for source, response in (("SCI", sci), ("HK", hk_tm)):
+        _check_reported_dac_offsets(
+            response,
+            source,
+            errors,
+            expected_swir_offset,
+            expected_mwir_offset,
+        )
+    bg.report_check(
+        "SCI DAC offset",
+        errors,
+        on_failure=on_failure,
+        notify_negative=notify_negative,
+        notify_positive=notify_positive,
+    )
+    event_log.debug(
+        "Verified SCI DAC offsets SWIR=%s MWIR=%s; HIGH channels SWIR=%s MWIR=%s",
+        sci.SWIR_OFFSET,
+        sci.MWIR_OFFSET,
+        sci.SWIR_HIGH,
+        sci.MWIR_HIGH,
+    )
+    return sci
+
+
+def verify_sci_readings(
+    port: Any,
+    port_lock: Any = None,
+    worker: Any = None,
+    *,
+    expected_swir_offset: int | None = None,
+    expected_mwir_offset: int | None = None,
+    on_failure: Callable[..., bool] | None = None,
+    notify_negative: Callable[[str], Any] | None = None,
+    notify_positive: Callable[[str], Any] | None = None,
+) -> list[Any]:
+    """Verify five SCI samples one second apart against offset and HIGH-DN limits."""
+    runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
+    readings = []
+    errors: list[str] = []
+    swir_offset = expected_swir_offset
+    mwir_offset = expected_mwir_offset
+
+    for sample_number in range(1, 6):
+        sci = bg.request_science(
+            port,
+            f"SCI gain verification sample {sample_number}/5",
+            port_lock=port_lock,
+            transaction_runner=runner,
+        )
+        if swir_offset is None:
+            swir_offset = getattr(sci, "SWIR_OFFSET", None)
+        if mwir_offset is None:
+            mwir_offset = getattr(sci, "MWIR_OFFSET", None)
+        _check_reported_dac_offsets(sci, f"SCI sample {sample_number}", errors, swir_offset, mwir_offset)
+
+        for field, (low, high) in limits.SCI_HIGH_GAIN_DN_LIMITS.items():
+            value = getattr(sci, field, None)
+            if value is None:
+                errors.append(f"SCI sample {sample_number} {field} is missing or invalid: {value!r}")
+                continue
+            try:
+                numeric_value = int(value)
+            except (TypeError, ValueError):
+                errors.append(f"SCI sample {sample_number} {field} is missing or invalid: {value!r}")
+                continue
+            if not low <= numeric_value <= high:
+                errors.append(f"SCI sample {sample_number} {field}={numeric_value} is outside {low}..{high} DN")
+        readings.append(sci)
+        if sample_number < 5:
+            bg.gate_script_control()
+            time.sleep(1.0)
+
+    bg.report_check(
+        "SCI gain-channel readings",
+        errors,
+        on_failure=on_failure,
+        notify_negative=notify_negative,
+        notify_positive=notify_positive,
+    )
+    return readings
