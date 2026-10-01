@@ -602,7 +602,7 @@ def fft_stage_1(
         readings=measured,
     )
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
-    light_reading = _confirm_light_reading("the Stage 1 scan")
+    light_reading = False
     while True:
         swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
             port,
@@ -739,7 +739,7 @@ def fft_stage_2(
     # region SCI ACQ with TEC
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
-    light_reading = _confirm_light_reading("the Stage 2 scan")
+    light_reading = False
     while True:
         swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
             port,
