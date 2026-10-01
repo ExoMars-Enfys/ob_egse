@@ -92,11 +92,15 @@ def _run_ob_transaction(worker: Any, port_lock: Any, command: Any, port: Any, *a
 
 
 def _wait_for_thermal_response(
-    port: Any, label: str, initial_values: dict[str, Any], port_lock: Any = None, worker: Any = None
+    port: Any,
+    label: str,
+    initial_values: dict[str, Any],
+    timeout_s: float,
+    port_lock: Any = None,
+    worker: Any = None,
 ) -> Any:
     """Poll HK until every heated TRP rises by the configured ADU step, or the timeout expires."""
     min_increase = limits.HEATER_THERMAL_RESPONSE_MIN_ADU
-    timeout_s = limits.HEATER_THERMAL_RESPONSE_TIMEOUT_S
     runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
     progress = ui_runtime_controller.ProgressNotifier(
         f"{label}: waiting for +{min_increase} ADU (0s / {timeout_s:.0f}s)"
@@ -255,6 +259,7 @@ def fft_stage_1(
             port,
             "manual mechanism heater thermal response",
             initial_thermal_values,
+            limits.MECHANISM_HEATER_THERMAL_RESPONSE_TIMEOUT_S,
             port_lock=port_lock,
             worker=worker,
         )
@@ -304,6 +309,7 @@ def fft_stage_1(
             port,
             "manual detector heater thermal response",
             initial_thermal_values,
+            limits.DETECTOR_HEATER_THERMAL_RESPONSE_TIMEOUT_S,
             port_lock=port_lock,
             worker=worker,
         )

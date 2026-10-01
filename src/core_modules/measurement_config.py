@@ -131,7 +131,8 @@ DARK_HK_TEMPERATURE_LIMITS = {
 }
 # Manual heater check: a heated TRP must rise by this many 12-bit ADU within the timeout.
 HEATER_THERMAL_RESPONSE_MIN_ADU = 10
-HEATER_THERMAL_RESPONSE_TIMEOUT_S = 180.0
+MECHANISM_HEATER_THERMAL_RESPONSE_TIMEOUT_S = 300.0
+DETECTOR_HEATER_THERMAL_RESPONSE_TIMEOUT_S = 180.0
 # SCI temperature limits in degrees C, shared with the other instrument thermistor ranges.
 DARK_SCIENCE_TEMPERATURE_LIMITS = {
     "SWIR_TEMP": ALIM_TPR,
