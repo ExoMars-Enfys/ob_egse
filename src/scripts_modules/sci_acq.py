@@ -164,11 +164,12 @@ def choose_dac_offsets(
     port_lock: Any = None,
     worker: Any = None,
     *,
+    light_reading: bool = False,
     on_failure: Callable[..., bool] | None = None,
     notify_negative: Callable[[str], Any] | None = None,
     notify_positive: Callable[[str], Any] | None = None,
 ) -> tuple[int, int]:
-    """Select SWIR and MWIR DAC offsets using the default locations and targets."""
+    """Select SWIR and MWIR DAC offsets using the targets for the reading condition."""
     # Motor parameters are already nominal by the time this runs in the OB flow.
     checks = bg.CommandChecks(
         port,
@@ -180,19 +181,23 @@ def choose_dac_offsets(
 
     # SWIR binary chop
     checks.move_to_absolute_position(SWIR_BINARY_CHOP_LOCATION, label="SWIR DAC chop position")
-    swir_offset = find_dac_offset(port, "SWIR", SWIR_BINARY_CHOP_TARGET, 1, port_lock=port_lock, worker=worker)
+    chop_targets = limits.SCI_LIGHT_BIN_CHOP_TARGETS if light_reading else limits.SCI_BIN_CHOP_TARGETS
+    swir_offset = find_dac_offset(
+        port, "SWIR", chop_targets["SWIR"], 1, port_lock=port_lock, worker=worker
+    )
     event_log.info(f"SWIR offset = {swir_offset}")
 
     # MWIR binary chop.
     checks.move_to_absolute_position(MWIR_BINARY_CHOP_LOCATION, label="MWIR DAC chop position")
     mwir_offset = find_dac_offset(
-        port, "MWIR", MWIR_BINARY_CHOP_TARGET, swir_offset, port_lock=port_lock, worker=worker
+        port, "MWIR", chop_targets["MWIR"], swir_offset, port_lock=port_lock, worker=worker
     )
     event_log.info(f"MWIR offset = {mwir_offset}")
 
     errors = []
+    offset_limits = limits.SCI_LIGHT_DAC_OFFSET_LIMITS if light_reading else limits.SCI_DAC_OFFSET_LIMITS
     for sensor, value in (("SWIR", swir_offset), ("MWIR", mwir_offset)):
-        low, high = limits.SCI_DAC_OFFSET_LIMITS[sensor]
+        low, high = offset_limits[sensor]
         if not low <= value <= high:
             errors.append(f"{sensor} DAC offset {value} is outside the calibrated range {low}..{high}")
     bg.report_check(
@@ -208,6 +213,7 @@ def choose_dac_offsets(
         port,
         port_lock=port_lock,
         worker=worker,
+        light_reading=light_reading,
         expected_swir_offset=swir_offset,
         expected_mwir_offset=mwir_offset,
         on_failure=on_failure,
@@ -349,11 +355,13 @@ def _check_reported_dac_offsets(
     errors: list[str],
     expected_swir_offset: int | None = None,
     expected_mwir_offset: int | None = None,
+    light_reading: bool = False,
 ) -> None:
+    offset_limits = limits.SCI_LIGHT_DAC_OFFSET_LIMITS if light_reading else limits.SCI_DAC_OFFSET_LIMITS
     for sensor, expected in (("SWIR", expected_swir_offset), ("MWIR", expected_mwir_offset)):
         field = f"{sensor}_OFFSET"
         raw_value = getattr(response, field, None)
-        low, high = limits.SCI_DAC_OFFSET_LIMITS[sensor]
+        low, high = offset_limits[sensor]
         if raw_value is None:
             errors.append(f"{source} {field} is missing or invalid: {raw_value!r}")
             continue
@@ -373,6 +381,7 @@ def verify_dac_offset(
     port_lock: Any = None,
     worker: Any = None,
     *,
+    light_reading: bool = False,
     expected_swir_offset: int | None = None,
     expected_mwir_offset: int | None = None,
     on_failure: Callable[..., bool] | None = None,
@@ -391,6 +400,7 @@ def verify_dac_offset(
             errors,
             expected_swir_offset,
             expected_mwir_offset,
+            light_reading,
         )
     bg.report_check(
         "SCI DAC offset",
@@ -414,6 +424,7 @@ def verify_sci_readings(
     port_lock: Any = None,
     worker: Any = None,
     *,
+    light_reading: bool = False,
     expected_swir_offset: int | None = None,
     expected_mwir_offset: int | None = None,
     on_failure: Callable[..., bool] | None = None,
@@ -439,7 +450,8 @@ def verify_sci_readings(
         ("MWIR", limits.DARK_POSITIONS["MWIR"], "MWIR_HIGH"),
     ):
         checks.move_to_absolute_position(position, label=f"{sensor} SCI verification dark position")
-        low, high = limits.SCI_HIGH_GAIN_DN_LIMITS[field]
+        high_gain_limits = limits.SCI_LIGHT_HIGH_GAIN_DN_LIMITS if light_reading else limits.SCI_HIGH_GAIN_DN_LIMITS
+        low, high = high_gain_limits[field]
         for sample_number in range(1, 6):
             sci = bg.request_science(
                 port,
@@ -451,7 +463,14 @@ def verify_sci_readings(
                 swir_offset = getattr(sci, "SWIR_OFFSET", None)
             if mwir_offset is None:
                 mwir_offset = getattr(sci, "MWIR_OFFSET", None)
-            _check_reported_dac_offsets(sci, f"{sensor} SCI sample {sample_number}", errors, swir_offset, mwir_offset)
+            _check_reported_dac_offsets(
+                sci,
+                f"{sensor} SCI sample {sample_number}",
+                errors,
+                swir_offset,
+                mwir_offset,
+                light_reading,
+            )
 
             value = getattr(sci, field, None)
             if value is None:

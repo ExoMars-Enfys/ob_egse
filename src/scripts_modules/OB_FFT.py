@@ -146,6 +146,16 @@ def _confirm_stage_2_start(psu_port: Any = None, nopsu: bool = False, psu_lock: 
     return confirmed
 
 
+def _confirm_light_reading(label: str) -> bool:
+    """Ask whether the upcoming science scan is a light reading."""
+    return ui_runtime_controller.request_confirmation(
+        f"Is {label} a light reading?",
+        title="Science reading condition",
+        confirm_label="Light reading",
+        cancel_label="Dark reading",
+    )
+
+
 # endregion
 
 
@@ -592,11 +602,13 @@ def fft_stage_1(
         readings=measured,
     )
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
+    light_reading = _confirm_light_reading("the Stage 1 scan")
     while True:
         swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
             port,
             port_lock=port_lock,
             worker=worker,
+            light_reading=light_reading,
             on_failure=ui_runtime_controller.handle_script_check_failure,
             notify_negative=ui_runtime_controller.notify_negative,
             notify_positive=ui_runtime_controller.notify_positive,
@@ -605,6 +617,7 @@ def fft_stage_1(
             port,
             port_lock=port_lock,
             worker=worker,
+            light_reading=light_reading,
             expected_swir_offset=swir_offset,
             expected_mwir_offset=mwir_offset,
             on_failure=ui_runtime_controller.handle_script_check_failure,
@@ -726,11 +739,13 @@ def fft_stage_2(
     # region SCI ACQ with TEC
     response = checks.power(0x03, label="mechanism and detector boards power on")
     ui_runtime_controller.request_force_pause("Click to continue once ready for the science scan.")
+    light_reading = _confirm_light_reading("the Stage 2 scan")
     while True:
         swir_offset, mwir_offset = sci_acq.choose_dac_offsets(
             port,
             port_lock=port_lock,
             worker=worker,
+            light_reading=light_reading,
             on_failure=ui_runtime_controller.handle_script_check_failure,
             notify_negative=ui_runtime_controller.notify_negative,
             notify_positive=ui_runtime_controller.notify_positive,
@@ -739,6 +754,7 @@ def fft_stage_2(
             port,
             port_lock=port_lock,
             worker=worker,
+            light_reading=light_reading,
             expected_swir_offset=swir_offset,
             expected_mwir_offset=mwir_offset,
             on_failure=ui_runtime_controller.handle_script_check_failure,

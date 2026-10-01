@@ -761,6 +761,33 @@ def test_choose_dac_offsets_reapplies_and_verifies_selected_pair(monkeypatch):
     assert verifications[0]["expected_mwir_offset"] == 1920
 
 
+def test_choose_dac_offsets_uses_light_offset_targets(monkeypatch):
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, *_args, **_kwargs):
+            pass
+
+    verifications = []
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
+    chop_targets = []
+
+    def find_offset(_port, sensor, target, *_args, **_kwargs):
+        chop_targets.append((sensor, target))
+        return {"SWIR": 2800, "MWIR": 2500}[sensor]
+
+    monkeypatch.setattr(sci_acq, "find_dac_offset", find_offset)
+    monkeypatch.setattr(sci_acq, "_run_transaction", lambda *_args: None)
+    monkeypatch.setattr(sci_acq, "verify_dac_offset", lambda *args, **kwargs: verifications.append(kwargs))
+
+    offsets = sci_acq.choose_dac_offsets("port", light_reading=True)
+
+    assert offsets == (2800, 2500)
+    assert chop_targets == [("SWIR", 5250), ("MWIR", 10000)]
+    assert verifications[0]["light_reading"] is True
+
+
 def test_choose_dac_offsets_rejects_out_of_range_selection_before_applying(monkeypatch):
     class _Checks:
         def __init__(self, *_args, **_kwargs):
