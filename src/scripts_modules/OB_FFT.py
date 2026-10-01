@@ -176,7 +176,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):
@@ -211,6 +211,9 @@ def fft_stage_1(
             transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
         )
     )
+    ui_runtime_controller.request_force_pause(
+            "Confirm Gui has updated all metrics (If you haven't, turn on Cyclic HK)",
+        )
     errors = []
     response = checks.hk("boot", check_model=True)
     measured = check_current_profile(read_psu_channels(psu_port, psu_lock), response, errors=errors)
@@ -437,6 +440,7 @@ def fft_stage_1(
     checks.home(calibration=True, outer=True, label="return to outer")
     ui_runtime_controller.abortible_sleep(2)
     checks.home(calibration=False, outer=False, label="home to base")
+
     motion = checks.last_motion_report or {}
     ui_runtime_controller.request_force_pause(
         "Motor spacing report\n\n"
