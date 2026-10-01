@@ -31,9 +31,9 @@ info_log.addFilter(_scan_log_filter)
 
 # Binary chop parameters
 SWIR_BINARY_CHOP_LOCATION = 9600
-SWIR_BINARY_CHOP_TARGET = 5250
+SWIR_BINARY_CHOP_TARGET = limits.SCI_BIN_CHOP_TARGETS["SWIR"]
 MWIR_BINARY_CHOP_LOCATION = 8000
-MWIR_BINARY_CHOP_TARGET = 25300
+MWIR_BINARY_CHOP_TARGET = limits.SCI_BIN_CHOP_TARGETS["MWIR"]
 
 # ----Helper Functions------------------------------------------------------------------------------
 

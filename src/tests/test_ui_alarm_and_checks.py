@@ -1,7 +1,35 @@
 from datetime import datetime
 from types import SimpleNamespace
+
+import pytest
+
 from core_modules import config
 from widget_modules import ui_runtime_controller as urc
+
+
+def test_eb_sci_temperature_check_uses_swir_and_heatsink_data_points(monkeypatch) -> None:
+    packet = SimpleNamespace(
+        PACKET_NUMBER=4,
+        HEATSINK_START_TEMP=0,
+        HEATSINK_END_TEMP=0,
+        SWIR_START_TEMP=0,
+        SWIR_END_TEMP=0,
+        MWIR_START_TEMP=65535,
+        MWIR_END_TEMP=65535,
+    )
+    decoded_points = [SimpleNamespace(POINT_INDEX=0, SWIR_TEMP=6282, HT_SINK_TEMP=6282)]
+    positive_messages = []
+    monkeypatch.setattr(urc.eb_packet_utility, "get_sci_packets_since", lambda _count: [packet])
+    monkeypatch.setattr(urc.eb_packet_utility, "decode_sci_data_points", lambda _packet: decoded_points)
+    monkeypatch.setattr(urc, "notify_positive", positive_messages.append)
+
+    urc._check_eb_sci_temperatures(0)
+
+    assert positive_messages == ["SCI temperatures OK for 1 data point across 1 packet"]
+
+    decoded_points[:] = [SimpleNamespace(POINT_INDEX=1, SWIR_TEMP=0, HT_SINK_TEMP=6282)]
+    with pytest.raises(AssertionError, match="SWIR_TEMP=nan C"):
+        urc._check_eb_sci_temperatures(0)
 
 
 def test_plot_samples_retain_real_and_adu_values_for_each_timestamp() -> None:

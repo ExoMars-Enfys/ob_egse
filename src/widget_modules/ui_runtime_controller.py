@@ -2004,30 +2004,42 @@ def _warn_if_sci_packets_missing(
 
 
 def _check_eb_sci_temperatures(received_start: int) -> None:
-    """Range-check the header temperatures of every EB SCI packet received this acquisition."""
+    """Range-check SWIR and heatsink temperatures in each EB SCI data point."""
     packets = eb_packet_utility.get_sci_packets_since(received_start)
     if not packets:
         return
     errors: list[str] = []
+    checked_points = 0
     for packet in packets:
         packet_number = getattr(packet, "PACKET_NUMBER", "?")
-        for field, (minimum, maximum) in measurement_config.EB_SCI_TEMPERATURE_LIMITS.items():
-            value = getattr(packet, field, None)
-            if value is None:
-                errors.append(f"SCI packet {packet_number}: missing field {field}")
-                continue
-            temp_c = hk_conversions.sci_temperature_to_c(field, value)
-            if not minimum <= temp_c <= maximum:
-                errors.append(
-                    f"SCI packet {packet_number}: {field}={temp_c:.2f} C (raw {value}), expected {minimum}..{maximum} C"
-                )
+        points = eb_packet_utility.decode_sci_data_points(packet)
+        if not points:
+            errors.append(f"SCI packet {packet_number}: no SCI data points to check temperatures")
+            continue
+        for point in points:
+            checked_points += 1
+            point_number = getattr(point, "POINT_INDEX", "?")
+            for field, (minimum, maximum) in measurement_config.DARK_SCIENCE_TEMPERATURE_LIMITS.items():
+                value = getattr(point, field, None)
+                if value is None:
+                    errors.append(f"SCI packet {packet_number}, point {point_number}: missing field {field}")
+                    continue
+                temp_c = hk_conversions.sci_temperature_to_c(field, value)
+                if not minimum <= temp_c <= maximum:
+                    errors.append(
+                        f"SCI packet {packet_number}, point {point_number}: {field}={temp_c:.2f} C "
+                        f"(raw {value}), expected {minimum}..{maximum} C"
+                    )
     if errors:
         count = len(errors)
         numbered = "\n".join(f"{index + 1}. {error}" for index, error in enumerate(errors))
         raise AssertionError(
             f"SCI temperature verification failed: {count} error{'s' if count != 1 else ''}:\n{numbered}"
         )
-    msg = f"SCI temperatures OK for {len(packets)} packet{'s' if len(packets) != 1 else ''}"
+    msg = (
+        f"SCI temperatures OK for {checked_points} data point{'s' if checked_points != 1 else ''} "
+        f"across {len(packets)} packet{'s' if len(packets) != 1 else ''}"
+    )
     info_log.info(msg)
     notify_positive(msg)
 
