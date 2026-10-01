@@ -627,23 +627,31 @@ def _fake_dac_instrument(reading_for_offset):
     return set_offset, science, sent
 
 
-def test_verify_sci_readings_checks_five_high_gain_samples_one_second_apart(monkeypatch):
+def test_verify_sci_readings_checks_each_diode_at_its_dark_position(monkeypatch):
     responses = [
         SimpleNamespace(
             SWIR_OFFSET=2020,
-            MWIR_OFFSET=1920,
+            MWIR_OFFSET=2420,
             SWIR_HIGH=5250 + index,
-            MWIR_HIGH=25300 + index,
+            MWIR_HIGH=20000 + index,
         )
-        for index in range(5)
+        for index in range(10)
     ]
     requested = []
     sleeps = []
 
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, position, *, label):
+            requested.append((position, label))
+
     def request_science(_port, checkpoint, **_kwargs):
         requested.append(checkpoint)
-        return responses[len(requested) - 1]
+        return responses[len([item for item in requested if isinstance(item, str)]) - 1]
 
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
     monkeypatch.setattr(sci_acq.bg, "request_science", request_science)
     monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
     monkeypatch.setattr(sci_acq.time, "sleep", sleeps.append)
@@ -651,34 +659,51 @@ def test_verify_sci_readings_checks_five_high_gain_samples_one_second_apart(monk
     result = sci_acq.verify_sci_readings(
         "port",
         expected_swir_offset=2020,
-        expected_mwir_offset=1920,
+        expected_mwir_offset=2420,
     )
 
     assert result == responses
-    assert len(requested) == 5
-    assert sleeps == [1.0] * 4
+    assert len([item for item in requested if isinstance(item, str)]) == 10
+    assert [item[0] for item in requested if isinstance(item, tuple)] == [9600, 8000]
+    assert sleeps == [1.0] * 8
 
 
 def test_verify_sci_readings_rejects_high_gain_values_outside_calibration(monkeypatch):
     responses = [
         SimpleNamespace(
             SWIR_OFFSET=2020,
-            MWIR_OFFSET=1920,
+            MWIR_OFFSET=2420,
             SWIR_HIGH=5751 if index == 2 else 5250,
-            MWIR_HIGH=25300,
+            MWIR_HIGH=20000,
         )
-        for index in range(5)
+        for index in range(10)
     ]
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
     monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: responses.pop(0))
     monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
     monkeypatch.setattr(sci_acq.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(AssertionError, match="SWIR_HIGH=5751"):
-        sci_acq.verify_sci_readings("port", expected_swir_offset=2020, expected_mwir_offset=1920)
+        sci_acq.verify_sci_readings("port", expected_swir_offset=2020, expected_mwir_offset=2420)
 
 
 def test_verify_sci_readings_routes_failures_through_popup_callbacks(monkeypatch):
-    response = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=1920, SWIR_HIGH=5751, MWIR_HIGH=25300)
+    response = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=2420, SWIR_HIGH=5751, MWIR_HIGH=20000)
+    class _Checks:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def move_to_absolute_position(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(sci_acq.bg, "CommandChecks", _Checks)
     monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: response)
     monkeypatch.setattr(sci_acq.bg, "gate_script_control", lambda: None)
     monkeypatch.setattr(sci_acq.time, "sleep", lambda _seconds: None)
@@ -688,12 +713,12 @@ def test_verify_sci_readings_routes_failures_through_popup_callbacks(monkeypatch
     result = sci_acq.verify_sci_readings(
         "port",
         expected_swir_offset=2020,
-        expected_mwir_offset=1920,
+        expected_mwir_offset=2420,
         on_failure=lambda label, errors, readings: decisions.append((label, errors, readings)) or True,
         notify_negative=notifications.append,
     )
 
-    assert len(result) == 5
+    assert len(result) == 10
     assert decisions[0][0] == "SCI gain-channel readings"
     assert any("SWIR_HIGH=5751" in error for error in decisions[0][1])
     assert len(notifications) == 1

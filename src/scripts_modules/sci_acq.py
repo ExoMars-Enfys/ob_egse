@@ -420,42 +420,57 @@ def verify_sci_readings(
     notify_negative: Callable[[str], Any] | None = None,
     notify_positive: Callable[[str], Any] | None = None,
 ) -> list[Any]:
-    """Verify five SCI samples one second apart against offset and HIGH-DN limits."""
+    """Verify five samples for each diode at its dark position."""
     runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
     readings = []
     errors: list[str] = []
     swir_offset = expected_swir_offset
     mwir_offset = expected_mwir_offset
+    checks = bg.CommandChecks(
+        port,
+        port_lock=port_lock,
+        transaction_runner=runner,
+        last_power=3,
+        last_motor_params=limits.MOTOR_NOMINAL_PARAMS,
+    )
 
-    for sample_number in range(1, 6):
-        sci = bg.request_science(
-            port,
-            f"SCI gain verification sample {sample_number}/5",
-            port_lock=port_lock,
-            transaction_runner=runner,
-        )
-        if swir_offset is None:
-            swir_offset = getattr(sci, "SWIR_OFFSET", None)
-        if mwir_offset is None:
-            mwir_offset = getattr(sci, "MWIR_OFFSET", None)
-        _check_reported_dac_offsets(sci, f"SCI sample {sample_number}", errors, swir_offset, mwir_offset)
+    for sensor, position, field in (
+        ("SWIR", limits.DARK_POSITIONS["SWIR"], "SWIR_HIGH"),
+        ("MWIR", limits.DARK_POSITIONS["MWIR"], "MWIR_HIGH"),
+    ):
+        checks.move_to_absolute_position(position, label=f"{sensor} SCI verification dark position")
+        low, high = limits.SCI_HIGH_GAIN_DN_LIMITS[field]
+        for sample_number in range(1, 6):
+            sci = bg.request_science(
+                port,
+                f"{sensor} SCI gain verification sample {sample_number}/5",
+                port_lock=port_lock,
+                transaction_runner=runner,
+            )
+            if swir_offset is None:
+                swir_offset = getattr(sci, "SWIR_OFFSET", None)
+            if mwir_offset is None:
+                mwir_offset = getattr(sci, "MWIR_OFFSET", None)
+            _check_reported_dac_offsets(sci, f"{sensor} SCI sample {sample_number}", errors, swir_offset, mwir_offset)
 
-        for field, (low, high) in limits.SCI_HIGH_GAIN_DN_LIMITS.items():
             value = getattr(sci, field, None)
             if value is None:
-                errors.append(f"SCI sample {sample_number} {field} is missing or invalid: {value!r}")
-                continue
-            try:
-                numeric_value = int(value)
-            except (TypeError, ValueError):
-                errors.append(f"SCI sample {sample_number} {field} is missing or invalid: {value!r}")
-                continue
-            if not low <= numeric_value <= high:
-                errors.append(f"SCI sample {sample_number} {field}={numeric_value} is outside {low}..{high} DN")
-        readings.append(sci)
-        if sample_number < 5:
-            bg.gate_script_control()
-            time.sleep(1.0)
+                errors.append(f"{sensor} SCI sample {sample_number} {field} is missing or invalid: {value!r}")
+            else:
+                try:
+                    numeric_value = int(value)
+                except (TypeError, ValueError):
+                    errors.append(f"{sensor} SCI sample {sample_number} {field} is missing or invalid: {value!r}")
+                else:
+                    if not low <= numeric_value <= high:
+                        errors.append(
+                            f"{sensor} SCI sample {sample_number} {field}={numeric_value} "
+                            f"is outside {low}..{high} DN"
+                        )
+            readings.append(sci)
+            if sample_number < 5:
+                bg.gate_script_control()
+                time.sleep(1.0)
 
     bg.report_check(
         "SCI gain-channel readings",

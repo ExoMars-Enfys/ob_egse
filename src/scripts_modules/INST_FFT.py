@@ -426,6 +426,9 @@ def run_fft(verification: bool = True) -> None:
     ebtcs.set_hk_rate(interface, 0, 1)
     time.sleep(3)
     check_state6 = True
+    ui_runtime_controller.request_force_pause(
+                "1st Dark Scan. Click to continue once ready."
+            )
     while True:
         ebtcs.acquisition(interface, 0x0)
         time.sleep(3)
@@ -540,6 +543,9 @@ def run_fft(verification: bool = True) -> None:
         0x01,  # MT12 , spacing 250ms, duration 120s, start position 5 ()
     )  #! Todo Check the measurement tables for the correct fixed point measurement
     ebtcs.set_hk_rate(interface, 0, 1)
+    ui_runtime_controller.request_force_pause(
+                "Fixed Point Dark Scan. Click to continue once ready."
+            )
     while True:
         ebtcs.acquisition(interface, 0x0)
         ebtcs.hk_request(interface, 0)
@@ -571,6 +577,9 @@ def run_fft(verification: bool = True) -> None:
         interface, 0, 0, 0, 0, 0, 1, 249, 0, 1, 42, 0, 0, 0, 12
     )  #! This is a baseline ACQ that ABU verified with table 12 - This can be changed if needed later on
     ebtcs.set_hk_rate(interface, 0, 1)
+    ui_runtime_controller.request_force_pause(
+            "2nd Full Dark Scan. Click to continue once ready."
+        )
     while True:
         ebtcs.acquisition(interface, 0x0)
         ebtcs.hk_request(interface, 0)
@@ -581,7 +590,7 @@ def run_fft(verification: bool = True) -> None:
                 ui_runtime_controller.perform_acq_check_sync,
                 check_state6=False,
             )
-        if not ui_runtime_controller.request_repeat_acquisition("Full Light Scan @-35C (hat on)"):
+        if not ui_runtime_controller.request_repeat_acquisition("2nd Full Dark Scan @-35C (hat on)"):
             break
     # endregion
 
