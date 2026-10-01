@@ -176,7 +176,7 @@ def run_OB_fft(
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         getattr(port, "port", port),
     )
-    # fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
+    fft_stage_1(port, psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock, port_lock=port_lock, worker=worker)
 
     # Stage 2 can be repeated; re-confirm with the user before each run.
     while _confirm_stage_2_start(psu_port=psu_port, nopsu=nopsu, psu_lock=psu_lock):
