@@ -176,8 +176,8 @@ def build_ui(
 
     @ui.page("/")
     def index() -> None:
-        def cleanup_disconnected_client() -> None:
-            """Remove stale UI refresh callbacks when the browser client disappears."""
+        def cleanup_deleted_client() -> None:
+            """Release UI callbacks only after the client's reconnect window expires."""
             if state.get("disconnect_cleanup_done"):
                 return
             state["disconnect_cleanup_done"] = True
@@ -197,7 +197,7 @@ def build_ui(
         try:
             client = ui.context.client
             if client is not None:
-                client.on_disconnect(cleanup_disconnected_client)
+                client.on_delete(cleanup_deleted_client)
         except Exception:
             pass
 
@@ -230,7 +230,7 @@ def build_ui(
                 }
 
                 pv_controllers: dict[str, packet_viewer_widget.PacketViewerController] = {}
-                with ui.tab_panels(packet_tabs).classes("w-full egse-left-packet-panels egse-title"):
+                with ui.tab_panels(packet_tabs, animated=False).classes("w-full egse-left-packet-panels egse-title"):
                     with ui.tab_panel(tab_eb_hk).classes("w-full egse-left-packet-panel egse-title") as panel_eb_hk:
                         pv_controllers["EB_HK"] = packet_viewer_widget.create_packet_viewer(state, packet_type="EB_HK")
                     with ui.tab_panel(tab_eb_post).classes("w-full egse-left-packet-panel egse-title") as panel_eb_post:
