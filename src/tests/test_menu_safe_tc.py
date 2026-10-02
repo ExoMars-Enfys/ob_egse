@@ -7,6 +7,16 @@ import pytest
 from widget_modules import menu_widget
 
 
+@pytest.mark.parametrize("visible", [False, True])
+def test_mms_live_script_visibility_uses_config_flag(monkeypatch, visible) -> None:
+    monkeypatch.setattr(menu_widget.config, "SHOW_MMS_TEST_TOOLS", visible)
+
+    scripts = menu_widget._discover_eb_scripts()
+
+    assert ("mms_mask_live_test" in scripts) is visible
+    assert "inst_voltage_test" in scripts
+
+
 @pytest.mark.parametrize("result", [None, "ERROR"])
 def test_manual_safe_runs_off_ui_thread_and_reports_result(monkeypatch, result) -> None:
     ui_thread = threading.get_ident()

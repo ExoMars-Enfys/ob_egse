@@ -64,6 +64,8 @@ def _discover_eb_scripts() -> dict[str, tuple[str, Any]]:
     for script_path in sorted(scripts_dir.glob("*.py"), key=lambda path: path.stem.lower()):
         if script_path.stem.startswith("_") or not script_path.stem.isidentifier():
             continue
+        if script_path.stem.lower() == "mms_mask_live_test" and not config.SHOW_MMS_TEST_TOOLS:
+            continue
 
         try:
             module = import_module(f"scripts_modules.{script_path.stem}")
@@ -108,8 +110,8 @@ def _invoke_script_entry_point(script_runner: Any, state: dict[str, Any]) -> Non
             kwargs[name] = state.get("psu_lock")
         elif name == "worker":
             kwargs[name] = state.get("ob_worker")
-        elif name == "worker":
-            kwargs[name] = state.get("ob_worker")
+        elif name == "gui_state":
+            kwargs[name] = state
         elif name in state and parameter.default is parameter.empty:
             kwargs[name] = state.get(name)
 
@@ -228,6 +230,32 @@ def create_menu(
                         ),
                         color="orange",
                     ).props("unelevated").classes("whitespace-nowrap px-3")
+
+                if config.SHOW_MMS_TEST_TOOLS:
+                    with ui.row().classes("items-center gap-2 w-full"):
+                        def _on_eb_only_toggle(e: Any) -> None:
+                            try:
+                                ui_runtime_controller.set_eb_only_test_mode(state, bool(e.value))
+                            except RuntimeError as exc:
+                                eb_only_switch.set_value(const.MMS_EB_ONLY_TEST_MODE)
+                                state["logger"].warning("Could not change EB-only test mode: %s", exc)
+                                ui.notify(str(exc), type="negative")
+                                return
+                            ui.notify(
+                                "EB-only / no-OB test mode: OB checks masked; EB MMS protection unchanged."
+                                if e.value else "EB-only test mode off: normal MMS checks restored.",
+                                type="warning",
+                            )
+
+                        eb_only_switch = ui.switch(
+                            "EB-only / no-OB test mode",
+                            value=const.MMS_EB_ONLY_TEST_MODE,
+                            on_change=_on_eb_only_toggle,
+                        )
+                    ui.label(
+                        "Test mode masks OB limits, OB_UNRESPONSIVE and RS485 errors only. "
+                        "Keep MMS ON. Disable test mode before normal OB operation."
+                    ).classes("egse-metric-label text-warning")
 
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.select(

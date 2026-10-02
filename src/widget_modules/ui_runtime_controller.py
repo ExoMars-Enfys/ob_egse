@@ -95,6 +95,24 @@ def limit_tuple(value: Any) -> tuple[float | None, float | None]:
     return (None, None)
 
 
+def set_eb_only_test_mode(state: dict[str, Any], enabled: bool) -> None:
+    """Apply session-wide no-OB masks without changing MMS enablement or latches."""
+    if enabled == const.MMS_EB_ONLY_TEST_MODE:
+        return
+    if enabled and state.get("mode") != "EB":
+        raise RuntimeError("Select EB mode before enabling EB-only / no-OB test mode.")
+    mms_cfg = state.get("mms") or {}
+    if is_script_running() or mms_cfg.get("pending") or mms_cfg.get("in_progress"):
+        raise RuntimeError("Wait for the running script or MMS shutdown to finish before changing test mode.")
+    const.MMS_EB_ONLY_TEST_MODE = enabled
+    info_log.warning(
+        "EB-only / no-OB test mode %s: OB limits, OB_UNRESPONSIVE and RS485 errors %s; "
+        "MMS enablement and EB protection unchanged.",
+        "enabled" if enabled else "disabled",
+        "masked" if enabled else "returned to normal script-mask settings",
+    )
+
+
 def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]:
     reasons: list[str] = []
     tec_pre_action = False
@@ -111,7 +129,9 @@ def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]
     skip_ob_checks = (not ob_5v_enabled) or (current_state == 0x02)
 
     for label, field_name, limit_key, tec_field in _MMS_FIELDS:
-        if label.startswith("OB ") and (skip_ob_checks or const.MMS_MASK_OB_LIMIT_CHECKS):
+        if label.startswith("OB ") and (
+            skip_ob_checks or const.MMS_MASK_OB_LIMIT_CHECKS or const.MMS_EB_ONLY_TEST_MODE
+        ):
             continue  # Skip OB parameter checks if OB is off, in SAFE, or explicitly masked
         violated = append_violation(reasons, label, decoded(hk, field_name), limit_tuple(limits.get(limit_key)))
         tec_pre_action = tec_pre_action or (tec_field and violated)
@@ -125,9 +145,9 @@ def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]
         eb_flags = sorted(k for k, v in vars(ns).items() if v == 1 and k != "RESERVED") if ns is not None else []
         if const.MMS_MASK_OB_GENERAL_ERROR:
             eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
-        if const.MMS_MASK_OB_UNRESPONSIVE:
+        if const.MMS_MASK_OB_UNRESPONSIVE or const.MMS_EB_ONLY_TEST_MODE:
             eb_flags = [f for f in eb_flags if f != "OB_UNRESPONSIVE"]
-        if const.MMS_MASK_RS485_ERRORS:
+        if const.MMS_MASK_RS485_ERRORS or const.MMS_EB_ONLY_TEST_MODE:
             eb_flags = [f for f in eb_flags if f not in {"RS485_RECEIVE_ERROR", "RS485_TRANSMIT_ERROR"}]
         if eb_flags:
             reasons.append(f"HK Error Flags asserted: {', '.join(eb_flags)}")
@@ -1152,6 +1172,65 @@ def request_confirmation(
         time.sleep(0.25)
 
     return _CONFIRM_RESULT
+
+
+_CHOICE_EVENT = threading.Event()
+_CHOICE_RESULT: str | None = None
+
+
+def request_choice(
+    message: str,
+    options: list[str],
+    title: str = "Select",
+    confirm_label: str = "Select",
+    cancel_label: str = "Cancel",
+) -> str | None:
+    """Show a selection dialog and block until the user responds. Safe to call from a background script thread.
+
+    Returns the selected option, or None if cancelled or the script is aborted while waiting.
+    """
+    loop = _nicegui_core.loop
+    if loop is None or not loop.is_running() or not options:
+        info_log.info("[choice] %s", message)
+        return None
+
+    _CHOICE_EVENT.clear()
+
+    def _open_dialogs() -> None:
+        for client in list(_NiceGuiClient.instances.values()):
+            try:
+                with client:
+                    with ui.dialog().props("persistent") as dialog, ui.card().classes("w-[40rem] max-w-full"):
+                        ui.label(title).classes("font-bold egse-title")
+                        _render_message_lines(message, None)
+                        selector = ui.select(options, value=options[0]).classes("w-full")
+                        ui.separator()
+                        with ui.row().classes("w-full justify-end gap-2"):
+
+                            def _finish(result: str | None, d: Any = dialog) -> None:
+                                global _CHOICE_RESULT
+                                d.close()
+                                _CHOICE_RESULT = result
+                                _CHOICE_EVENT.set()
+                                ui.run_javascript(_RESTORE_TITLE_JS)
+
+                            ui.button(cancel_label, on_click=lambda: _finish(None)).props("outline")
+                            ui.button(confirm_label, on_click=lambda s=selector: _finish(s.value)).classes(
+                                "primary-text"
+                            )
+                    dialog.open()
+                    ui.run_javascript(_FLASH_ATTENTION_JS)
+            except Exception as exc:
+                info_log.debug("request_choice: failed for client %s: %s", client.id, exc)
+
+    loop.call_soon_threadsafe(_open_dialogs)
+
+    while not _CHOICE_EVENT.is_set():
+        if is_aborted():
+            return None
+        time.sleep(0.25)
+
+    return _CHOICE_RESULT
 
 
 def request_repeat_acquisition(label: str) -> bool:

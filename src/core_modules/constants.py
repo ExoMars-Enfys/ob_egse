@@ -206,6 +206,10 @@ MODEL_CONSUMPTION = {
 }
 
 # ----MMS Configuration-----------------------------------------------------------------------------
+# Session-only GUI mode for EB-only/no-OB tests. Applies the three no-OB masks
+# without disabling MMS or changing the individual script masks below.
+MMS_EB_ONLY_TEST_MODE: bool = False
+
 # When True, OB_GENERAL_ERROR in the EB ERROR_FLAGS is excluded from MMS trigger conditions.
 # OB_GENERAL_ERROR is a sticky bit that may linger after the OB error has already cleared.
 # Set to False to allow OB_GENERAL_ERROR to trigger MMS actions.
