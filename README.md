@@ -91,7 +91,7 @@ The EGSE software tools can now be ran by running through the following:
 1. Run the EGSE software by executing the terminal command in a new terminal in VSCode
 
 ```python=
-uv run .\src\main.py
+uv run enfys.py
 ```
 
 <span style="color: #cc532e;">Decorator Options:</span>
@@ -99,16 +99,16 @@ uv run .\src\main.py
 **No Programmable PSU available to run `-np`**
 
 ```python=
-uv run .\src\main.py -np
+uv run enfys.py -np
 ```
 
 **Script mode `-s`**
 
 ```python=
-uv run .\src\main.py -s
+uv run enfys.py -s
 ```
 
-**Debugging mode that allows gui reload automatically at code save `-reload`**
+**Debugging mode that allows gui reload automatically at code save `-reload`. The hot reload method only works in webview mode**
 
 ```python=
 uv run .\src\main.py -reload
