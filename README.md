@@ -9,5 +9,5 @@ pip install uv
 
 Once it has completed you can then run `uv sync` to install everything.
 
-The script can then be run by using `uv run egse.py` or by configuring vscode to use the
+The script can then be run by using `uv run enfys.py` or by configuring vscode to use the
 newly created virtual environment.
