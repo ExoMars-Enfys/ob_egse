@@ -237,7 +237,9 @@ def fft_stage_1(
     mech_trp = getattr(response, "MECH_TRP", None)
     mtr_trp = getattr(response, "MOTOR_TRP", None)
     if mech_trp is None or mtr_trp is None:
-        event_log.warning("Skipping mechanism heater enable: MECH_TRP or MOTOR_TRP is unavailable")
+        message = "Skipping mechanism heater enable: MECH_TRP or MOTOR_TRP is unavailable"
+        event_log.warning(message)
+        ui_runtime_controller.notify(message, color="warning")
     elif (mech_trp >> 4) <= 2196 or (mtr_trp >> 4) <= 2196:  # Enable only at or below +40 C.
         response = checks.heater(False, False, False, True, False, label="manual mechanism heater enable")
         errors: list[str] = []
@@ -291,7 +293,9 @@ def fft_stage_1(
     # 9-13. Manual detector heater check only if not at max ops.
     det_trp = getattr(response, "DETEC_TRP", None)
     if det_trp is None:
-        event_log.warning("Skipping detector heater enable: DETEC_TRP is unavailable")
+        message = "Skipping detector heater enable: DETEC_TRP is unavailable"
+        event_log.warning(message)
+        ui_runtime_controller.notify(message, color="warning")
     elif (det_trp >> 4) <= 2196:  # Enable only at or below +40 C.
         response = checks.heater(False, True, False, False, False, label="manual detector heater enable")
         errors = []
@@ -341,7 +345,9 @@ def fft_stage_1(
     mtr_trp = getattr(response, "MOTOR_TRP", None)
     det_trp = getattr(response, "DETEC_TRP", None)
     if mech_trp is None or mtr_trp is None or det_trp is None:
-        event_log.warning("Skipping STATE 2 - HEATER TRPs are unavailable")
+        message = "Skipping STATE 2 - HEATER TRPs are unavailable"
+        event_log.warning(message)
+        ui_runtime_controller.notify(message, color="warning")
     elif (mech_trp >> 4) <= 2196 or (mtr_trp >> 4) <= 2196 or (det_trp >> 4) <= 2196:  # Enable only at or below +40 C.
         response = checks.heater(False, True, False, True, False, label="dual heater enable")
         ui_runtime_controller.abortible_sleep(5)
@@ -384,6 +390,9 @@ def fft_stage_1(
 
     # region Mechanism Board & MOTOR PARAMS
     # 18-21. Mechanism board, and motor params
+    ui_runtime_controller.request_force_pause(
+                "Press resume to continue to mechanism testing",
+            )
     ui_runtime_controller.abortible_sleep(5)
     response = checks.power(0x01, label="mechanism board power on")
     errors = []
