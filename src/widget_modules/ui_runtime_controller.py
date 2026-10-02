@@ -4213,6 +4213,10 @@ def create_set_mode(*, app: Any, state: dict[str, Any]) -> Any:
     """Create a mode setter callback bound to current state and app."""
 
     def set_mode(mode: str) -> None:
+        if state.get("ob_replay") is not None and mode != "OB":
+            info_log.error("EB mode is unavailable during offline OB replay")
+            ui.notify("Offline replay supports OB logs only", type="negative")
+            return
         if mode not in ("EB", "OB"):
             return
         previous_mode = state.get("mode")

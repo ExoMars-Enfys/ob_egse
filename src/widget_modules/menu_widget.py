@@ -153,16 +153,54 @@ def create_menu(
 
         with ui.card().classes("absolute left-0 top-10 z-30 shadow-xl rounded-xl w-max max-w-none") as menu_card:
             with ui.column().classes("w-full gap-2 whitespace-nowrap"):
+                replay = state.get("ob_replay")
+                if replay is not None:
+                    menu_card.style("max-height: 80vh; overflow-y: auto;")
+                    ui.label("OFFLINE OB REPLAY - no hardware").classes("text-warning")
+                    replay_path = ui.input("OB run folder or CMD log", value=str(replay.source)).classes("w-full")
+                    ui.label().bind_text_from(replay, "progress").classes("egse-metric-label")
+                    ui.label().bind_text_from(replay, "last_error", backward=lambda value: value or "").classes(
+                        "text-negative"
+                    )
+
+                    async def load_replay() -> None:
+                        if ui_runtime_controller.is_script_running():
+                            ui.notify("Stop the running script before loading/restarting replay", type="warning")
+                            return
+                        cyclic = state.get("cyclic_hk")
+                        if cyclic is not None and cyclic.enabled:
+                            ui.notify("Disable cyclic HK before loading/restarting replay", type="warning")
+                            return
+
+                        def load() -> None:
+                            with state["port_lock"], state["psu_lock"]:
+                                replay.load(replay_path.value)
+
+                        try:
+                            await run.io_bound(load)
+                        except Exception as exc:
+                            state["logger"].exception("Could not load OB replay")
+                            ui.notify(str(exc), type="negative")
+                            return
+                        ui_runtime_controller.reset_ob_fdir_simulator(state)
+                        model_select.set_value(replay.model_name)
+                        config.set_expected_model_id(replay.model_name)
+                        state["model"] = replay.model_name
+                        ui.notify("Offline recording loaded; run the same script as the recorded run", type="positive")
+
+                    ui.button("Load / restart OB replay", on_click=load_replay).classes("w-full")
                 # --- SAFE TC handler ---
                 async def send_safe_tc():
                     await _send_safe_tc(state)
 
                 with ui.row().classes("items-center justify-start gap-2"):
                     ui.label("OB").classes("egse-metric-label")
-                    ui.switch(
+                    mode_switch = ui.switch(
                         value=(state["mode"] == "EB"),
                         on_change=lambda e: _call_set_mode(set_mode_fn, "EB" if e.value else "OB"),
                     )
+                    if replay is not None:
+                        mode_switch.disable()
                     ui.label("EB").classes("egse-metric-label")
 
                     def _current_theme() -> str:
@@ -258,12 +296,14 @@ def create_menu(
                     ).classes("egse-metric-label text-warning")
 
                 with ui.row().classes("items-center gap-2 w-full"):
-                    ui.select(
+                    model_select = ui.select(
                         model_labels,
                         value=state.get("model", model_labels[0]),
                         label="Select Model",
                         on_change=on_model_change,
                     ).classes("flex-1")
+                    if replay is not None:
+                        model_select.disable()
                     ui.select(
                         options=["MIN", "NOM", "MAX"],
                         value=state.get("voltage_mode", "NOM"),
@@ -702,6 +742,9 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
             return
 
     if _script_uses_ebtc(script[1]):
+        if state.get("ob_replay") is not None:
+            ui.notify("EB scripts cannot run in offline OB replay", type="negative")
+            return
         interface = eb_interface.get_egse_interface()
         connect_cmdtool = getattr(interface, "_connect_cmdtool_window", None)
         if not callable(connect_cmdtool) or connect_cmdtool(wait_for_window=0.5) is None:
@@ -730,6 +773,9 @@ async def _run_selected_script(state: dict[str, Any], script_key: str, buttons_r
             else:
                 _invoke_script_entry_point(script_runner, state)
 
+            replay = state.get("ob_replay")
+            if replay is not None and replay.last_error is not None:
+                raise RuntimeError(f"Offline replay could not verify the script: {replay.last_error}")
             if ui_runtime_controller.is_aborted():
                 state["logger"].warning(f"{key} script aborted")
             else:

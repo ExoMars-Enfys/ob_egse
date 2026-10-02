@@ -68,6 +68,17 @@ def load_psu_channel_samples(psu_log_path: str | Path) -> list[dict[str, Any]]:
             line_statuses: list[bool] = []
 
             parsed_any = False
+            values = match.group("body").split()
+            if len(values) == 6:
+                try:
+                    measurements = [float(value) for value in values]
+                except ValueError:
+                    measurements = []
+                if measurements:
+                    for index in range(3):
+                        channels[f"CH{index + 1}"]["V"] = measurements[index * 2]
+                        channels[f"CH{index + 1}"]["I"] = measurements[index * 2 + 1]
+                    parsed_any = True
             for token in token_regex.finditer(match.group("body")):
                 try:
                     ch = f"CH{token.group('ch')}"

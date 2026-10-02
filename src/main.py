@@ -21,6 +21,7 @@ from scripts_modules import sequences
 from utility_modules import comms as comms
 from utility_modules import egse_logger as egse_logger
 from utility_modules.ob_serial_worker import OBSerialWorker
+from utility_modules.ob_log_replay import OBLogReplay
 from utility_modules.port_selection import com_port_name, validate_com_port_selection
 from utility_modules import psu as psu
 from utility_modules import tc as tc
@@ -46,6 +47,10 @@ def init_arparse() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--script", action="store_true")
     parser.add_argument("--reload", action="store_true", help="Enable NiceGUI hot reload for development")
     parser.add_argument("-m", "--mode", type=str, default=const.DEFAULT_STARTUP_MODE, choices=["EB", "OB"])
+    parser.add_argument(
+        "--ob-replay", type=Path,
+        help="Run the OB GUI without hardware using an OB run folder or matching CMD log",
+    )
     return parser
 
 
@@ -123,12 +128,18 @@ def clean_exit(ob_port, psu_port, event_log, stop_event=None, psu_thread=None):
 def main(gui_runner: Callable[[bool], None] | None = None) -> None:
     parser = init_arparse()
     args = parser.parse_args()
-    startup_mode = args.mode
+    if args.ob_replay is not None and (args.script or args.nopsu):
+        parser.error("--ob-replay is a GUI mode with recorded PSU data; do not combine with -s or -np")
+    replay = OBLogReplay(args.ob_replay) if args.ob_replay is not None else None
+    if replay is not None and args.basedir.resolve() == replay.source.parent.resolve():
+        parser.error("Replay output logs must not be written into the source recording folder")
+    startup_mode = "OB" if replay is not None else args.mode
     startup_eb_mode = startup_mode == "EB"
     psu_mode_state = {"ebmode": startup_eb_mode, "voltage_mode": "NOM"}
     psu_com = com_port_name(args.psuport)
     rs485_com = com_port_name(args.com)
-    validate_com_port_selection(rs485_com, psu_com, nopsu=args.nopsu)
+    if replay is None:
+        validate_com_port_selection(rs485_com, psu_com, nopsu=args.nopsu)
 
     # Setup loggers
     const.LOG_PREFIX = str(args.prefix).strip("'")
@@ -136,8 +147,8 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
     (event_log, info_log, psu_log) = setup_logs()
 
     psu_lock = threading.Lock()
-    psu_port = None
-    if not args.nopsu:
+    psu_port = replay.psu_port if replay is not None else None
+    if replay is None and not args.nopsu:
         info_log.info("Initialising PSU Comms on Port " + psu_com)
         try:
             psu_port = psu.init_psu_comms(psu_com)
@@ -158,22 +169,27 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
 
     # 2. Instantiate the thread object so it exists as a valid local variable
     psu_thread = threading.Thread(
-        target=psu.psu_monitor_thread,
-        args=(psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock),
+        target=replay.monitor_psu if replay is not None else psu.psu_monitor_thread,
+        args=(stop_event,) if replay is not None else (
+            psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock
+        ),
         daemon=True,
     )
 
     hk_thread = None
 
     # 3. Configure your RS-485 serial communication links
-    ob_port = None
-    info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
-    try:
-        ob_port = comms.initialise_comms(rs485_com)
-        ob_port = comms.open_comms(ob_port)
-    except Exception as exc:
-        info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
-        ob_port = None
+    ob_port = replay.ob_port if replay is not None else None
+    if replay is None:
+        info_log.info("Initialising RS-485 Comms on Port " + rs485_com)
+        try:
+            ob_port = comms.initialise_comms(rs485_com)
+            ob_port = comms.open_comms(ob_port)
+        except Exception as exc:
+            info_log.warning("RS-485 unavailable on %s; starting GUI without OB comms (%s)", rs485_com, exc)
+            ob_port = None
+    else:
+        info_log.warning("OFFLINE OB REPLAY: hardware ports will not be opened")
 
     # One lock protects transactions initiated both by the serial worker and
     # by legacy script paths which still receive the raw OB port.
@@ -190,8 +206,10 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
     time.sleep(1)  # Adding a 1 second delay before starting monitoring thread for compensation of OVP
     # TODO Update monitoring thread to start very early
     psu_thread = threading.Thread(
-        target=psu.psu_monitor_thread,
-        args=(psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock),
+        target=replay.monitor_psu if replay is not None else psu.psu_monitor_thread,
+        args=(stop_event,) if replay is not None else (
+            psu_port, startup_eb_mode, stop_event, config.PSU_LOGGING_FREQ, hk_pause_event, psu_mode_state, psu_lock
+        ),
         daemon=True,
     )
 
@@ -232,7 +250,7 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
 
     else:
         info_log.info("Running GUI")
-        config.set_expected_model_id(None)
+        config.set_expected_model_id(replay.model_name if replay is not None else None)
         if args.reload:
             info_log.warning(
                 "Hot reload is enabled; browser reconnects may trigger normal client disconnects. Disable --reload for stable operation."
@@ -249,6 +267,7 @@ def main(gui_runner: Callable[[bool], None] | None = None) -> None:
             port_lock=port_lock,
             stop_event=stop_event,
             psu_mode_state=psu_mode_state,
+            ob_replay=replay,
         )
         if gui_runner is not None:
             gui_runner(args.reload)

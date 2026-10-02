@@ -55,6 +55,7 @@ def build_ui(
     port_lock: Any = None,
     stop_event: Any = None,
     psu_mode_state: Any = None,
+    ob_replay: Any = None,
 ) -> None:
     normalized_mode = str(default_mode).upper()
     if normalized_mode not in {"OB", "EB"}:
@@ -135,7 +136,10 @@ def build_ui(
         "psu_mode_state": psu_mode_state,
         "port_lock": port_lock,
         "stop_event": stop_event,
+        "ob_replay": ob_replay,
     }
+    if ob_replay is not None:
+        state["model"] = ob_replay.model_name
 
     cyclic_hk = None
     if ob_worker is not None:
@@ -288,6 +292,8 @@ def build_ui(
             ):
                 with ui.row().classes("w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-3"):
+                        if ob_replay is not None:
+                            ui.label("OFFLINE OB REPLAY").classes("text-warning font-bold")
                         menu_controller = menu_widget.create_menu(
                             state,
                             set_mode_fn=set_mode,
