@@ -26,12 +26,15 @@ MODEL_BITMAPS = {
     "FS": "110",
     "CMOD EGSE": "111",
 }
-DEFAULT_COM_PORT = 4
+DEFAULT_COM_PORT = 5
 DEFAULT_CMD_SPEED = "Fast"  # "Steady" or "Fast"
 EXP_MODEL_ID = 7
 
+# Show the EB-only mask switch and live MMS fault-injection script in the GUI.
+SHOW_MMS_TEST_TOOLS = False
+
 # PSU Config
-PSU_COM_PORT = 8
+PSU_COM_PORT = 13
 PSU_LOGGING_FREQ = 10  # in HZ
 
 # TEC current configuration used by FFT and power-state verification.
