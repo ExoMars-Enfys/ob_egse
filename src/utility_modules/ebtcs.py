@@ -1,5 +1,6 @@
 # Std library
 import logging
+import threading
 import time
 
 # Added packages
@@ -22,9 +23,7 @@ Any broader flow validation should happen at script/runtime-controller level.
 _TC_DEFS = dict(cmd_ids.enfys_tc_defs)
 
 
-_SEND_SHOULD_PAUSE = None
-_SEND_SHOULD_ABORT = None
-_SEND_POLL_S = 0.0
+_SEND_FLOW_CONTROL = threading.local()
 _POLL_T = 0.0
 
 _OPERATING_STATE_BY_TC = {
@@ -97,28 +96,31 @@ def send_tc(interface, cmd_line: str, cmd_type="EBTC", t=_POLL_T):
 
 
 def configure_send_flow_control(*, should_pause=None, should_abort=None, poll_s: float = 0.5):
-    """Configure optional external flow-control hooks for script execution."""
-    global _SEND_SHOULD_PAUSE, _SEND_SHOULD_ABORT, _SEND_POLL_S
-    _SEND_SHOULD_PAUSE = should_pause if callable(should_pause) else None
-    _SEND_SHOULD_ABORT = should_abort if callable(should_abort) else None
-    _SEND_POLL_S = max(float(poll_s), 0.0)
+    """Configure pause/abort hooks only for commands sent by the calling thread."""
+    _SEND_FLOW_CONTROL.should_pause = should_pause if callable(should_pause) else None
+    _SEND_FLOW_CONTROL.should_abort = should_abort if callable(should_abort) else None
+    _SEND_FLOW_CONTROL.poll_s = max(float(poll_s), 0.0)
 
 
 def clear_send_flow_control():
-    """Disable external flow-control hooks."""
+    """Disable flow-control hooks for the calling thread."""
     configure_send_flow_control(should_pause=None, should_abort=None)
 
 
 def _gate_send():
     """Block or reject sends based on configured pause/abort hooks."""
+    should_pause = getattr(_SEND_FLOW_CONTROL, "should_pause", None)
+    should_abort = getattr(_SEND_FLOW_CONTROL, "should_abort", None)
+    poll_s = getattr(_SEND_FLOW_CONTROL, "poll_s", 0.0)
     try:
-        while _SEND_SHOULD_PAUSE is not None and bool(_SEND_SHOULD_PAUSE()):
-            if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
+        while should_pause is not None and bool(should_pause()):
+            if should_abort is not None and bool(should_abort()):
                 return "ERROR"
-            time.sleep(max(_SEND_POLL_S, 0.01))
-        if _SEND_SHOULD_ABORT is not None and bool(_SEND_SHOULD_ABORT()):
+            time.sleep(max(poll_s, 0.01))
+        if should_abort is not None and bool(should_abort()):
             return "ERROR"
     except Exception:
+        info_log.exception("EB TC flow-control hook failed")
         return "ERROR"
     return None
 
@@ -275,7 +277,9 @@ def _verify_tc_applied(name, after_hk, args):
 def _send_named_tc(interface, tc_name, *args):
     before_hk, before_index = _read_latest_hk_and_index()
     cmd_line = _build_ebtc_line(tc_name, *args)
-    send_tc(interface, cmd_line, cmd_type=tc_name)
+    status = send_tc(interface, cmd_line, cmd_type=tc_name)
+    if status == "ERROR":
+        return "ERROR"
     # if status == "ERROR":
     #     return "ERROR"
 
@@ -330,9 +334,10 @@ def generic_tc(interface, target, cmd, *params):
 
 def safe(interface, source):
     result = _send_named_tc(interface, "SAFE", source)
+    if result == "ERROR":
+        return result
     # Always send RET after SAFE to complete state transition
-    _send_named_tc(interface, "RET", 0, 0, 0, 0, 0, 0)
-    return result
+    return _send_named_tc(interface, "RET", 0, 0, 0, 0, 0, 0)
 
 
 def standby(interface, source, submode):

@@ -330,7 +330,8 @@ def create_psu_channel_card(
         try:
             await run.io_bound(apply_toggle)
             if should_send_ret_tc_for_eb_enable(mode, enabled, physical_channel):
-                emit_eb_ret_tc_for_psu_toggle(
+                await run.io_bound(
+                    emit_eb_ret_tc_for_psu_toggle,
                     state,
                     enabled=enabled,
                     physical_channel=physical_channel,

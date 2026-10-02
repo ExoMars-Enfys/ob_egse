@@ -91,7 +91,7 @@ The EGSE software tools can now be ran by running through the following:
 1. Run the EGSE software by executing the terminal command in a new terminal in VSCode
 
 ```python=
-uv run .\src\main.py
+uv run enfys.py
 ```
 
 <span style="color: #cc532e;">Decorator Options:</span>
@@ -99,16 +99,16 @@ uv run .\src\main.py
 **No Programmable PSU available to run `-np`**
 
 ```python=
-uv run .\src\main.py -np
+uv run enfys.py -np
 ```
 
 **Script mode `-s`**
 
 ```python=
-uv run .\src\main.py -s
+uv run enfys.py -s
 ```
 
-**Debugging mode that allows gui reload automatically at code save `-reload`**
+**Debugging mode that allows gui reload automatically at code save `-reload`. The hot reload method only works in webview mode**
 
 ```python=
 uv run .\src\main.py -reload
@@ -126,6 +126,11 @@ Extra steps for EB mode:
    Navigate to the directory <span style="color: #2ECC71;">C:\wdir\EB\EB_EGSE\RS422</span> and locate the latest RS422.Log file
 
 5. Select appropriate script and press play
+
+Script Pause and voltage-check pause prompts hold only TCs sent by the running
+script. Manual commands (including Send SAFE TC), PSU controls and shutdown remain
+available while the script is paused. Sending a manual command does not resume
+the script; use Resume to continue or Abort to stop it.
 
 ## Shutting down the EGSE tools
 
