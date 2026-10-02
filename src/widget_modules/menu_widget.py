@@ -119,6 +119,23 @@ def _invoke_script_entry_point(script_runner: Any, state: dict[str, Any]) -> Non
     script_runner()
 
 
+async def _send_safe_tc(state: dict[str, Any]) -> None:
+    def send() -> Any:
+        interface = eb_interface.get_egse_interface()
+        return ebtcs.safe(interface, 0)
+
+    try:
+        result = await run.io_bound(send)
+    except Exception:
+        state["logger"].exception("Failed to send SAFE TC")
+        ui.notify("Failed to send SAFE TC", type="negative")
+        return
+    if result == "ERROR":
+        ui.notify("Failed to send SAFE TC", type="negative")
+        return
+    ui.notify("SAFE TC sent", type="positive")
+
+
 def create_menu(
     state: dict[str, Any],
     *,
@@ -135,10 +152,8 @@ def create_menu(
         with ui.card().classes("absolute left-0 top-10 z-30 shadow-xl rounded-xl w-max max-w-none") as menu_card:
             with ui.column().classes("w-full gap-2 whitespace-nowrap"):
                 # --- SAFE TC handler ---
-                def send_safe_tc():
-                    interface = eb_interface.get_egse_interface()
-                    ebtcs.safe(interface, 0)
-                    ui.notify("SAFE TC sent", type="positive")
+                async def send_safe_tc():
+                    await _send_safe_tc(state)
 
                 with ui.row().classes("items-center justify-start gap-2"):
                     ui.label("OB").classes("egse-metric-label")

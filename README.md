@@ -127,6 +127,11 @@ Extra steps for EB mode:
 
 5. Select appropriate script and press play
 
+Script Pause and voltage-check pause prompts hold only TCs sent by the running
+script. Manual commands (including Send SAFE TC), PSU controls and shutdown remain
+available while the script is paused. Sending a manual command does not resume
+the script; use Resume to continue or Abort to stop it.
+
 ## Shutting down the EGSE tools
 
 The Tools are best shut using the appropriate procedure to ensure all logs are safely closed as well as all monitoring threads and PSU channels are turned off
