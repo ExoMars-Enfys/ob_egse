@@ -162,8 +162,15 @@ def request_hk(port: Any, checkpoint: str, *, port_lock: Any = None, transaction
     return response
 
 
-def request_science(port: Any, checkpoint: str, *, port_lock: Any = None, transaction_runner: Any = None) -> Any:
-    """Request and validate that a science response was received."""
+def request_science(
+    port: Any,
+    checkpoint: str,
+    *,
+    port_lock: Any = None,
+    transaction_runner: Any = None,
+    check_temperatures: bool = True,
+) -> Any:
+    """Request and validate SCI telemetry, optionally deferring temperature limits."""
     gate_script_control()
     if transaction_runner is not None:
         response = transaction_runner(repeat, tc.sci_request, 4, 20)
@@ -171,7 +178,7 @@ def request_science(port: Any, checkpoint: str, *, port_lock: Any = None, transa
         lock_ctx = port_lock if port_lock is not None else nullcontext()
         with lock_ctx:
             response = repeat(port, tc.sci_request, 4, 20)
-    return check_science(response, label=checkpoint)
+    return check_science(response, label=checkpoint, check_temperatures=check_temperatures)
 
 
 def _read_psu_snapshot_from_queue() -> dict[str, tuple[float, float]]:
@@ -311,8 +318,8 @@ def check_hk(
     return response
 
 
-def check_science(response: Any, *, label: str = "SCI") -> Any:
-    """Validate every field and configured value in a complete SCI packet."""
+def check_science(response: Any, *, label: str = "SCI", check_temperatures: bool = True) -> Any:
+    """Validate a complete SCI packet, optionally deferring temperature limits."""
     if response in (None, "ERROR"):
         raise RuntimeError(f"No valid science response received during {label}")
     missing = [name for name in limits.SCI_REQUIRED_FIELDS if not hasattr(response, name)]
@@ -321,10 +328,11 @@ def check_science(response: Any, *, label: str = "SCI") -> Any:
         errors.append(f"ERROR_BYTE={response.ERROR_BYTE}")
     if getattr(response, "CMD_ID", None) != 0x0F:
         errors.append(f"CMD_ID={getattr(response, 'CMD_ID', None)}, expected 15")
-    for field, (minimum, maximum) in limits.DARK_SCIENCE_TEMPERATURE_LIMITS.items():
-        value = getattr(response, field, None)
-        if value is not None:
-            _check_science_temperature(field, value, minimum, maximum, errors)
+    if check_temperatures:
+        for field, (minimum, maximum) in limits.DARK_SCIENCE_TEMPERATURE_LIMITS.items():
+            value = getattr(response, field, None)
+            if value is not None:
+                _check_science_temperature(field, value, minimum, maximum, errors)
     for field, (minimum, maximum) in limits.DARK_SCIENCE_LIMITS.items():
         value = getattr(response, field, None)
         if value is not None and not minimum <= value <= maximum:

@@ -130,6 +130,7 @@ def find_dac_offset(
             f"{sensor_name} DAC offset {test_value}",
             port_lock=port_lock,
             transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
+            check_temperatures=False,
         )
 
         if sensor_name == "MWIR":
@@ -390,7 +391,13 @@ def verify_dac_offset(
 ) -> Any:
     """Verify the applied calibration offsets in both SCI and HK telemetry."""
     runner = (lambda func, *args: worker.call(func, *args)) if worker is not None else None
-    sci = bg.request_science(port, "SCI DAC offset verification", port_lock=port_lock, transaction_runner=runner)
+    sci = bg.request_science(
+        port,
+        "SCI DAC offset verification",
+        port_lock=port_lock,
+        transaction_runner=runner,
+        check_temperatures=True,
+    )
     hk_tm = bg.request_hk(port, "SCI DAC offset HK verification", port_lock=port_lock, transaction_runner=runner)
     errors: list[str] = []
     for source, response in (("SCI", sci), ("HK", hk_tm)):

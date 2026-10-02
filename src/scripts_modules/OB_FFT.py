@@ -15,7 +15,6 @@ from utility_modules.background_checks import (
     check_mechanism_idle,
     check_motor_hold_current,
     check_motor_stopped,
-    check_science,
     check_science_offsets,
     check_thermal_response,
     log_psu_snapshot,
@@ -562,11 +561,7 @@ def fft_stage_1(
         "initial dark science measurement",
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
-    )
-    _run_checked(
-        "initial dark science measurement",
-        lambda response: check_science(response, label="initial dark science measurement"),
-        dark_science,
+        check_temperatures=False,
     )
     log_science_measurement(dark_science, "Initial dark science measurement; record this reading")
     _run_ob_transaction(worker, port_lock, repeat, port, tc.sci_offset, 4095, 4095)
@@ -577,11 +572,7 @@ def fft_stage_1(
         "science offset 4095 verification",
         port_lock=port_lock,
         transaction_runner=(lambda func, *args: worker.call(func, *args)) if worker is not None else None,
-    )
-    _run_checked(
-        "science offset 4095 verification",
-        lambda response: check_science(response, label="science offset 4095 verification"),
-        offset_science,
+        check_temperatures=False,
     )
     errors = []
     check_science_offsets(offset_science, 4095, 4095, errors)

@@ -137,6 +137,12 @@ def test_science_check_rejects_invalid_temperature():
         check_science(_science(SWIR_TEMP=0), label="test science")
 
 
+def test_science_check_can_defer_temperature_limits():
+    response = _science(SWIR_TEMP=0, HT_SINK_TEMP=0)
+
+    assert check_science(response, label="test science", check_temperatures=False) is response
+
+
 def test_science_check_requires_every_tmstruct_field():
     response = _science()
 
@@ -727,11 +733,36 @@ def test_verify_sci_readings_routes_failures_through_popup_callbacks(monkeypatch
 def test_verify_dac_offset_checks_science_and_hk_echoes(monkeypatch):
     sci = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=1920)
     hk = SimpleNamespace(SWIR_OFFSET=2020, MWIR_OFFSET=2421)
-    monkeypatch.setattr(sci_acq.bg, "request_science", lambda *_args, **_kwargs: sci)
+    science_requests = []
+    monkeypatch.setattr(
+        sci_acq.bg,
+        "request_science",
+        lambda *_args, **kwargs: science_requests.append(kwargs) or sci,
+    )
     monkeypatch.setattr(sci_acq.bg, "request_hk", lambda *_args, **_kwargs: hk)
 
     with pytest.raises(AssertionError, match="HK MWIR_OFFSET=2421"):
         sci_acq.verify_dac_offset("port", expected_swir_offset=2020, expected_mwir_offset=1920)
+    assert science_requests[0]["check_temperatures"] is True
+
+
+def test_find_dac_offset_defers_temperature_limits_during_binary_chop(monkeypatch):
+    temperature_checks = []
+    monkeypatch.setattr(sci_acq.bg, "request_hk", lambda *_args, **_kwargs: SimpleNamespace(PWR_STAT=2))
+    monkeypatch.setattr(sci_acq, "_run_transaction", lambda *_args: None)
+    monkeypatch.setattr(
+        sci_acq.bg,
+        "request_science",
+        lambda *_args, **kwargs: (
+            temperature_checks.append(kwargs["check_temperatures"])
+            or SimpleNamespace(SWIR_OFFSET=1, SWIR_HIGH=6000)
+        ),
+    )
+
+    sci_acq.find_dac_offset("port", "SWIR", 5250, 1)
+
+    assert len(temperature_checks) == 12
+    assert temperature_checks == [False] * 12
 
 
 def test_choose_dac_offsets_reapplies_and_verifies_selected_pair(monkeypatch):
