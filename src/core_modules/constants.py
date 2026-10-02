@@ -210,3 +210,17 @@ MODEL_CONSUMPTION = {
 # OB_GENERAL_ERROR is a sticky bit that may linger after the OB error has already cleared.
 # Set to False to allow OB_GENERAL_ERROR to trigger MMS actions.
 MMS_MASK_OB_GENERAL_ERROR: bool = False
+
+# When True, all OB voltage/temperature limit checks (OB FPGA rails and OB thermistors)
+# are excluded from MMS trigger conditions. Intended for EB-only runs without an OB
+# attached, where every OB channel reads out of limits.
+MMS_MASK_OB_LIMIT_CHECKS: bool = False
+
+# When True, OB_UNRESPONSIVE in the EB ERROR_FLAGS is excluded from MMS trigger
+# conditions. Intended for EB-only runs where the EB flags the missing OB.
+MMS_MASK_OB_UNRESPONSIVE: bool = False
+
+# When True, RS485_RECEIVE_ERROR and RS485_TRANSMIT_ERROR in the EB ERROR_FLAGS
+# are excluded from MMS trigger conditions. RS485 is the EB<->OB interface, so
+# these bits can assert when running without an OB attached.
+MMS_MASK_RS485_ERRORS: bool = False

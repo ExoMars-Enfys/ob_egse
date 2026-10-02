@@ -111,8 +111,8 @@ def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]
     skip_ob_checks = (not ob_5v_enabled) or (current_state == 0x02)
 
     for label, field_name, limit_key, tec_field in _MMS_FIELDS:
-        if label.startswith("OB ") and skip_ob_checks:
-            continue  # Skip OB parameter checks if OB is off or in SAFE
+        if label.startswith("OB ") and (skip_ob_checks or const.MMS_MASK_OB_LIMIT_CHECKS):
+            continue  # Skip OB parameter checks if OB is off, in SAFE, or explicitly masked
         violated = append_violation(reasons, label, decoded(hk, field_name), limit_tuple(limits.get(limit_key)))
         tec_pre_action = tec_pre_action or (tec_field and violated)
         ob5v_pre_action = ob5v_pre_action or (label.startswith("OB ") and violated)
@@ -125,6 +125,10 @@ def mms_reasons(hk: Any, limits: dict[str, Any]) -> tuple[list[str], bool, bool]
         eb_flags = sorted(k for k, v in vars(ns).items() if v == 1 and k != "RESERVED") if ns is not None else []
         if const.MMS_MASK_OB_GENERAL_ERROR:
             eb_flags = [f for f in eb_flags if f != "OB_GENERAL_ERROR"]
+        if const.MMS_MASK_OB_UNRESPONSIVE:
+            eb_flags = [f for f in eb_flags if f != "OB_UNRESPONSIVE"]
+        if const.MMS_MASK_RS485_ERRORS:
+            eb_flags = [f for f in eb_flags if f not in {"RS485_RECEIVE_ERROR", "RS485_TRANSMIT_ERROR"}]
         if eb_flags:
             reasons.append(f"HK Error Flags asserted: {', '.join(eb_flags)}")
         elif ns is None:
